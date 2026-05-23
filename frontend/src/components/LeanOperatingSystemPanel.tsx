@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { fetchLeanTemplates } from "../api/client";
+import { createLeanRecord, fetchLeanRecords, fetchLeanTemplates } from "../api/client";
 import EncompaxMark from "./EncompaxMark";
 
 type TemplateCategory =
@@ -30,6 +30,14 @@ type ProgramProfile = {
   programName: string;
   logoText: string;
   operatingScope: string;
+};
+
+type LeanRecord = {
+  recordId: string;
+  organization: string;
+  templateId: string;
+  status: string;
+  createdAt: string;
 };
 
 const templates: LeanTemplate[] = [
@@ -278,6 +286,9 @@ const LeanOperatingSystemPanel: React.FC = () => {
   const [selectedTemplateId, setSelectedTemplateId] = useState(templates[0].id);
   const [programProfile, setProgramProfile] = useState<ProgramProfile>(defaultProgramProfile);
   const [persistedTemplates, setPersistedTemplates] = useState<LeanTemplate[]>([]);
+  const [selectedEvidence, setSelectedEvidence] = useState<string[]>([]);
+  const [leanRecords, setLeanRecords] = useState<LeanRecord[]>([]);
+  const [recordStatus, setRecordStatus] = useState<string | null>(null);
 
   useEffect(() => {
     let mounted = true;
@@ -297,6 +308,27 @@ const LeanOperatingSystemPanel: React.FC = () => {
       })
       .catch(() => {
         if (mounted) setPersistedTemplates([]);
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    setSelectedEvidence([]);
+  }, [selectedTemplateId]);
+
+  useEffect(() => {
+    let mounted = true;
+
+    fetchLeanRecords()
+      .then((payload) => {
+        if (!mounted) return;
+        setLeanRecords(Array.isArray(payload.records) ? payload.records : []);
+      })
+      .catch(() => {
+        if (mounted) setLeanRecords([]);
       });
 
     return () => {
@@ -333,6 +365,35 @@ const LeanOperatingSystemPanel: React.FC = () => {
 
   const updateProgramProfile = (key: keyof ProgramProfile, value: string) => {
     setProgramProfile((current) => ({ ...current, [key]: value }));
+  };
+
+  const toggleEvidence = (item: string) => {
+    setSelectedEvidence((current) =>
+      current.includes(item) ? current.filter((entry) => entry !== item) : [...current, item]
+    );
+  };
+
+  const handleSubmitLeanRecord = async () => {
+    try {
+      setRecordStatus("Submitting LEAN record...");
+      const result = await createLeanRecord({
+        organization: programProfile.companyName,
+        program: programProfile.programName,
+        templateId: selectedTemplate.id,
+        templateTitle: selectedTemplate.title,
+        status: "READY_FOR_REVIEW",
+        owner: selectedTemplate.owner,
+        evidence: selectedEvidence,
+        outputs: selectedTemplate.outputs,
+        governanceRoute: governancePacket.route,
+        governanceTrigger: selectedTemplate.governanceTrigger,
+      });
+
+      setLeanRecords((current) => [result.record, ...current]);
+      setRecordStatus("LEAN record stored for Encompax visibility.");
+    } catch (err) {
+      setRecordStatus(err instanceof Error ? err.message : "LEAN record submission failed");
+    }
   };
 
   return (
@@ -504,7 +565,11 @@ const LeanOperatingSystemPanel: React.FC = () => {
             <div className="lean-evidence-list">
               {selectedTemplate.evidence.map((item) => (
                 <label key={item}>
-                  <input type="checkbox" />
+                  <input
+                    type="checkbox"
+                    checked={selectedEvidence.includes(item)}
+                    onChange={() => toggleEvidence(item)}
+                  />
                   <span>{item}</span>
                 </label>
               ))}
@@ -552,6 +617,13 @@ const LeanOperatingSystemPanel: React.FC = () => {
             When this becomes persisted, this packet is the clean handoff into Encompax:
             organization-scoped template, evidence checklist, operating output, and governance trigger.
           </p>
+          <div className="lean-packet-actions">
+            <button className="btn btn-primary" type="button" onClick={handleSubmitLeanRecord}>
+              Store LEAN Record
+            </button>
+            <span>{leanRecords.length} stored record(s)</span>
+          </div>
+          {recordStatus && <p className="ops-note">{recordStatus}</p>}
         </div>
       </section>
     </div>

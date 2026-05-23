@@ -1,5 +1,9 @@
 import React, { useEffect, useMemo, useState } from "react";
 import {
+  createLoadBoardBid,
+  createLoadBoardPosting,
+  createTransportationLoad,
+  decideLoadBoardBid,
   fetchCarrierQuotes,
   fetchLoadBoardBids,
   fetchLoadBoardPostings,
@@ -116,6 +120,43 @@ const money = (value?: number) =>
 
 const shortLoadId = (loadId: string) => loadId.replace("load-", "");
 
+async function loadTransportationData() {
+  const [
+    overviewResult,
+    loadsResult,
+    shipmentsResult,
+    carriersResult,
+    lanesResult,
+    postingsResult,
+    bidsResult,
+    marketRatesResult,
+    signalsResult,
+  ] = await Promise.all([
+    fetchTransportationOverview(),
+    fetchTransportationLoads(),
+    fetchTransportationShipments(),
+    fetchTransportationCarriers(),
+    fetchTransportationLanes(),
+    fetchLoadBoardPostings(),
+    fetchLoadBoardBids(),
+    fetchMarketRates(),
+    fetchSilGovernanceSignals(),
+  ]);
+
+  void shipmentsResult;
+  void carriersResult;
+  void marketRatesResult;
+
+  return {
+    overview: overviewResult,
+    loads: loadsResult.loads ?? [],
+    postings: postingsResult.postings ?? [],
+    bids: bidsResult.bids ?? [],
+    lanes: lanesResult.lanes ?? [],
+    signals: signalsResult.governanceSignals ?? [],
+  };
+}
+
 const TransportationCommandPanel: React.FC = () => {
   const [overview, setOverview] = useState<Overview | null>(null);
   const [loads, setLoads] = useState<Load[]>([]);
@@ -131,6 +172,37 @@ const TransportationCommandPanel: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [actionStatus, setActionStatus] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadForm, setLoadForm] = useState({
+    customerId: "gopuff",
+    customerName: "Gopuff",
+    originCity: "Philadelphia",
+    originState: "PA",
+    destinationCity: "Atlanta",
+    destinationState: "GA",
+    targetSellRate: "2950",
+    targetBuyRate: "2450",
+  });
+  const [postingRate, setPostingRate] = useState("2450");
+  const [bidForm, setBidForm] = useState({
+    carrierId: "carrier-riverbend",
+    bidRate: "2650",
+  });
+
+  const refreshTransportationData = async (preferredLoadId?: string) => {
+    const results = await loadTransportationData();
+    const nextSelectedLoadId =
+      preferredLoadId ??
+      (selectedLoadId && results.loads.some((load: Load) => load.loadId === selectedLoadId) ? selectedLoadId : null) ??
+      ((results.loads[0]?.loadId as string | undefined) ?? null);
+
+    setOverview(results.overview);
+    setLoads(results.loads);
+    setPostings(results.postings);
+    setBids(results.bids);
+    setLanes(results.lanes);
+    setSignals(results.signals);
+    setSelectedLoadId(nextSelectedLoadId);
+  };
 
   useEffect(() => {
     let alive = true;
@@ -138,43 +210,17 @@ const TransportationCommandPanel: React.FC = () => {
     async function loadData() {
       try {
         setLoading(true);
-        const [
-          overviewResult,
-          loadsResult,
-          shipmentsResult,
-          carriersResult,
-          lanesResult,
-          postingsResult,
-          bidsResult,
-          marketRatesResult,
-          signalsResult,
-        ] = await Promise.all([
-          fetchTransportationOverview(),
-          fetchTransportationLoads(),
-          fetchTransportationShipments(),
-          fetchTransportationCarriers(),
-          fetchTransportationLanes(),
-          fetchLoadBoardPostings(),
-          fetchLoadBoardBids(),
-          fetchMarketRates(),
-          fetchSilGovernanceSignals(),
-        ]);
+        const results = await loadTransportationData();
 
         if (!alive) return;
 
-        setOverview(overviewResult);
-        setLoads(loadsResult.loads ?? []);
-        setPostings(postingsResult.postings ?? []);
-        setBids(bidsResult.bids ?? []);
-        setLanes(lanesResult.lanes ?? []);
-        setSignals(signalsResult.governanceSignals ?? []);
-        setSelectedLoadId((loadsResult.loads?.[0]?.loadId as string | undefined) ?? null);
-
-        // These endpoints are intentionally loaded now so the panel proves the
-        // broader SIL API is healthy, even before every section has a table.
-        void shipmentsResult;
-        void carriersResult;
-        void marketRatesResult;
+        setOverview(results.overview);
+        setLoads(results.loads);
+        setPostings(results.postings);
+        setBids(results.bids);
+        setLanes(results.lanes);
+        setSignals(results.signals);
+        setSelectedLoadId((results.loads[0]?.loadId as string | undefined) ?? null);
       } catch (err) {
         if (!alive) return;
         setError(err instanceof Error ? err.message : "Failed to load transportation command data");
@@ -262,6 +308,80 @@ const TransportationCommandPanel: React.FC = () => {
     }
   }
 
+  async function handleCreateLoad(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    try {
+      setActionStatus("Creating planned load...");
+      const payload = {
+        customerId: loadForm.customerId,
+        customerName: loadForm.customerName,
+        origin: { city: loadForm.originCity, state: loadForm.originState },
+        destination: { city: loadForm.destinationCity, state: loadForm.destinationState },
+        mode: "FTL",
+        equipmentType: "DRY_VAN",
+        targetSellRate: Number(loadForm.targetSellRate),
+        targetBuyRate: Number(loadForm.targetBuyRate),
+      };
+      const result = await createTransportationLoad(payload);
+      await refreshTransportationData(result.load.loadId);
+      setActionStatus("Load created and ready for posting.");
+    } catch (err) {
+      setActionStatus(err instanceof Error ? err.message : "Load creation failed");
+    }
+  }
+
+  async function handleCreatePosting(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!selectedLoad) return;
+
+    try {
+      setActionStatus("Posting selected load to board...");
+      await createLoadBoardPosting({
+        loadId: selectedLoad.loadId,
+        board: "SIL_LOAD_BOARD",
+        postedRate: Number(postingRate),
+      });
+      await refreshTransportationData(selectedLoad.loadId);
+      setActionStatus("Load posted to the SIL load board.");
+    } catch (err) {
+      setActionStatus(err instanceof Error ? err.message : "Load posting failed");
+    }
+  }
+
+  async function handleCreateBid(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!selectedLoad) return;
+
+    try {
+      setActionStatus("Recording carrier bid...");
+      await createLoadBoardBid({
+        loadId: selectedLoad.loadId,
+        carrierId: bidForm.carrierId,
+        bidRate: Number(bidForm.bidRate),
+      });
+      await refreshTransportationData(selectedLoad.loadId);
+      setActionStatus("Carrier bid scored and stored.");
+    } catch (err) {
+      setActionStatus(err instanceof Error ? err.message : "Bid creation failed");
+    }
+  }
+
+  async function handleBidDecision(bidId: string, decision: "SHORTLISTED" | "AWARDED" | "REJECTED") {
+    try {
+      setActionStatus(`${decision.replaceAll("_", " ")} carrier bid...`);
+      await decideLoadBoardBid(bidId, {
+        decision,
+        actor: "operator",
+        evidence: ["operator decision from Transportation Command"],
+      });
+      await refreshTransportationData(selectedLoad?.loadId);
+      setActionStatus(`Bid marked ${decision.toLowerCase().replaceAll("_", " ")}.`);
+    } catch (err) {
+      setActionStatus(err instanceof Error ? err.message : "Bid decision failed");
+    }
+  }
+
   if (loading) {
     return <div className="empty-state">Loading transportation command...</div>;
   }
@@ -335,6 +455,48 @@ const TransportationCommandPanel: React.FC = () => {
             </div>
             <span>{loads.length} loads</span>
           </div>
+          <form className="transport-action-form" onSubmit={handleCreateLoad}>
+            <div className="transport-panel-header compact">
+              <div>
+                <p className="transport-eyebrow">Plan Load</p>
+                <h4>Quick Intake</h4>
+              </div>
+              <button className="btn btn-primary btn-sm" type="submit">Create</button>
+            </div>
+            <div className="transport-form-grid">
+              <label>
+                Customer
+                <input
+                  value={loadForm.customerName}
+                  onChange={(event) => setLoadForm((current) => ({ ...current, customerName: event.target.value }))}
+                />
+              </label>
+              <label>
+                Origin
+                <input
+                  value={loadForm.originState}
+                  onChange={(event) => setLoadForm((current) => ({ ...current, originState: event.target.value.toUpperCase() }))}
+                />
+              </label>
+              <label>
+                Destination
+                <input
+                  value={loadForm.destinationState}
+                  onChange={(event) =>
+                    setLoadForm((current) => ({ ...current, destinationState: event.target.value.toUpperCase() }))
+                  }
+                />
+              </label>
+              <label>
+                Sell
+                <input
+                  value={loadForm.targetSellRate}
+                  inputMode="numeric"
+                  onChange={(event) => setLoadForm((current) => ({ ...current, targetSellRate: event.target.value }))}
+                />
+              </label>
+            </div>
+          </form>
           <div className="transport-load-list">
             {loads.map((load) => (
               <button
@@ -391,6 +553,42 @@ const TransportationCommandPanel: React.FC = () => {
                 </div>
               </div>
 
+              <div className="transport-inline-actions">
+                <form className="transport-inline-form" onSubmit={handleCreatePosting}>
+                  <label>
+                    Board rate
+                    <input
+                      value={postingRate}
+                      inputMode="numeric"
+                      onChange={(event) => setPostingRate(event.target.value)}
+                    />
+                  </label>
+                  <button className="btn btn-primary btn-sm" type="submit">
+                    Post Load
+                  </button>
+                </form>
+                <form className="transport-inline-form" onSubmit={handleCreateBid}>
+                  <label>
+                    Carrier
+                    <input
+                      value={bidForm.carrierId}
+                      onChange={(event) => setBidForm((current) => ({ ...current, carrierId: event.target.value }))}
+                    />
+                  </label>
+                  <label>
+                    Bid
+                    <input
+                      value={bidForm.bidRate}
+                      inputMode="numeric"
+                      onChange={(event) => setBidForm((current) => ({ ...current, bidRate: event.target.value }))}
+                    />
+                  </label>
+                  <button className="btn btn-secondary btn-sm" type="submit">
+                    Score Bid
+                  </button>
+                </form>
+              </div>
+
               <div className="transport-table-wrap">
                 <table className="transport-table">
                   <thead>
@@ -400,6 +598,7 @@ const TransportationCommandPanel: React.FC = () => {
                       <th>Score</th>
                       <th>Recommendation</th>
                       <th>Governed</th>
+                      <th>Action</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -410,11 +609,36 @@ const TransportationCommandPanel: React.FC = () => {
                         <td>{bid.score?.score ?? "--"}</td>
                         <td>{bid.score?.recommendedAction ?? bid.status}</td>
                         <td>{bid.score?.governanceSignalRequired ? "Required" : "No"}</td>
+                        <td>
+                          <div className="transport-row-actions">
+                            <button
+                              className="btn btn-secondary btn-xs"
+                              type="button"
+                              onClick={() => handleBidDecision(bid.bidId, "SHORTLISTED")}
+                            >
+                              Shortlist
+                            </button>
+                            <button
+                              className="btn btn-primary btn-xs"
+                              type="button"
+                              onClick={() => handleBidDecision(bid.bidId, "AWARDED")}
+                            >
+                              Award
+                            </button>
+                            <button
+                              className="btn btn-danger btn-xs"
+                              type="button"
+                              onClick={() => handleBidDecision(bid.bidId, "REJECTED")}
+                            >
+                              Reject
+                            </button>
+                          </div>
+                        </td>
                       </tr>
                     ))}
                     {selectedBids.length === 0 && (
                       <tr>
-                        <td colSpan={5}>No bids recorded for this load.</td>
+                        <td colSpan={6}>No bids recorded for this load.</td>
                       </tr>
                     )}
                   </tbody>

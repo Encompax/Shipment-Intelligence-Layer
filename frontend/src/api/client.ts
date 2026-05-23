@@ -84,6 +84,18 @@ export async function fetchTransportationLoads() {
   return fetchShipmentIntelligence("/loads");
 }
 
+export async function createTransportationLoad(payload: Record<string, unknown>) {
+  const res = await fetch(`${SHIPMENT_INTELLIGENCE_BASE}/loads`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    throw new Error(`Create load error: ${res.status}`);
+  }
+  return res.json();
+}
+
 export async function fetchTransportationLoadDetail(loadId: string) {
   return fetchShipmentIntelligence(`/loads/${encodeURIComponent(loadId)}`);
 }
@@ -124,12 +136,48 @@ export async function fetchLoadBoardPostings() {
   return fetchShipmentIntelligence("/load-board/postings");
 }
 
+export async function createLoadBoardPosting(payload: Record<string, unknown>) {
+  const res = await fetch(`${SHIPMENT_INTELLIGENCE_BASE}/load-board/postings`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    throw new Error(`Create posting error: ${res.status}`);
+  }
+  return res.json();
+}
+
 export async function fetchLoadBoardBids() {
   return fetchShipmentIntelligence("/load-board/bids");
 }
 
+export async function createLoadBoardBid(payload: Record<string, unknown>) {
+  const res = await fetch(`${SHIPMENT_INTELLIGENCE_BASE}/load-board/bids`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    throw new Error(`Create bid error: ${res.status}`);
+  }
+  return res.json();
+}
+
 export async function fetchBidReview(bidId: string) {
   return fetchShipmentIntelligence(`/load-board/bids/${encodeURIComponent(bidId)}/review`);
+}
+
+export async function decideLoadBoardBid(bidId: string, payload: Record<string, unknown>) {
+  const res = await fetch(`${SHIPMENT_INTELLIGENCE_BASE}/load-board/bids/${encodeURIComponent(bidId)}/decision`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    throw new Error(`Bid decision error: ${res.status}`);
+  }
+  return res.json();
 }
 
 export async function fetchMatchingRecommendations() {
@@ -170,6 +218,27 @@ export async function fetchWorkflowEvents(filters?: { loadId?: string; shipmentI
 
 export async function fetchLeanTemplates() {
   return fetchShipmentIntelligence("/lean/templates");
+}
+
+export async function fetchLeanRecords(filters?: { organization?: string; templateId?: string; status?: string }) {
+  const params = new URLSearchParams();
+  if (filters?.organization) params.set("organization", filters.organization);
+  if (filters?.templateId) params.set("templateId", filters.templateId);
+  if (filters?.status) params.set("status", filters.status);
+  const query = params.toString() ? `?${params}` : "";
+  return fetchShipmentIntelligence(`/lean/records${query}`);
+}
+
+export async function createLeanRecord(payload: Record<string, unknown>) {
+  const res = await fetch(`${SHIPMENT_INTELLIGENCE_BASE}/lean/records`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    throw new Error(`Create LEAN record error: ${res.status}`);
+  }
+  return res.json();
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
