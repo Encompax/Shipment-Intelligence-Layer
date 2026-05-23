@@ -509,7 +509,14 @@ const TransportationCommandPanel: React.FC = () => {
         current.map((shipment) => (shipment.shipmentId === selectedShipment.shipmentId ? result.shipment : shipment))
       );
       setWorkflowEvents((current) => [result.event, ...current]);
-      setActionStatus("Shipment progress recorded.");
+      if (result.governanceSignal) {
+        setSignals((current) => [result.governanceSignal, ...current]);
+      }
+      setActionStatus(
+        result.governanceSignal
+          ? `Shipment progress recorded. ${result.governanceSignal.signalType} routed to Encompax.`
+          : "Shipment progress recorded."
+      );
     } catch (err) {
       setActionStatus(err instanceof Error ? err.message : "Shipment progress update failed");
     }

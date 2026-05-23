@@ -359,6 +359,64 @@ async function listSilShipments(filters) {
     const records = await prisma_1.prisma.silShipmentRecord.findMany({ orderBy: { updatedAt: "desc" } });
     return records.map((record) => withWorkspace(fromRecord(record))).filter((record) => matchesWorkspace(record, filters === null || filters === void 0 ? void 0 : filters.workspaceId));
 }
+function buildShipmentExecutionSignal(input) {
+    var _a, _b, _c, _d;
+    const { shipment, occurredAt, previousState, evidence } = input;
+    const reasons = [];
+    const deliveryDue = (_b = (_a = shipment.stops.find((stop) => stop.type === "DELIVERY")) === null || _a === void 0 ? void 0 : _a.appointmentEnd) !== null && _b !== void 0 ? _b : shipment.estimatedDelivery;
+    const dueTime = deliveryDue ? new Date(deliveryDue).getTime() : null;
+    const eventTime = new Date(occurredAt).getTime();
+    const incompleteStops = shipment.stops.filter((stop) => stop.status !== "COMPLETED" && stop.status !== "CANCELED");
+    if (shipment.state === "EXCEPTION" || shipment.exception)
+        reasons.push("Shipment exception recorded.");
+    if (!shipment.trackingNumber && ["DISPATCHED", "AT_PICKUP", "IN_TRANSIT", "AT_DELIVERY"].includes(shipment.state)) {
+        reasons.push("Shipment is executing without a tracking number.");
+    }
+    if (dueTime && eventTime > dueTime && shipment.state !== "DELIVERED") {
+        reasons.push("Shipment is past delivery commitment without delivery confirmation.");
+    }
+    if (shipment.state === "DELIVERED" && incompleteStops.length > 0) {
+        reasons.push("Shipment marked delivered while stop evidence remains incomplete.");
+    }
+    if (shipment.state === "IN_TRANSIT" && shipment.stops.some((stop) => stop.type === "PICKUP" && stop.status !== "COMPLETED")) {
+        reasons.push("Shipment is in transit without completed pickup evidence.");
+    }
+    if (reasons.length === 0)
+        return null;
+    const severity = shipment.state === "EXCEPTION" || reasons.some((reason) => reason.includes("past delivery")) ? "CRITICAL" : "HIGH";
+    return {
+        workspaceId: shipment.workspaceId,
+        signalType: shipment.state === "EXCEPTION" ? "SHIPMENT_EXECUTION_EXCEPTION" : "CUSTOMER_DELIVERY_COMMITMENT_RISK",
+        sourceModule: "SHIPMENT_INTELLIGENCE_LAYER",
+        severity,
+        confidenceScore: severity === "CRITICAL" ? 0.9 : 0.78,
+        description: `${(_d = (_c = shipment.carrierName) !== null && _c !== void 0 ? _c : shipment.carrierId) !== null && _d !== void 0 ? _d : "Carrier"} shipment execution requires governed review.`,
+        businessDomains: ["TRANSPORTATION", "SHIPMENT_VISIBILITY", "CUSTOMER_SERVICE", "RISK"],
+        affectedEntities: {
+            shipments: [shipment.shipmentId],
+            loads: shipment.loadId ? [shipment.loadId] : [],
+            carriers: shipment.carrierId ? [shipment.carrierId] : [],
+        },
+        metrics: {
+            reason_count: reasons.length,
+            incomplete_stop_count: incompleteStops.length,
+            has_tracking_number: Boolean(shipment.trackingNumber),
+            previous_state: previousState,
+            current_state: shipment.state,
+            delivery_due_at: deliveryDue !== null && deliveryDue !== void 0 ? deliveryDue : null,
+        },
+        tags: ["sil", "shipment-execution", "visibility", severity.toLowerCase()],
+        recommendedActions: [
+            {
+                actionType: "ROUTE_SHIPMENT_EXECUTION_FOR_REVIEW",
+                targetModule: "PLATFORM_OVERVIEW",
+                priority: severity,
+                description: "Route shipment execution drift to Encompax before customer commitment updates are made.",
+            },
+        ],
+        rawPayloadRef: `sil:shipment:${shipment.shipmentId}`,
+    };
+}
 async function updateSilShipmentProgress(input) {
     var _a, _b, _c, _d, _e, _f;
     await seedSilPersistence();
@@ -412,7 +470,16 @@ async function updateSilShipmentProgress(input) {
             input.stopId ? `Stop updated: ${input.stopId}` : "Shipment header updated",
         ],
     });
-    return { shipment: updatedShipment, event };
+    const governanceSignal = buildShipmentExecutionSignal({
+        shipment: updatedShipment,
+        occurredAt,
+        previousState: current.state,
+        evidence: event.evidence,
+    });
+    const persistedGovernanceSignal = governanceSignal
+        ? await persistSilGovernanceSignal(governanceSignal, "READY_FOR_ENCOMPAX")
+        : null;
+    return { shipment: updatedShipment, event, governanceSignal, persistedGovernanceSignal };
 }
 async function listSilCarriers(filters) {
     await seedSilPersistence();
