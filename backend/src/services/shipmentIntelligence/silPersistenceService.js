@@ -6,6 +6,7 @@ exports.getSilLoad = getSilLoad;
 exports.updateSilLoadStatus = updateSilLoadStatus;
 exports.createSilLoad = createSilLoad;
 exports.listSilShipments = listSilShipments;
+exports.updateSilShipmentProgress = updateSilShipmentProgress;
 exports.listSilCarriers = listSilCarriers;
 exports.upsertSilCarrier = upsertSilCarrier;
 exports.listSilLanes = listSilLanes;
@@ -357,6 +358,61 @@ async function listSilShipments(filters) {
     await seedSilPersistence();
     const records = await prisma_1.prisma.silShipmentRecord.findMany({ orderBy: { updatedAt: "desc" } });
     return records.map((record) => withWorkspace(fromRecord(record))).filter((record) => matchesWorkspace(record, filters === null || filters === void 0 ? void 0 : filters.workspaceId));
+}
+async function updateSilShipmentProgress(input) {
+    var _a, _b, _c, _d, _e, _f;
+    await seedSilPersistence();
+    const record = await prisma_1.prisma.silShipmentRecord.findUnique({ where: { shipmentId: input.shipmentId } });
+    if (!record)
+        return null;
+    const current = withWorkspace(fromRecord(record));
+    if (!matchesWorkspace(current, input.workspaceId))
+        return null;
+    const occurredAt = (_a = input.occurredAt) !== null && _a !== void 0 ? _a : new Date().toISOString();
+    const updatedStops = current.stops.map((stop) => {
+        var _a;
+        if (stop.stopId !== input.stopId)
+            return stop;
+        return {
+            ...stop,
+            status: (_a = input.stopStatus) !== null && _a !== void 0 ? _a : stop.status,
+            ...(input.timestampField ? { [input.timestampField]: occurredAt } : {}),
+        };
+    });
+    const updatedShipment = {
+        ...current,
+        state: (_b = input.state) !== null && _b !== void 0 ? _b : current.state,
+        trackingNumber: (_c = input.trackingNumber) !== null && _c !== void 0 ? _c : current.trackingNumber,
+        exception: input.exception === null ? undefined : (_d = input.exception) !== null && _d !== void 0 ? _d : current.exception,
+        actualDelivery: input.state === "DELIVERED" ? occurredAt : current.actualDelivery,
+        stops: input.stopId ? updatedStops : current.stops,
+    };
+    await prisma_1.prisma.silShipmentRecord.update({
+        where: { shipmentId: input.shipmentId },
+        data: {
+            state: updatedShipment.state,
+            data: json(updatedShipment),
+        },
+    });
+    const event = await persistSilWorkflowEvent({
+        eventId: makeId("sil_evt_shipment_progress_updated"),
+        eventType: "SHIPMENT_PROGRESS_UPDATED",
+        occurredAt,
+        actor: (_e = input.actor) !== null && _e !== void 0 ? _e : "operator",
+        source: "USER",
+        workspaceId: updatedShipment.workspaceId,
+        loadId: updatedShipment.loadId,
+        shipmentId: updatedShipment.shipmentId,
+        previousState: current.state,
+        nextState: updatedShipment.state,
+        shipmentState: updatedShipment.state,
+        summary: `Shipment ${updatedShipment.shipmentId} moved from ${current.state} to ${updatedShipment.state}.`,
+        evidence: (_f = input.evidence) !== null && _f !== void 0 ? _f : [
+            `Shipment state: ${updatedShipment.state}`,
+            input.stopId ? `Stop updated: ${input.stopId}` : "Shipment header updated",
+        ],
+    });
+    return { shipment: updatedShipment, event };
 }
 async function listSilCarriers(filters) {
     await seedSilPersistence();

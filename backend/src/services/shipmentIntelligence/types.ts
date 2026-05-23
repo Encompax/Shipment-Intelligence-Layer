@@ -305,6 +305,7 @@ export type SilWorkflowEventType =
   | "GOVERNANCE_DECISION_RECORDED"
   | "CARRIER_PROVIDER_QUOTE_REQUESTED"
   | "CARRIER_PROVIDER_TRACKING_REQUESTED"
+  | "SHIPMENT_PROGRESS_UPDATED"
   | "CARRIER_PROFILE_UPDATED"
   | "LEAN_RECORD_CREATED"
   | "WORKSPACE_UPDATED";
@@ -322,6 +323,7 @@ export type SilWorkflowEvent = {
   carrierId?: string;
   previousState?: string;
   nextState?: string;
+  shipmentState?: ShipmentState;
   summary: string;
   evidence: string[];
   governanceSignal?: SilGovernanceSignalDraft;

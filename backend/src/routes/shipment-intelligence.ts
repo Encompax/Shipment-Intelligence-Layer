@@ -40,6 +40,7 @@ import {
   seedSilPersistence,
   updateSilBidStatus,
   updateSilLoadStatus,
+  updateSilShipmentProgress,
   upsertSilCarrier,
   upsertSilWorkspace,
 } from "../services/shipmentIntelligence/silPersistenceService";
@@ -220,6 +221,16 @@ export function registerShipmentIntelligenceRoutes(app: Express) {
   router.get("/shipments", async (req: Request, res: Response) => {
     const shipments = await listSilShipments({ workspaceId: requestWorkspaceId(req) });
     res.json({ count: shipments.length, shipments });
+  });
+
+  router.patch("/shipments/:shipmentId/progress", async (req: Request, res: Response) => {
+    const result = await updateSilShipmentProgress({
+      ...req.body,
+      shipmentId: req.params.shipmentId,
+      workspaceId: requestWorkspaceId(req),
+    });
+    if (!result) return res.status(404).json({ error: "Shipment not found" });
+    res.json(result);
   });
 
   router.get("/carriers", async (req: Request, res: Response) => {

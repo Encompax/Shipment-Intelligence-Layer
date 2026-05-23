@@ -20,6 +20,7 @@ import {
   fetchWorkflowEvents,
   transitionLoad,
   updateTransportationCarrier,
+  updateTransportationShipmentProgress,
 } from "../api/client";
 import EncompaxMark from "./EncompaxMark";
 
@@ -102,6 +103,32 @@ type Carrier = {
   blocked?: boolean;
 };
 
+type ShipmentStop = {
+  stopId: string;
+  sequence: number;
+  type: string;
+  location: { city: string; state: string; facilityName?: string };
+  appointmentStart?: string;
+  appointmentEnd?: string;
+  arrivedAt?: string;
+  loadedUnloadedAt?: string;
+  departedAt?: string;
+  status: string;
+};
+
+type Shipment = {
+  shipmentId: string;
+  loadId?: string;
+  carrierId?: string;
+  carrierName?: string;
+  trackingNumber?: string;
+  state: string;
+  stops: ShipmentStop[];
+  exception?: string;
+  estimatedDelivery?: string;
+  actualDelivery?: string;
+};
+
 type MarketAnalysis = {
   pressureLevel: string;
   marketMedianRate?: number;
@@ -166,12 +193,12 @@ async function loadTransportationData() {
     fetchSilGovernanceSignals(),
   ]);
 
-  void shipmentsResult;
   void marketRatesResult;
 
   return {
     overview: overviewResult,
     loads: loadsResult.loads ?? [],
+    shipments: shipmentsResult.shipments ?? [],
     postings: postingsResult.postings ?? [],
     bids: bidsResult.bids ?? [],
     carriers: carriersResult.carriers ?? [],
@@ -185,6 +212,7 @@ const TransportationCommandPanel: React.FC = () => {
   const [loads, setLoads] = useState<Load[]>([]);
   const [postings, setPostings] = useState<Posting[]>([]);
   const [bids, setBids] = useState<Bid[]>([]);
+  const [shipments, setShipments] = useState<Shipment[]>([]);
   const [carriers, setCarriers] = useState<Carrier[]>([]);
   const [lanes, setLanes] = useState<Lane[]>([]);
   const [signals, setSignals] = useState<Signal[]>([]);
@@ -228,6 +256,7 @@ const TransportationCommandPanel: React.FC = () => {
 
     setOverview(results.overview);
     setLoads(results.loads);
+    setShipments(results.shipments);
     setPostings(results.postings);
     setBids(results.bids);
     setCarriers(results.carriers);
@@ -248,6 +277,7 @@ const TransportationCommandPanel: React.FC = () => {
 
         setOverview(results.overview);
         setLoads(results.loads);
+        setShipments(results.shipments);
         setPostings(results.postings);
         setBids(results.bids);
         setCarriers(results.carriers);
@@ -284,6 +314,11 @@ const TransportationCommandPanel: React.FC = () => {
   );
 
   const selectedBid = selectedBids[0] ?? null;
+
+  const selectedShipment = useMemo(
+    () => shipments.find((shipment) => shipment.loadId === selectedLoad?.loadId) ?? null,
+    [shipments, selectedLoad?.loadId]
+  );
 
   useEffect(() => {
     let alive = true;
@@ -445,6 +480,38 @@ const TransportationCommandPanel: React.FC = () => {
       setActionStatus(`Bid marked ${decision.toLowerCase().replaceAll("_", " ")}.`);
     } catch (err) {
       setActionStatus(err instanceof Error ? err.message : "Bid decision failed");
+    }
+  }
+
+  async function handleShipmentProgress(
+    state: string,
+    stop?: ShipmentStop,
+    timestampField?: "arrivedAt" | "loadedUnloadedAt" | "departedAt"
+  ) {
+    if (!selectedShipment) return;
+
+    try {
+      setActionStatus(`Updating shipment to ${state}...`);
+      const stopStatus = timestampField === "departedAt" || state === "DELIVERED" ? "COMPLETED" : "ARRIVED";
+      const result = await updateTransportationShipmentProgress(selectedShipment.shipmentId, {
+        state,
+        stopId: stop?.stopId,
+        stopStatus,
+        timestampField,
+        actor: "operator",
+        evidence: [
+          `Operator updated shipment state to ${state}`,
+          stop ? `Stop ${stop.sequence} ${stop.type} ${stopStatus}` : "Shipment header update",
+        ],
+      });
+
+      setShipments((current) =>
+        current.map((shipment) => (shipment.shipmentId === selectedShipment.shipmentId ? result.shipment : shipment))
+      );
+      setWorkflowEvents((current) => [result.event, ...current]);
+      setActionStatus("Shipment progress recorded.");
+    } catch (err) {
+      setActionStatus(err instanceof Error ? err.message : "Shipment progress update failed");
     }
   }
 
@@ -782,6 +849,63 @@ const TransportationCommandPanel: React.FC = () => {
                     <span>Margin {money(marketAnalysis?.projectedMargin)}</span>
                     <span>Variance {marketAnalysis?.rateVariancePercent ?? "--"}%</span>
                   </div>
+                </div>
+
+                <div className="ops-card shipment-execution-card">
+                  <div className="ops-card-header">
+                    <span>Shipment Execution</span>
+                    <strong>{selectedShipment?.state ?? "Not booked"}</strong>
+                  </div>
+                  {selectedShipment ? (
+                    <>
+                      <div className="shipment-stop-list">
+                        {selectedShipment.stops.map((stop) => (
+                          <div key={stop.stopId} className="shipment-stop-row">
+                            <div>
+                              <strong>
+                                {stop.sequence}. {stop.type}
+                              </strong>
+                              <span>
+                                {stop.location.facilityName ? `${stop.location.facilityName}, ` : ""}
+                                {stop.location.city}, {stop.location.state}
+                              </span>
+                              <small>{stop.status}</small>
+                            </div>
+                            <div className="transport-row-actions">
+                              <button
+                                className="btn btn-secondary btn-xs"
+                                type="button"
+                                onClick={() =>
+                                  handleShipmentProgress(stop.type === "PICKUP" ? "AT_PICKUP" : "AT_DELIVERY", stop, "arrivedAt")
+                                }
+                              >
+                                Arrive
+                              </button>
+                              <button
+                                className="btn btn-primary btn-xs"
+                                type="button"
+                                onClick={() =>
+                                  handleShipmentProgress(stop.type === "PICKUP" ? "IN_TRANSIT" : "DELIVERED", stop, "departedAt")
+                                }
+                              >
+                                Complete
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="ops-action-row">
+                        <button className="btn btn-secondary btn-sm" type="button" onClick={() => handleShipmentProgress("DISPATCHED")}>
+                          Dispatch
+                        </button>
+                        <button className="btn btn-danger btn-sm" type="button" onClick={() => handleShipmentProgress("EXCEPTION")}>
+                          Exception
+                        </button>
+                      </div>
+                    </>
+                  ) : (
+                    <p className="ops-note">Award a carrier or create a shipment to begin execution tracking.</p>
+                  )}
                 </div>
               </div>
             </>

@@ -22,6 +22,7 @@ import {
   SilMarketRateObservation,
   SilShipment,
   SilWorkflowEvent,
+  ShipmentState,
 } from "./types";
 
 let seeded = false;
@@ -433,6 +434,75 @@ export async function listSilShipments(filters?: { workspaceId?: string }) {
   await seedSilPersistence();
   const records = await prisma.silShipmentRecord.findMany({ orderBy: { updatedAt: "desc" } });
   return records.map((record) => withWorkspace(fromRecord<SilShipment>(record))).filter((record) => matchesWorkspace(record, filters?.workspaceId));
+}
+
+export async function updateSilShipmentProgress(input: {
+  shipmentId: string;
+  workspaceId?: string;
+  state?: ShipmentState;
+  stopId?: string;
+  stopStatus?: SilShipment["stops"][number]["status"];
+  timestampField?: "arrivedAt" | "loadedUnloadedAt" | "departedAt";
+  occurredAt?: string;
+  trackingNumber?: string;
+  exception?: string | null;
+  actor?: string;
+  evidence?: string[];
+}) {
+  await seedSilPersistence();
+  const record = await prisma.silShipmentRecord.findUnique({ where: { shipmentId: input.shipmentId } });
+  if (!record) return null;
+
+  const current = withWorkspace(fromRecord<SilShipment>(record));
+  if (!matchesWorkspace(current, input.workspaceId)) return null;
+
+  const occurredAt = input.occurredAt ?? new Date().toISOString();
+  const updatedStops = current.stops.map((stop) => {
+    if (stop.stopId !== input.stopId) return stop;
+    return {
+      ...stop,
+      status: input.stopStatus ?? stop.status,
+      ...(input.timestampField ? { [input.timestampField]: occurredAt } : {}),
+    };
+  });
+
+  const updatedShipment: SilShipment = {
+    ...current,
+    state: input.state ?? current.state,
+    trackingNumber: input.trackingNumber ?? current.trackingNumber,
+    exception: input.exception === null ? undefined : input.exception ?? current.exception,
+    actualDelivery: input.state === "DELIVERED" ? occurredAt : current.actualDelivery,
+    stops: input.stopId ? updatedStops : current.stops,
+  };
+
+  await prisma.silShipmentRecord.update({
+    where: { shipmentId: input.shipmentId },
+    data: {
+      state: updatedShipment.state,
+      data: json(updatedShipment),
+    },
+  });
+
+  const event = await persistSilWorkflowEvent({
+    eventId: makeId("sil_evt_shipment_progress_updated"),
+    eventType: "SHIPMENT_PROGRESS_UPDATED",
+    occurredAt,
+    actor: input.actor ?? "operator",
+    source: "USER",
+    workspaceId: updatedShipment.workspaceId,
+    loadId: updatedShipment.loadId,
+    shipmentId: updatedShipment.shipmentId,
+    previousState: current.state,
+    nextState: updatedShipment.state,
+    shipmentState: updatedShipment.state,
+    summary: `Shipment ${updatedShipment.shipmentId} moved from ${current.state} to ${updatedShipment.state}.`,
+    evidence: input.evidence ?? [
+      `Shipment state: ${updatedShipment.state}`,
+      input.stopId ? `Stop updated: ${input.stopId}` : "Shipment header updated",
+    ],
+  });
+
+  return { shipment: updatedShipment, event };
 }
 
 export async function listSilCarriers(filters?: { workspaceId?: string }) {

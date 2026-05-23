@@ -159,6 +159,16 @@ function registerShipmentIntelligenceRoutes(app) {
         const shipments = await (0, silPersistenceService_1.listSilShipments)({ workspaceId: requestWorkspaceId(req) });
         res.json({ count: shipments.length, shipments });
     });
+    router.patch("/shipments/:shipmentId/progress", async (req, res) => {
+        const result = await (0, silPersistenceService_1.updateSilShipmentProgress)({
+            ...req.body,
+            shipmentId: req.params.shipmentId,
+            workspaceId: requestWorkspaceId(req),
+        });
+        if (!result)
+            return res.status(404).json({ error: "Shipment not found" });
+        res.json(result);
+    });
     router.get("/carriers", async (req, res) => {
         const carriers = await (0, silPersistenceService_1.listSilCarriers)({ workspaceId: requestWorkspaceId(req) });
         res.json({ count: carriers.length, carriers });

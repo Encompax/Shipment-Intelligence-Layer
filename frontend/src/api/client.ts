@@ -140,6 +140,18 @@ export async function fetchTransportationShipments() {
   return fetchShipmentIntelligence("/shipments");
 }
 
+export async function updateTransportationShipmentProgress(shipmentId: string, payload: Record<string, unknown>) {
+  const res = await fetch(`${SHIPMENT_INTELLIGENCE_BASE}/shipments/${encodeURIComponent(shipmentId)}/progress`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    throw new Error(`Shipment progress update error: ${res.status}`);
+  }
+  return res.json();
+}
+
 export async function fetchTransportationCarriers() {
   return fetchShipmentIntelligence("/carriers");
 }

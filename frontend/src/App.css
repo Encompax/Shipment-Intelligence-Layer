@@ -1033,7 +1033,7 @@ td {
 
 .transport-ops-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
   gap: var(--space-3);
   margin-top: var(--space-4);
 }
@@ -1089,6 +1089,40 @@ td {
   color: #075985;
   font-size: var(--font-size-xs);
   font-weight: var(--font-weight-semibold);
+}
+
+.shipment-execution-card {
+  grid-column: span 2;
+}
+
+.shipment-stop-list {
+  display: grid;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+
+.shipment-stop-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--space-3);
+  align-items: center;
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.shipment-stop-row > div:first-child {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.shipment-stop-row span,
+.shipment-stop-row small {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
 }
 
 .workflow-event-list {
