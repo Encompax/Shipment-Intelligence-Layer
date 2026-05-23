@@ -64,6 +64,9 @@ const defaultWorkspace = {
     status: "TRIAL",
     selectedProductIds: ["sil"],
     governanceMode: "SIGNAL_ONLY",
+    monthlyTokenBudget: 250000,
+    monthlySpendLimitUsd: 25,
+    enabledAgentProviders: ["MANUAL"],
     modules: [
         {
             productId: "sil",
@@ -593,7 +596,7 @@ async function getSilWorkspace(workspaceId = defaultWorkspace.workspaceId) {
     return records[0] ? fromRecord(records[0]) : defaultWorkspace;
 }
 async function upsertSilWorkspace(input) {
-    var _a, _b, _c, _d, _e, _f, _g;
+    var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o;
     await seedSilPersistence();
     const workspaceId = (_a = input.workspaceId) !== null && _a !== void 0 ? _a : defaultWorkspace.workspaceId;
     const now = new Date().toISOString();
@@ -616,11 +619,14 @@ async function upsertSilWorkspace(input) {
         status: (_b = input.status) !== null && _b !== void 0 ? _b : "TRIAL",
         governanceMode: (_c = input.governanceMode) !== null && _c !== void 0 ? _c : "SIGNAL_ONLY",
         teamMembers: (_d = input.teamMembers) !== null && _d !== void 0 ? _d : [],
+        monthlyTokenBudget: (_e = input.monthlyTokenBudget) !== null && _e !== void 0 ? _e : 250000,
+        monthlySpendLimitUsd: (_f = input.monthlySpendLimitUsd) !== null && _f !== void 0 ? _f : 25,
+        enabledAgentProviders: (_g = input.enabledAgentProviders) !== null && _g !== void 0 ? _g : ["MANUAL"],
     };
     await ensureSilWorkspaceTable();
     await prisma_1.prisma.$executeRaw `
     INSERT INTO "SilWorkspaceRecord" ("id", "workspaceId", "organization", "ownerEmail", "status", "data", "updatedAt")
-    VALUES (${makeId("sil_workspace")}, ${workspaceId}, ${workspace.organization}, ${(_e = workspace.ownerEmail) !== null && _e !== void 0 ? _e : null}, ${(_f = workspace.status) !== null && _f !== void 0 ? _f : "TRIAL"}, ${json(workspace)}, ${new Date()})
+    VALUES (${makeId("sil_workspace")}, ${workspaceId}, ${workspace.organization}, ${(_h = workspace.ownerEmail) !== null && _h !== void 0 ? _h : null}, ${(_j = workspace.status) !== null && _j !== void 0 ? _j : "TRIAL"}, ${json(workspace)}, ${new Date()})
     ON CONFLICT("workspaceId") DO UPDATE SET
       "organization" = excluded."organization",
       "ownerEmail" = excluded."ownerEmail",
@@ -632,13 +638,15 @@ async function upsertSilWorkspace(input) {
         eventId: makeId("sil_evt_workspace_updated"),
         eventType: "WORKSPACE_UPDATED",
         occurredAt: now,
-        actor: (_g = workspace.ownerEmail) !== null && _g !== void 0 ? _g : "operator",
+        actor: (_k = workspace.ownerEmail) !== null && _k !== void 0 ? _k : "operator",
         source: "USER",
         summary: `${workspace.workspaceName} product selection updated.`,
         evidence: [
             `Organization: ${workspace.organization}`,
             `Selected products: ${workspace.selectedProductIds.join(", ")}`,
             `Governance mode: ${workspace.governanceMode}`,
+            `Team members: ${(_m = (_l = workspace.teamMembers) === null || _l === void 0 ? void 0 : _l.length) !== null && _m !== void 0 ? _m : 0}`,
+            `Monthly token budget: ${(_o = workspace.monthlyTokenBudget) !== null && _o !== void 0 ? _o : "unset"}`,
         ],
     });
     return { workspace, event };

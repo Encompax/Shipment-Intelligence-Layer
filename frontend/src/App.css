@@ -1077,7 +1077,7 @@ td {
 
 .suite-summary-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: var(--space-3);
 }
 
@@ -1290,6 +1290,88 @@ td {
 .suite-path .suite-path-governed {
   background: var(--color-warning-bg);
   color: var(--color-warning);
+}
+
+.suite-admin-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr);
+  gap: var(--space-5);
+}
+
+.suite-admin-card {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-bg-default);
+  padding: var(--space-5);
+  box-shadow: var(--shadow-xs);
+}
+
+.suite-admin-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-3);
+}
+
+.suite-admin-grid.compact {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.suite-admin-grid label {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.suite-admin-note {
+  margin: var(--space-4) 0 0;
+  color: var(--color-text-secondary);
+}
+
+.suite-invite-row {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) minmax(130px, 0.35fr) auto;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+
+.suite-member-list {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.suite-member-row {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) minmax(130px, 0.28fr) auto;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-bg-surface);
+}
+
+.suite-member-row > div {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.suite-member-row strong {
+  color: var(--color-text-primary);
+  overflow-wrap: anywhere;
+}
+
+.suite-member-row span {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
 }
 
 /* LEAN Operating Tools */
@@ -1690,7 +1772,11 @@ td {
   .suite-hero,
   .suite-summary-grid,
   .suite-layout,
-  .suite-flow-grid {
+  .suite-flow-grid,
+  .suite-admin-layout,
+  .suite-admin-grid,
+  .suite-invite-row,
+  .suite-member-row {
     grid-template-columns: 1fr;
   }
 

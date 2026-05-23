@@ -96,6 +96,9 @@ export type SilWorkspacePayload = {
     status: "ACTIVE" | "INVITED";
   }>;
   governanceMode?: "SIGNAL_ONLY" | "COUNCIL_REVIEW" | "ENTERPRISE_SYNC";
+  monthlyTokenBudget?: number;
+  monthlySpendLimitUsd?: number;
+  enabledAgentProviders?: Array<"MANUAL" | "OPENAI" | "ANTHROPIC" | "HUGGINGFACE">;
 };
 
 const defaultWorkspace: SilWorkspacePayload = {
@@ -106,6 +109,9 @@ const defaultWorkspace: SilWorkspacePayload = {
   status: "TRIAL",
   selectedProductIds: ["sil"],
   governanceMode: "SIGNAL_ONLY",
+  monthlyTokenBudget: 250000,
+  monthlySpendLimitUsd: 25,
+  enabledAgentProviders: ["MANUAL"],
   modules: [
     {
       productId: "sil",
@@ -711,6 +717,9 @@ export async function upsertSilWorkspace(input: SilWorkspacePayload) {
     status: input.status ?? "TRIAL",
     governanceMode: input.governanceMode ?? "SIGNAL_ONLY",
     teamMembers: input.teamMembers ?? [],
+    monthlyTokenBudget: input.monthlyTokenBudget ?? 250000,
+    monthlySpendLimitUsd: input.monthlySpendLimitUsd ?? 25,
+    enabledAgentProviders: input.enabledAgentProviders ?? ["MANUAL"],
   };
 
   await ensureSilWorkspaceTable();
@@ -738,6 +747,8 @@ export async function upsertSilWorkspace(input: SilWorkspacePayload) {
       `Organization: ${workspace.organization}`,
       `Selected products: ${workspace.selectedProductIds.join(", ")}`,
       `Governance mode: ${workspace.governanceMode}`,
+      `Team members: ${workspace.teamMembers?.length ?? 0}`,
+      `Monthly token budget: ${workspace.monthlyTokenBudget ?? "unset"}`,
     ],
   });
 
