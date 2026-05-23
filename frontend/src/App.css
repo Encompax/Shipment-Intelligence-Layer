@@ -1012,6 +1012,277 @@ td {
   color: var(--color-text-secondary);
 }
 
+/* Product Suite Selection */
+
+.product-suite {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+
+.suite-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--space-5);
+  align-items: end;
+  padding: var(--space-6);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background:
+    radial-gradient(circle at 12% 20%, rgba(34, 211, 238, 0.16), transparent 32%),
+    linear-gradient(135deg, #07111F, #0B2132 58%, #0F766E);
+  color: #E6F6FF;
+}
+
+.suite-hero h2 {
+  margin: 0;
+  color: #F8FAFC;
+  font-size: 1.75rem;
+  line-height: var(--line-height-tight);
+}
+
+.suite-hero p {
+  max-width: 780px;
+  margin: var(--space-2) 0 0;
+  color: #B8CBD8;
+}
+
+.suite-brand-stack {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 240px;
+  padding: var(--space-4);
+  border: 1px solid rgba(34, 211, 238, 0.24);
+  border-radius: var(--radius-lg);
+  background: rgba(15, 23, 42, 0.46);
+}
+
+.suite-brand-stack div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.suite-brand-stack span {
+  color: #8FB8C8;
+  font-size: var(--font-size-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.suite-brand-stack strong {
+  color: #F8FAFC;
+}
+
+.suite-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-3);
+}
+
+.suite-summary-grid > div,
+.suite-flow-grid > div {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-bg-default);
+  box-shadow: var(--shadow-xs);
+}
+
+.suite-summary-grid span,
+.suite-flow-grid span {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.suite-summary-grid strong {
+  color: var(--color-text-primary);
+  font-size: var(--font-size-2xl);
+}
+
+.suite-layout {
+  display: grid;
+  grid-template-columns: minmax(280px, 0.86fr) minmax(0, 1.35fr);
+  gap: var(--space-5);
+}
+
+.suite-product-list {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.suite-product-card {
+  width: 100%;
+  padding: var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-bg-default);
+  text-align: left;
+  cursor: pointer;
+  box-shadow: var(--shadow-xs);
+}
+
+.suite-product-card.active {
+  border-color: rgba(14, 165, 233, 0.5);
+  background: linear-gradient(135deg, rgba(236, 254, 255, 0.82), #fff);
+}
+
+.suite-product-card > div,
+.suite-selected-strip,
+.suite-path {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.suite-product-card h3 {
+  margin: var(--space-3) 0 var(--space-1);
+  color: var(--color-text-primary);
+  font-size: var(--font-size-lg);
+}
+
+.suite-product-card p,
+.suite-detail-purpose,
+.suite-governance-card p {
+  color: var(--color-text-secondary);
+}
+
+.suite-status {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 72px;
+  padding: 3px var(--space-2);
+  border-radius: var(--radius-full);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-bold);
+}
+
+.suite-status.active {
+  background: var(--color-success-bg);
+  color: var(--color-success);
+}
+
+.suite-status.available {
+  background: var(--color-primary-bg);
+  color: #075985;
+}
+
+.suite-status.planned {
+  background: var(--color-bg-muted);
+  color: var(--color-text-muted);
+}
+
+.suite-select-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+}
+
+.suite-select-toggle input {
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  accent-color: var(--color-info);
+}
+
+.suite-detail-panel,
+.suite-selected-strip {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-bg-default);
+  padding: var(--space-5);
+  box-shadow: var(--shadow-xs);
+}
+
+.suite-flow-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.8fr);
+  gap: var(--space-3);
+  margin: var(--space-4) 0;
+}
+
+.suite-flow-grid strong {
+  color: var(--color-text-primary);
+  overflow-wrap: anywhere;
+}
+
+.suite-unlocks h4 {
+  margin: var(--space-5) 0 var(--space-3);
+  color: var(--color-text-primary);
+}
+
+.suite-unlocks div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.suite-unlocks span,
+.suite-path span {
+  display: inline-flex;
+  align-items: center;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-full);
+  background: #E0F2FE;
+  color: #075985;
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-bold);
+}
+
+.suite-governance-card {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  margin-top: var(--space-5);
+  padding: var(--space-4);
+  border: 1px solid rgba(20, 184, 166, 0.26);
+  border-radius: var(--radius-lg);
+  background: linear-gradient(135deg, rgba(236, 254, 255, 0.84), rgba(255, 255, 255, 0.9));
+}
+
+.suite-governance-card span {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-bold);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.suite-governance-card p {
+  margin: var(--space-1) 0 0;
+}
+
+.suite-selected-strip {
+  align-items: flex-start;
+}
+
+.suite-selected-strip h3 {
+  margin: 0;
+}
+
+.suite-path {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.suite-path .suite-path-governed {
+  background: var(--color-warning-bg);
+  color: var(--color-warning);
+}
+
 /* LEAN Operating Tools */
 
 .lean-os {
@@ -1406,7 +1677,11 @@ td {
   .lean-hero,
   .lean-layout,
   .lean-profile-grid,
-  .lean-packet-grid {
+  .lean-packet-grid,
+  .suite-hero,
+  .suite-summary-grid,
+  .suite-layout,
+  .suite-flow-grid {
     grid-template-columns: 1fr;
   }
 
