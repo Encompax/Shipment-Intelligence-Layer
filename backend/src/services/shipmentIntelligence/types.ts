@@ -252,6 +252,9 @@ export type SilBid = {
   currency: "USD";
   estimatedPickupCommitment?: string;
   estimatedDeliveryCommitment?: string;
+  expiresAt?: string;
+  counterOfferRate?: number;
+  counterOfferStatus?: "NONE" | "PENDING" | "ACCEPTED" | "REJECTED";
   message?: string;
   status: BidState;
   receivedAt: string;
@@ -301,6 +304,7 @@ export type SilWorkflowEventType =
   | "LOAD_POSTED"
   | "BID_RECEIVED"
   | "BID_REVIEWED"
+  | "BID_COUNTERED"
   | "CARRIER_AWARDED"
   | "SHIPMENT_STATUS_CHANGED"
   | "GOVERNANCE_SIGNAL_CREATED"

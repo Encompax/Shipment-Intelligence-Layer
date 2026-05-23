@@ -865,7 +865,7 @@ td {
 }
 
 .transport-inline-form:last-child {
-  grid-template-columns: minmax(0, 1fr) minmax(80px, 0.5fr) auto;
+  grid-template-columns: minmax(0, 1fr) minmax(80px, 0.5fr) minmax(80px, 0.5fr) auto;
 }
 
 .transport-row-actions {

@@ -14,6 +14,7 @@ exports.listSilPostings = listSilPostings;
 exports.createSilPosting = createSilPosting;
 exports.listSilBids = listSilBids;
 exports.createSilBid = createSilBid;
+exports.updateSilBidCommercials = updateSilBidCommercials;
 exports.updateSilBidStatus = updateSilBidStatus;
 exports.listSilMarketRates = listSilMarketRates;
 exports.listSilGovernanceSignals = listSilGovernanceSignals;
@@ -592,7 +593,7 @@ async function listSilBids(filters) {
     return records.map((record) => withWorkspace(fromRecord(record))).filter((record) => matchesWorkspace(record, filters === null || filters === void 0 ? void 0 : filters.workspaceId));
 }
 async function createSilBid(input) {
-    var _a, _b, _c, _d, _e;
+    var _a, _b, _c, _d, _e, _f;
     await seedSilPersistence();
     const load = await getSilLoad(input.loadId);
     const workspaceId = (_b = (_a = input.workspaceId) !== null && _a !== void 0 ? _a : load === null || load === void 0 ? void 0 : load.workspaceId) !== null && _b !== void 0 ? _b : DEFAULT_WORKSPACE_ID;
@@ -623,9 +624,12 @@ async function createSilBid(input) {
         currency: "USD",
         estimatedPickupCommitment: input.estimatedPickupCommitment,
         estimatedDeliveryCommitment: input.estimatedDeliveryCommitment,
+        expiresAt: input.expiresAt,
+        counterOfferRate: input.counterOfferRate,
+        counterOfferStatus: (_d = input.counterOfferStatus) !== null && _d !== void 0 ? _d : "NONE",
         message: input.message,
-        status: (_d = input.status) !== null && _d !== void 0 ? _d : "RECEIVED",
-        receivedAt: (_e = input.receivedAt) !== null && _e !== void 0 ? _e : new Date().toISOString(),
+        status: (_e = input.status) !== null && _e !== void 0 ? _e : "RECEIVED",
+        receivedAt: (_f = input.receivedAt) !== null && _f !== void 0 ? _f : new Date().toISOString(),
         score: input.score,
     };
     await prisma_1.prisma.silBidRecord.create({
@@ -654,6 +658,49 @@ async function createSilBid(input) {
         evidence: [`Carrier: ${bid.carrierId}`, `Bid rate: ${bid.bidRate}`],
     });
     return { bid, event };
+}
+async function updateSilBidCommercials(bidId, input) {
+    var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k;
+    await seedSilPersistence();
+    const record = await prisma_1.prisma.silBidRecord.findUnique({ where: { bidId } });
+    if (!record)
+        return null;
+    const bid = withWorkspace(fromRecord(record));
+    const updatedBid = withWorkspace({
+        ...bid,
+        counterOfferRate: (_a = input.counterOfferRate) !== null && _a !== void 0 ? _a : bid.counterOfferRate,
+        counterOfferStatus: (_c = (_b = input.counterOfferStatus) !== null && _b !== void 0 ? _b : bid.counterOfferStatus) !== null && _c !== void 0 ? _c : "NONE",
+        expiresAt: (_d = input.expiresAt) !== null && _d !== void 0 ? _d : bid.expiresAt,
+        message: (_e = input.message) !== null && _e !== void 0 ? _e : bid.message,
+        status: (_f = input.status) !== null && _f !== void 0 ? _f : bid.status,
+    });
+    await prisma_1.prisma.silBidRecord.update({
+        where: { bidId },
+        data: { status: updatedBid.status, data: json(updatedBid) },
+    });
+    const eventType = input.counterOfferRate !== undefined ? "BID_COUNTERED" : "BID_REVIEWED";
+    const event = await persistSilWorkflowEvent({
+        eventId: makeId(`sil_evt_${eventType.toLowerCase()}`),
+        eventType,
+        occurredAt: new Date().toISOString(),
+        actor: (_g = input.actor) !== null && _g !== void 0 ? _g : "operator",
+        source: "USER",
+        workspaceId: updatedBid.workspaceId,
+        loadId: updatedBid.loadId,
+        bidId: updatedBid.bidId,
+        carrierId: updatedBid.carrierId,
+        previousState: bid.status,
+        nextState: updatedBid.status,
+        summary: eventType === "BID_COUNTERED"
+            ? `Counteroffer recorded for ${updatedBid.bidId}.`
+            : `Bid commercial controls updated for ${updatedBid.bidId}.`,
+        evidence: (_h = input.evidence) !== null && _h !== void 0 ? _h : [
+            `Bid rate: ${updatedBid.bidRate}`,
+            `Counteroffer: ${(_j = updatedBid.counterOfferRate) !== null && _j !== void 0 ? _j : "none"}`,
+            `Expires at: ${(_k = updatedBid.expiresAt) !== null && _k !== void 0 ? _k : "not set"}`,
+        ],
+    });
+    return { bid: updatedBid, event };
 }
 async function updateSilBidStatus(bidId, status) {
     await seedSilPersistence();

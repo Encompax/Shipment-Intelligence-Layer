@@ -139,13 +139,16 @@ function buildRiskFlags(context: MatchContext, factors: SilMatchScore["factors"]
   if (factors && factors.marginFit < 60) flags.push("margin below target");
   if (!lane) flags.push("lane history missing");
   if (load.targetSellRate && bid.bidRate > load.targetSellRate) flags.push("bid exceeds sell rate");
+  if (bid.status === "EXPIRED") flags.push("bid expired");
+  if (bid.expiresAt && new Date(bid.expiresAt).getTime() < Date.now()) flags.push("bid response window expired");
+  if (bid.counterOfferStatus === "PENDING") flags.push("counteroffer pending carrier response");
 
   return flags;
 }
 
 function buildGovernanceReasons(riskFlags: string[], score: number) {
   const reasons = riskFlags.filter((flag) =>
-    ["blocked", "review", "unknown", "not valid", "margin", "rate", "profile missing"].some((keyword) =>
+    ["blocked", "review", "unknown", "not valid", "margin", "rate", "profile missing", "expired", "counteroffer"].some((keyword) =>
       flag.includes(keyword)
     )
   );
@@ -164,6 +167,7 @@ function carrierDecisionSummary(carrier: SilCarrierProfile | undefined, riskFlag
 }
 
 function recommendedAction(score: number, riskFlags: string[]): SilMatchScore["recommendedAction"] {
+  if (riskFlags.some((flag) => flag.includes("expired"))) return "REQUEST_MORE_CONTEXT";
   if (riskFlags.some((flag) => flag.includes("blocked"))) return "REJECT";
   if (
     riskFlags.some((flag) => flag.includes("review") || flag.includes("unknown") || flag.includes("not valid")) ||

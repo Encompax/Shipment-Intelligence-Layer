@@ -38,6 +38,7 @@ import {
   persistSilGovernanceSignal,
   persistSilWorkflowEvent,
   seedSilPersistence,
+  updateSilBidCommercials,
   updateSilBidStatus,
   updateSilLoadStatus,
   updateSilShipmentProgress,
@@ -372,6 +373,25 @@ export function registerShipmentIntelligenceRoutes(app: Express) {
       posting: posting ?? null,
       governanceSignal,
     });
+  });
+
+  router.patch("/load-board/bids/:bidId/commercials", async (req: Request, res: Response) => {
+    const workspaceId = requestWorkspaceId(req);
+    const bid = (await listSilBids({ workspaceId })).find((item) => item.bidId === req.params.bidId);
+    if (!bid) return res.status(404).json({ error: "Bid not found" });
+
+    const result = await updateSilBidCommercials(req.params.bidId, {
+      counterOfferRate:
+        req.body?.counterOfferRate === undefined ? undefined : Number(req.body.counterOfferRate),
+      counterOfferStatus: req.body?.counterOfferStatus,
+      expiresAt: req.body?.expiresAt,
+      message: req.body?.message,
+      status: req.body?.status,
+      actor: req.body?.actor,
+      evidence: req.body?.evidence,
+    });
+    if (!result) return res.status(404).json({ error: "Bid not found" });
+    res.json(result);
   });
 
   router.post("/load-board/bids/:bidId/decision", async (req: Request, res: Response) => {

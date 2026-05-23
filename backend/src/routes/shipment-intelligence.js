@@ -296,6 +296,25 @@ function registerShipmentIntelligenceRoutes(app) {
             governanceSignal,
         });
     });
+    router.patch("/load-board/bids/:bidId/commercials", async (req, res) => {
+        var _a, _b, _c, _d, _e, _f, _g;
+        const workspaceId = requestWorkspaceId(req);
+        const bid = (await (0, silPersistenceService_1.listSilBids)({ workspaceId })).find((item) => item.bidId === req.params.bidId);
+        if (!bid)
+            return res.status(404).json({ error: "Bid not found" });
+        const result = await (0, silPersistenceService_1.updateSilBidCommercials)(req.params.bidId, {
+            counterOfferRate: ((_a = req.body) === null || _a === void 0 ? void 0 : _a.counterOfferRate) === undefined ? undefined : Number(req.body.counterOfferRate),
+            counterOfferStatus: (_b = req.body) === null || _b === void 0 ? void 0 : _b.counterOfferStatus,
+            expiresAt: (_c = req.body) === null || _c === void 0 ? void 0 : _c.expiresAt,
+            message: (_d = req.body) === null || _d === void 0 ? void 0 : _d.message,
+            status: (_e = req.body) === null || _e === void 0 ? void 0 : _e.status,
+            actor: (_f = req.body) === null || _f === void 0 ? void 0 : _f.actor,
+            evidence: (_g = req.body) === null || _g === void 0 ? void 0 : _g.evidence,
+        });
+        if (!result)
+            return res.status(404).json({ error: "Bid not found" });
+        res.json(result);
+    });
     router.post("/load-board/bids/:bidId/decision", async (req, res) => {
         var _a, _b, _c, _d;
         const decision = (_a = req.body) === null || _a === void 0 ? void 0 : _a.decision;

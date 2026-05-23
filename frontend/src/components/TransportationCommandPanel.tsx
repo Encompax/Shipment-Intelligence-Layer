@@ -19,6 +19,7 @@ import {
   fetchTransportationShipments,
   fetchWorkflowEvents,
   transitionLoad,
+  updateLoadBoardBidCommercials,
   updateTransportationCarrier,
   updateTransportationShipmentProgress,
 } from "../api/client";
@@ -43,6 +44,9 @@ type Bid = {
   carrierId: string;
   bidRate: number;
   status: string;
+  expiresAt?: string;
+  counterOfferRate?: number;
+  counterOfferStatus?: string;
   score?: {
     score: number;
     scoreBand: string;
@@ -238,6 +242,7 @@ const TransportationCommandPanel: React.FC = () => {
   const [bidForm, setBidForm] = useState({
     carrierId: "carrier-riverbend",
     bidRate: "2650",
+    counterOfferRate: "2450",
   });
   const [carrierForm, setCarrierForm] = useState({
     carrierName: "New Carrier",
@@ -427,6 +432,7 @@ const TransportationCommandPanel: React.FC = () => {
         loadId: selectedLoad.loadId,
         carrierId: bidForm.carrierId,
         bidRate: Number(bidForm.bidRate),
+        expiresAt: new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString(),
       });
       await refreshTransportationData(selectedLoad.loadId);
       setActionStatus("Carrier bid scored and stored.");
@@ -480,6 +486,25 @@ const TransportationCommandPanel: React.FC = () => {
       setActionStatus(`Bid marked ${decision.toLowerCase().replaceAll("_", " ")}.`);
     } catch (err) {
       setActionStatus(err instanceof Error ? err.message : "Bid decision failed");
+    }
+  }
+
+  async function handleBidCommercialUpdate(
+    bid: Bid,
+    patch: { counterOfferRate?: number; counterOfferStatus?: string; status?: string; expiresAt?: string }
+  ) {
+    try {
+      setActionStatus("Updating bid controls...");
+      const result = await updateLoadBoardBidCommercials(bid.bidId, {
+        ...patch,
+        actor: "operator",
+        evidence: ["operator brokerage control from Transportation Command"],
+      });
+      setBids((current) => current.map((item) => (item.bidId === bid.bidId ? result.bid : item)));
+      setWorkflowEvents((current) => [result.event, ...current]);
+      setActionStatus("Bid controls updated.");
+    } catch (err) {
+      setActionStatus(err instanceof Error ? err.message : "Bid controls update failed");
     }
   }
 
@@ -729,6 +754,14 @@ const TransportationCommandPanel: React.FC = () => {
                       onChange={(event) => setBidForm((current) => ({ ...current, bidRate: event.target.value }))}
                     />
                   </label>
+                  <label>
+                    Counter
+                    <input
+                      value={bidForm.counterOfferRate}
+                      inputMode="numeric"
+                      onChange={(event) => setBidForm((current) => ({ ...current, counterOfferRate: event.target.value }))}
+                    />
+                  </label>
                   <button className="btn btn-secondary btn-sm" type="submit">
                     Score Bid
                   </button>
@@ -741,6 +774,7 @@ const TransportationCommandPanel: React.FC = () => {
                     <tr>
                       <th>Carrier</th>
                       <th>Bid</th>
+                      <th>Counter</th>
                       <th>Score</th>
                       <th>Trust</th>
                       <th>Recommendation</th>
@@ -753,12 +787,39 @@ const TransportationCommandPanel: React.FC = () => {
                       <tr key={bid.bidId}>
                         <td>{bid.carrierId.replace("carrier-", "")}</td>
                         <td>{money(bid.bidRate)}</td>
+                        <td>
+                          {bid.counterOfferRate ? money(bid.counterOfferRate) : bid.counterOfferStatus ?? "--"}
+                        </td>
                         <td>{bid.score?.score ?? "--"}</td>
                         <td>{bid.score?.factors?.carrierTrust ? Math.round(bid.score.factors.carrierTrust) : "--"}</td>
                         <td>{bid.score?.recommendedAction ?? bid.status}</td>
                         <td>{bid.score?.governanceSignalRequired ? "Required" : "No"}</td>
                         <td>
                           <div className="transport-row-actions">
+                            <button
+                              className="btn btn-secondary btn-xs"
+                              type="button"
+                              onClick={() =>
+                                handleBidCommercialUpdate(bid, {
+                                  counterOfferRate: Number(bidForm.counterOfferRate),
+                                  counterOfferStatus: "PENDING",
+                                })
+                              }
+                            >
+                              Counter
+                            </button>
+                            <button
+                              className="btn btn-secondary btn-xs"
+                              type="button"
+                              onClick={() =>
+                                handleBidCommercialUpdate(bid, {
+                                  status: "EXPIRED",
+                                  expiresAt: new Date().toISOString(),
+                                })
+                              }
+                            >
+                              Expire
+                            </button>
                             <button
                               className="btn btn-secondary btn-xs"
                               type="button"
@@ -786,7 +847,7 @@ const TransportationCommandPanel: React.FC = () => {
                     ))}
                     {selectedBids.length === 0 && (
                       <tr>
-                        <td colSpan={7}>No bids recorded for this load.</td>
+                        <td colSpan={8}>No bids recorded for this load.</td>
                       </tr>
                     )}
                   </tbody>

@@ -216,6 +216,18 @@ export async function createLoadBoardBid(payload: Record<string, unknown>) {
   return res.json();
 }
 
+export async function updateLoadBoardBidCommercials(bidId: string, payload: Record<string, unknown>) {
+  const res = await fetch(`${SHIPMENT_INTELLIGENCE_BASE}/load-board/bids/${encodeURIComponent(bidId)}/commercials`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    throw new Error(`Bid commercials update error: ${res.status}`);
+  }
+  return res.json();
+}
+
 export async function fetchBidReview(bidId: string) {
   return fetchShipmentIntelligence(`/load-board/bids/${encodeURIComponent(bidId)}/review`);
 }
