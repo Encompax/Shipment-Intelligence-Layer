@@ -45,6 +45,16 @@ type Bid = {
   score?: {
     score: number;
     scoreBand: string;
+    factors?: {
+      carrierTrust?: number;
+      carrierReliability?: number;
+      rateFit?: number;
+      marginFit?: number;
+      timingFit?: number;
+    };
+    governanceReasons?: string[];
+    carrierDecisionSummary?: string;
+    riskFlags?: string[];
     recommendedAction: string;
     evidence: string[];
     governanceSignalRequired: boolean;
@@ -658,6 +668,7 @@ const TransportationCommandPanel: React.FC = () => {
                       <th>Carrier</th>
                       <th>Bid</th>
                       <th>Score</th>
+                      <th>Trust</th>
                       <th>Recommendation</th>
                       <th>Governed</th>
                       <th>Action</th>
@@ -669,6 +680,7 @@ const TransportationCommandPanel: React.FC = () => {
                         <td>{bid.carrierId.replace("carrier-", "")}</td>
                         <td>{money(bid.bidRate)}</td>
                         <td>{bid.score?.score ?? "--"}</td>
+                        <td>{bid.score?.factors?.carrierTrust ? Math.round(bid.score.factors.carrierTrust) : "--"}</td>
                         <td>{bid.score?.recommendedAction ?? bid.status}</td>
                         <td>{bid.score?.governanceSignalRequired ? "Required" : "No"}</td>
                         <td>
@@ -700,12 +712,47 @@ const TransportationCommandPanel: React.FC = () => {
                     ))}
                     {selectedBids.length === 0 && (
                       <tr>
-                        <td colSpan={6}>No bids recorded for this load.</td>
+                        <td colSpan={7}>No bids recorded for this load.</td>
                       </tr>
                     )}
                   </tbody>
                 </table>
               </div>
+
+              {selectedBid?.score && (
+                <div className="carrier-decision-panel">
+                  <div>
+                    <p className="transport-eyebrow">Carrier Decision Evidence</p>
+                    <h4>{selectedBid.score.carrierDecisionSummary ?? "Carrier bid scored for governed routing."}</h4>
+                  </div>
+                  <div className="score-factor-grid">
+                    <div>
+                      <span>Trust</span>
+                      <strong>{Math.round(selectedBid.score.factors?.carrierTrust ?? 0)}</strong>
+                    </div>
+                    <div>
+                      <span>Reliability</span>
+                      <strong>{Math.round(selectedBid.score.factors?.carrierReliability ?? 0)}</strong>
+                    </div>
+                    <div>
+                      <span>Rate Fit</span>
+                      <strong>{Math.round(selectedBid.score.factors?.rateFit ?? 0)}</strong>
+                    </div>
+                    <div>
+                      <span>Margin Fit</span>
+                      <strong>{Math.round(selectedBid.score.factors?.marginFit ?? 0)}</strong>
+                    </div>
+                  </div>
+                  <div className="governance-reason-list">
+                    {(selectedBid.score.governanceReasons?.length
+                      ? selectedBid.score.governanceReasons
+                      : selectedBid.score.riskFlags ?? []
+                    ).slice(0, 5).map((reason) => (
+                      <span key={reason}>{reason}</span>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               <div className="transport-ops-grid">
                 <div className="ops-card">

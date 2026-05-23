@@ -268,6 +268,8 @@ export type SilMatchScore = {
     timingFit: number;
   };
   riskFlags?: string[];
+  governanceReasons?: string[];
+  carrierDecisionSummary?: string;
   recommendedAction:
     | "REJECT"
     | "SHORTLIST"

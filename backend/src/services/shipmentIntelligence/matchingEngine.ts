@@ -29,6 +29,8 @@ const clamp = (value: number, min = 0, max = 100) => Math.min(max, Math.max(min,
 
 const round = (value: number) => Math.round(value * 100) / 100;
 
+const normalizeStatus = (value?: string) => value?.trim().toUpperCase();
+
 function scoreBand(score: number): SilMatchScore["scoreBand"] {
   if (score >= 86) return "EXCELLENT";
   if (score >= 70) return "HIGH";
@@ -85,16 +87,22 @@ function carrierReliability(carrier?: SilCarrierProfile) {
 
 function carrierTrust(carrier?: SilCarrierProfile) {
   if (!carrier) return 45;
-  if (carrier.blocked || carrier.safetyStatus === "BLOCKED" || carrier.creditStatus === "BLOCKED") return 10;
+  const safetyStatus = normalizeStatus(carrier.safetyStatus);
+  const creditStatus = normalizeStatus(carrier.creditStatus);
+  const insuranceStatus = normalizeStatus(carrier.insuranceStatus);
+  if (carrier.blocked || safetyStatus === "BLOCKED" || creditStatus === "BLOCKED") return 5;
 
   let score = 70;
   if (carrier.preferred) score += 12;
-  if (carrier.insuranceStatus === "VALID") score += 8;
-  if (carrier.safetyStatus === "CLEAR") score += 8;
-  if (carrier.creditStatus === "APPROVED") score += 8;
-  if (carrier.safetyStatus === "REVIEW") score -= 14;
-  if (carrier.creditStatus === "REVIEW") score -= 14;
-  if (carrier.insuranceStatus && carrier.insuranceStatus !== "VALID") score -= 20;
+  if (insuranceStatus === "VALID") score += 8;
+  if (safetyStatus === "CLEAR") score += 8;
+  if (creditStatus === "APPROVED") score += 8;
+  if (safetyStatus === "REVIEW") score -= 18;
+  if (creditStatus === "REVIEW") score -= 18;
+  if (insuranceStatus === "REVIEW") score -= 12;
+  if (["EXPIRED", "INVALID", "BLOCKED"].includes(insuranceStatus ?? "")) score -= 24;
+  if (!safetyStatus || safetyStatus === "UNKNOWN") score -= 8;
+  if (!creditStatus || creditStatus === "UNKNOWN") score -= 8;
   return clamp(score);
 }
 
@@ -112,11 +120,20 @@ function timingFit(load: SilLoad, bid: SilBid) {
 function buildRiskFlags(context: MatchContext, factors: SilMatchScore["factors"]) {
   const flags: string[] = [];
   const { carrier, load, bid, lane } = context;
+  const safetyStatus = normalizeStatus(carrier?.safetyStatus);
+  const creditStatus = normalizeStatus(carrier?.creditStatus);
+  const insuranceStatus = normalizeStatus(carrier?.insuranceStatus);
 
   if (!carrier) flags.push("carrier profile missing");
-  if (carrier?.blocked) flags.push("carrier blocked");
-  if (carrier?.safetyStatus === "REVIEW") flags.push("carrier safety in review");
-  if (carrier?.creditStatus === "REVIEW") flags.push("carrier credit in review");
+  if (carrier?.blocked) flags.push("carrier blocked by workspace policy");
+  if (safetyStatus === "BLOCKED") flags.push("carrier safety blocked");
+  if (creditStatus === "BLOCKED") flags.push("carrier credit blocked");
+  if (safetyStatus === "REVIEW") flags.push("carrier safety in review");
+  if (creditStatus === "REVIEW") flags.push("carrier credit in review");
+  if (insuranceStatus === "REVIEW") flags.push("carrier insurance in review");
+  if (["EXPIRED", "INVALID", "BLOCKED"].includes(insuranceStatus ?? "")) flags.push("carrier insurance not valid");
+  if (!safetyStatus || safetyStatus === "UNKNOWN") flags.push("carrier safety status unknown");
+  if (!creditStatus || creditStatus === "UNKNOWN") flags.push("carrier credit status unknown");
   if ((carrier?.falloffRate ?? 0) >= 0.1) flags.push("carrier falloff rate elevated");
   if (factors && factors.rateFit < 60) flags.push("bid rate above lane tolerance");
   if (factors && factors.marginFit < 60) flags.push("margin below target");
@@ -126,9 +143,35 @@ function buildRiskFlags(context: MatchContext, factors: SilMatchScore["factors"]
   return flags;
 }
 
+function buildGovernanceReasons(riskFlags: string[], score: number) {
+  const reasons = riskFlags.filter((flag) =>
+    ["blocked", "review", "unknown", "not valid", "margin", "rate", "profile missing"].some((keyword) =>
+      flag.includes(keyword)
+    )
+  );
+  if (score < 68) reasons.push(`match score below governed routing threshold: ${Math.round(score)}`);
+  return [...new Set(reasons)];
+}
+
+function carrierDecisionSummary(carrier: SilCarrierProfile | undefined, riskFlags: string[], action: SilMatchScore["recommendedAction"]) {
+  if (!carrier) return "Carrier profile is missing; award should not proceed without governed review.";
+  if (riskFlags.some((flag) => flag.includes("blocked"))) return "Carrier is blocked or has a blocked compliance status.";
+  if (riskFlags.some((flag) => flag.includes("review") || flag.includes("unknown") || flag.includes("not valid"))) {
+    return "Carrier can be considered, but compliance evidence requires Encompax review before award.";
+  }
+  if (carrier.preferred && action === "AWARD") return "Preferred carrier with clean trust signals and award-ready score.";
+  return "Carrier bid is scored against lane, margin, timing, reliability, and trust evidence.";
+}
+
 function recommendedAction(score: number, riskFlags: string[]): SilMatchScore["recommendedAction"] {
   if (riskFlags.some((flag) => flag.includes("blocked"))) return "REJECT";
-  if (riskFlags.length >= 2 || score < 68) return "ROUTE_TO_ENCOMPAX";
+  if (
+    riskFlags.some((flag) => flag.includes("review") || flag.includes("unknown") || flag.includes("not valid")) ||
+    riskFlags.length >= 2 ||
+    score < 68
+  ) {
+    return "ROUTE_TO_ENCOMPAX";
+  }
   if (score >= 86) return "AWARD";
   if (score >= 70) return "SHORTLIST";
   return "REQUEST_MORE_CONTEXT";
@@ -155,8 +198,15 @@ export function scoreBidMatch(context: MatchContext): SilMatchScore {
 
   const riskFlags = buildRiskFlags(context, factors);
   const action = recommendedAction(score, riskFlags);
+  const governanceReasons = buildGovernanceReasons(riskFlags, score);
+  const decisionSummary = carrierDecisionSummary(context.carrier, riskFlags, action);
 
   const evidence = [
+    decisionSummary,
+    context.carrier?.preferred ? "Carrier is marked preferred in this workspace." : "Carrier is not marked preferred.",
+    `Carrier credit status: ${context.carrier?.creditStatus ?? "UNKNOWN"}`,
+    `Carrier safety status: ${context.carrier?.safetyStatus ?? "UNKNOWN"}`,
+    `Carrier insurance status: ${context.carrier?.insuranceStatus ?? "UNKNOWN"}`,
     `Lane fit score: ${round(factors.laneFit)}`,
     `Rate fit score: ${round(factors.rateFit)}`,
     `Margin fit score: ${round(factors.marginFit)}`,
@@ -171,9 +221,11 @@ export function scoreBidMatch(context: MatchContext): SilMatchScore {
     scoreBand: scoreBand(score),
     factors,
     riskFlags,
+    governanceReasons,
+    carrierDecisionSummary: decisionSummary,
     recommendedAction: action,
     evidence,
-    governanceSignalRequired: action === "ROUTE_TO_ENCOMPAX" || action === "REJECT",
+    governanceSignalRequired: governanceReasons.length > 0 || action === "ROUTE_TO_ENCOMPAX" || action === "REJECT",
   };
 }
 
@@ -230,8 +282,18 @@ export function buildGovernanceSignalFromMatch(context: MatchContext, score: Sil
       market_median_rate: context.lane?.marketRateMedian ?? null,
       carrier_falloff_rate: context.carrier?.falloffRate ?? null,
       carrier_on_time_rate: context.carrier?.onTimeRate ?? null,
+      carrier_trust_score: score.factors?.carrierTrust ?? null,
+      carrier_reliability_score: score.factors?.carrierReliability ?? null,
+      governance_reason_count: score.governanceReasons?.length ?? 0,
     },
-    tags: ["sil", "brokerage", "load-board", "matching-engine"],
+    tags: [
+      "sil",
+      "brokerage",
+      "load-board",
+      "matching-engine",
+      ...((score.governanceReasons ?? []).some((reason) => reason.includes("blocked")) ? ["carrier-blocked"] : []),
+      ...((score.governanceReasons ?? []).some((reason) => reason.includes("review")) ? ["carrier-review"] : []),
+    ],
     recommendedActions: [
       {
         actionType: "ROUTE_CARRIER_AWARD_FOR_REVIEW",

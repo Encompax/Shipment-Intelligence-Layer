@@ -5,6 +5,7 @@ exports.buildLoadRecommendations = buildLoadRecommendations;
 exports.buildGovernanceSignalFromMatch = buildGovernanceSignalFromMatch;
 const clamp = (value, min = 0, max = 100) => Math.min(max, Math.max(min, value));
 const round = (value) => Math.round(value * 100) / 100;
+const normalizeStatus = (value) => value === null || value === void 0 ? void 0 : value.trim().toUpperCase();
 function scoreBand(score) {
     if (score >= 86)
         return "EXCELLENT";
@@ -71,23 +72,32 @@ function carrierReliability(carrier) {
 function carrierTrust(carrier) {
     if (!carrier)
         return 45;
-    if (carrier.blocked || carrier.safetyStatus === "BLOCKED" || carrier.creditStatus === "BLOCKED")
-        return 10;
+    const safetyStatus = normalizeStatus(carrier.safetyStatus);
+    const creditStatus = normalizeStatus(carrier.creditStatus);
+    const insuranceStatus = normalizeStatus(carrier.insuranceStatus);
+    if (carrier.blocked || safetyStatus === "BLOCKED" || creditStatus === "BLOCKED")
+        return 5;
     let score = 70;
     if (carrier.preferred)
         score += 12;
-    if (carrier.insuranceStatus === "VALID")
+    if (insuranceStatus === "VALID")
         score += 8;
-    if (carrier.safetyStatus === "CLEAR")
+    if (safetyStatus === "CLEAR")
         score += 8;
-    if (carrier.creditStatus === "APPROVED")
+    if (creditStatus === "APPROVED")
         score += 8;
-    if (carrier.safetyStatus === "REVIEW")
-        score -= 14;
-    if (carrier.creditStatus === "REVIEW")
-        score -= 14;
-    if (carrier.insuranceStatus && carrier.insuranceStatus !== "VALID")
-        score -= 20;
+    if (safetyStatus === "REVIEW")
+        score -= 18;
+    if (creditStatus === "REVIEW")
+        score -= 18;
+    if (insuranceStatus === "REVIEW")
+        score -= 12;
+    if (["EXPIRED", "INVALID", "BLOCKED"].includes(insuranceStatus !== null && insuranceStatus !== void 0 ? insuranceStatus : ""))
+        score -= 24;
+    if (!safetyStatus || safetyStatus === "UNKNOWN")
+        score -= 8;
+    if (!creditStatus || creditStatus === "UNKNOWN")
+        score -= 8;
     return clamp(score);
 }
 function timingFit(load, bid) {
@@ -108,14 +118,29 @@ function buildRiskFlags(context, factors) {
     var _a;
     const flags = [];
     const { carrier, load, bid, lane } = context;
+    const safetyStatus = normalizeStatus(carrier === null || carrier === void 0 ? void 0 : carrier.safetyStatus);
+    const creditStatus = normalizeStatus(carrier === null || carrier === void 0 ? void 0 : carrier.creditStatus);
+    const insuranceStatus = normalizeStatus(carrier === null || carrier === void 0 ? void 0 : carrier.insuranceStatus);
     if (!carrier)
         flags.push("carrier profile missing");
     if (carrier === null || carrier === void 0 ? void 0 : carrier.blocked)
-        flags.push("carrier blocked");
-    if ((carrier === null || carrier === void 0 ? void 0 : carrier.safetyStatus) === "REVIEW")
+        flags.push("carrier blocked by workspace policy");
+    if (safetyStatus === "BLOCKED")
+        flags.push("carrier safety blocked");
+    if (creditStatus === "BLOCKED")
+        flags.push("carrier credit blocked");
+    if (safetyStatus === "REVIEW")
         flags.push("carrier safety in review");
-    if ((carrier === null || carrier === void 0 ? void 0 : carrier.creditStatus) === "REVIEW")
+    if (creditStatus === "REVIEW")
         flags.push("carrier credit in review");
+    if (insuranceStatus === "REVIEW")
+        flags.push("carrier insurance in review");
+    if (["EXPIRED", "INVALID", "BLOCKED"].includes(insuranceStatus !== null && insuranceStatus !== void 0 ? insuranceStatus : ""))
+        flags.push("carrier insurance not valid");
+    if (!safetyStatus || safetyStatus === "UNKNOWN")
+        flags.push("carrier safety status unknown");
+    if (!creditStatus || creditStatus === "UNKNOWN")
+        flags.push("carrier credit status unknown");
     if (((_a = carrier === null || carrier === void 0 ? void 0 : carrier.falloffRate) !== null && _a !== void 0 ? _a : 0) >= 0.1)
         flags.push("carrier falloff rate elevated");
     if (factors && factors.rateFit < 60)
@@ -128,11 +153,32 @@ function buildRiskFlags(context, factors) {
         flags.push("bid exceeds sell rate");
     return flags;
 }
+function buildGovernanceReasons(riskFlags, score) {
+    const reasons = riskFlags.filter((flag) => ["blocked", "review", "unknown", "not valid", "margin", "rate", "profile missing"].some((keyword) => flag.includes(keyword)));
+    if (score < 68)
+        reasons.push(`match score below governed routing threshold: ${Math.round(score)}`);
+    return [...new Set(reasons)];
+}
+function carrierDecisionSummary(carrier, riskFlags, action) {
+    if (!carrier)
+        return "Carrier profile is missing; award should not proceed without governed review.";
+    if (riskFlags.some((flag) => flag.includes("blocked")))
+        return "Carrier is blocked or has a blocked compliance status.";
+    if (riskFlags.some((flag) => flag.includes("review") || flag.includes("unknown") || flag.includes("not valid"))) {
+        return "Carrier can be considered, but compliance evidence requires Encompax review before award.";
+    }
+    if (carrier.preferred && action === "AWARD")
+        return "Preferred carrier with clean trust signals and award-ready score.";
+    return "Carrier bid is scored against lane, margin, timing, reliability, and trust evidence.";
+}
 function recommendedAction(score, riskFlags) {
     if (riskFlags.some((flag) => flag.includes("blocked")))
         return "REJECT";
-    if (riskFlags.length >= 2 || score < 68)
+    if (riskFlags.some((flag) => flag.includes("review") || flag.includes("unknown") || flag.includes("not valid")) ||
+        riskFlags.length >= 2 ||
+        score < 68) {
         return "ROUTE_TO_ENCOMPAX";
+    }
     if (score >= 86)
         return "AWARD";
     if (score >= 70)
@@ -140,6 +186,7 @@ function recommendedAction(score, riskFlags) {
     return "REQUEST_MORE_CONTEXT";
 }
 function scoreBidMatch(context) {
+    var _a, _b, _c, _d, _e, _f, _g;
     const factors = {
         laneFit: context.lane ? 88 : 42,
         rateFit: rateFit(context.load, context.bid, context.lane),
@@ -156,7 +203,14 @@ function scoreBidMatch(context) {
         factors.timingFit * 0.1);
     const riskFlags = buildRiskFlags(context, factors);
     const action = recommendedAction(score, riskFlags);
+    const governanceReasons = buildGovernanceReasons(riskFlags, score);
+    const decisionSummary = carrierDecisionSummary(context.carrier, riskFlags, action);
     const evidence = [
+        decisionSummary,
+        ((_a = context.carrier) === null || _a === void 0 ? void 0 : _a.preferred) ? "Carrier is marked preferred in this workspace." : "Carrier is not marked preferred.",
+        `Carrier credit status: ${(_c = (_b = context.carrier) === null || _b === void 0 ? void 0 : _b.creditStatus) !== null && _c !== void 0 ? _c : "UNKNOWN"}`,
+        `Carrier safety status: ${(_e = (_d = context.carrier) === null || _d === void 0 ? void 0 : _d.safetyStatus) !== null && _e !== void 0 ? _e : "UNKNOWN"}`,
+        `Carrier insurance status: ${(_g = (_f = context.carrier) === null || _f === void 0 ? void 0 : _f.insuranceStatus) !== null && _g !== void 0 ? _g : "UNKNOWN"}`,
         `Lane fit score: ${round(factors.laneFit)}`,
         `Rate fit score: ${round(factors.rateFit)}`,
         `Margin fit score: ${round(factors.marginFit)}`,
@@ -170,9 +224,11 @@ function scoreBidMatch(context) {
         scoreBand: scoreBand(score),
         factors,
         riskFlags,
+        governanceReasons,
+        carrierDecisionSummary: decisionSummary,
         recommendedAction: action,
         evidence,
-        governanceSignalRequired: action === "ROUTE_TO_ENCOMPAX" || action === "REJECT",
+        governanceSignalRequired: governanceReasons.length > 0 || action === "ROUTE_TO_ENCOMPAX" || action === "REJECT",
     };
 }
 function buildLoadRecommendations(context) {
@@ -195,7 +251,7 @@ function buildLoadRecommendations(context) {
         .sort((left, right) => { var _a, _b, _c, _d; return ((_b = (_a = right.score) === null || _a === void 0 ? void 0 : _a.score) !== null && _b !== void 0 ? _b : 0) - ((_d = (_c = left.score) === null || _c === void 0 ? void 0 : _c.score) !== null && _d !== void 0 ? _d : 0); });
 }
 function buildGovernanceSignalFromMatch(context, score) {
-    var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p;
+    var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q, _r, _s, _t, _u, _v, _w, _x;
     const projectedMargin = typeof context.load.targetSellRate === "number" ? context.load.targetSellRate - context.bid.bidRate : null;
     const severity = severityFromScore(score.score, (_a = score.riskFlags) !== null && _a !== void 0 ? _a : []);
     return {
@@ -224,8 +280,18 @@ function buildGovernanceSignalFromMatch(context, score) {
             market_median_rate: (_k = (_j = context.lane) === null || _j === void 0 ? void 0 : _j.marketRateMedian) !== null && _k !== void 0 ? _k : null,
             carrier_falloff_rate: (_m = (_l = context.carrier) === null || _l === void 0 ? void 0 : _l.falloffRate) !== null && _m !== void 0 ? _m : null,
             carrier_on_time_rate: (_p = (_o = context.carrier) === null || _o === void 0 ? void 0 : _o.onTimeRate) !== null && _p !== void 0 ? _p : null,
+            carrier_trust_score: (_r = (_q = score.factors) === null || _q === void 0 ? void 0 : _q.carrierTrust) !== null && _r !== void 0 ? _r : null,
+            carrier_reliability_score: (_t = (_s = score.factors) === null || _s === void 0 ? void 0 : _s.carrierReliability) !== null && _t !== void 0 ? _t : null,
+            governance_reason_count: (_v = (_u = score.governanceReasons) === null || _u === void 0 ? void 0 : _u.length) !== null && _v !== void 0 ? _v : 0,
         },
-        tags: ["sil", "brokerage", "load-board", "matching-engine"],
+        tags: [
+            "sil",
+            "brokerage",
+            "load-board",
+            "matching-engine",
+            ...(((_w = score.governanceReasons) !== null && _w !== void 0 ? _w : []).some((reason) => reason.includes("blocked")) ? ["carrier-blocked"] : []),
+            ...(((_x = score.governanceReasons) !== null && _x !== void 0 ? _x : []).some((reason) => reason.includes("review")) ? ["carrier-review"] : []),
+        ],
         recommendedActions: [
             {
                 actionType: "ROUTE_CARRIER_AWARD_FOR_REVIEW",

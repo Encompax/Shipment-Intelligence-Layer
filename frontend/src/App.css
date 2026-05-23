@@ -874,6 +874,68 @@ td {
   gap: var(--space-1);
 }
 
+.carrier-decision-panel {
+  display: grid;
+  gap: var(--space-4);
+  margin: var(--space-4) 0;
+  padding: var(--space-4);
+  border: 1px solid rgba(14, 165, 233, 0.2);
+  border-radius: var(--radius-lg);
+  background:
+    linear-gradient(135deg, rgba(236, 254, 255, 0.7), rgba(255, 255, 255, 0.92));
+}
+
+.carrier-decision-panel h4 {
+  margin: var(--space-1) 0 0;
+  color: var(--color-text-primary);
+  font-size: var(--font-size-base);
+}
+
+.score-factor-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-2);
+}
+
+.score-factor-grid > div {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: rgba(255, 255, 255, 0.75);
+}
+
+.score-factor-grid span {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.score-factor-grid strong {
+  color: var(--color-text-primary);
+  font-size: var(--font-size-lg);
+}
+
+.governance-reason-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.governance-reason-list span {
+  padding: var(--space-1) var(--space-3);
+  border: 1px solid rgba(217, 119, 6, 0.22);
+  border-radius: var(--radius-full);
+  background: var(--color-warning-bg);
+  color: #92400e;
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+}
+
 .carrier-management {
   grid-template-columns: repeat(4, minmax(120px, 1fr)) auto;
   align-items: end;
@@ -1839,6 +1901,7 @@ td {
   .transport-inline-actions,
   .transport-inline-form,
   .carrier-management,
+  .score-factor-grid,
   .transport-inline-form:last-child {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
