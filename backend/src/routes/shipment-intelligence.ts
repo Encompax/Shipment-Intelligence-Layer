@@ -40,6 +40,7 @@ import {
   seedSilPersistence,
   updateSilBidStatus,
   updateSilLoadStatus,
+  upsertSilCarrier,
   upsertSilWorkspace,
 } from "../services/shipmentIntelligence/silPersistenceService";
 
@@ -226,6 +227,28 @@ export function registerShipmentIntelligenceRoutes(app: Express) {
     res.json({ count: carriers.length, carriers });
   });
 
+  router.post("/carriers", async (req: Request, res: Response) => {
+    if (!req.body?.carrierName) return res.status(400).json({ error: "carrierName is required" });
+    const result = await upsertSilCarrier({ ...req.body, workspaceId: requestWorkspaceId(req) });
+    res.status(201).json(result);
+  });
+
+  router.patch("/carriers/:carrierId", async (req: Request, res: Response) => {
+    const carrier = (await listSilCarriers({ workspaceId: requestWorkspaceId(req) })).find(
+      (item) => item.carrierId === req.params.carrierId
+    );
+    if (!carrier) return res.status(404).json({ error: "Carrier not found" });
+
+    const result = await upsertSilCarrier({
+      ...carrier,
+      ...req.body,
+      carrierId: carrier.carrierId,
+      carrierName: req.body?.carrierName ?? carrier.carrierName,
+      workspaceId: carrier.workspaceId,
+    });
+    res.json(result);
+  });
+
   router.get("/lanes", async (req: Request, res: Response) => {
     const lanes = await listSilLanes({ workspaceId: requestWorkspaceId(req) });
     res.json({ count: lanes.length, lanes });
@@ -276,7 +299,7 @@ export function registerShipmentIntelligenceRoutes(app: Express) {
   });
 
   router.post("/load-board/bids", async (req: Request, res: Response) => {
-    const required = ["postingId", "loadId", "carrierId", "bidRate"];
+    const required = ["loadId", "carrierId", "bidRate"];
     const missing = required.filter((field) => req.body?.[field] === undefined);
     if (missing.length > 0) {
       return res.status(400).json({ error: `Missing required bid fields: ${missing.join(", ")}` });
@@ -289,7 +312,7 @@ export function registerShipmentIntelligenceRoutes(app: Express) {
       listSilCarriers({ workspaceId }),
     ]);
     if (!loads.some((load) => load.loadId === req.body.loadId)) return res.status(404).json({ error: "Load not found" });
-    if (!postings.some((posting) => posting.postingId === req.body.postingId)) {
+    if (req.body.postingId && !postings.some((posting) => posting.postingId === req.body.postingId)) {
       return res.status(404).json({ error: "Posting not found" });
     }
     if (!carriers.some((carrier) => carrier.carrierId === req.body.carrierId)) {

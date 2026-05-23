@@ -441,6 +441,56 @@ export async function listSilCarriers(filters?: { workspaceId?: string }) {
   return records.map((record) => withWorkspace(fromRecord<SilCarrierProfile>(record))).filter((record) => matchesWorkspace(record, filters?.workspaceId));
 }
 
+export async function upsertSilCarrier(input: Partial<SilCarrierProfile> & Pick<SilCarrierProfile, "carrierName">) {
+  await seedSilPersistence();
+  const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;
+  const carrier: SilCarrierProfile = {
+    workspaceId,
+    carrierId: input.carrierId ?? `carrier-${normalizeIdPart(input.carrierName, "carrier")}`,
+    carrierName: input.carrierName,
+    mcNumber: input.mcNumber,
+    dotNumber: input.dotNumber,
+    insuranceStatus: input.insuranceStatus ?? "UNKNOWN",
+    safetyStatus: input.safetyStatus ?? "UNKNOWN",
+    creditStatus: input.creditStatus ?? "UNKNOWN",
+    serviceScore: input.serviceScore,
+    falloffRate: input.falloffRate,
+    onTimeRate: input.onTimeRate,
+    blocked: input.blocked ?? false,
+    preferred: input.preferred ?? false,
+  };
+  const status = carrier.blocked ? "BLOCKED" : carrier.creditStatus ?? "UNKNOWN";
+
+  await prisma.silCarrierRecord.upsert({
+    where: { carrierId: carrier.carrierId },
+    update: {
+      carrierName: carrier.carrierName,
+      status,
+      data: json(carrier),
+    },
+    create: {
+      carrierId: carrier.carrierId,
+      carrierName: carrier.carrierName,
+      status,
+      data: json(carrier),
+    },
+  });
+
+  const event = await persistSilWorkflowEvent({
+    eventId: makeId("sil_evt_carrier_profile_updated"),
+    eventType: "CARRIER_PROFILE_UPDATED",
+    occurredAt: new Date().toISOString(),
+    actor: "operator",
+    source: "USER",
+    workspaceId,
+    carrierId: carrier.carrierId,
+    summary: `Carrier profile updated for ${carrier.carrierName}.`,
+    evidence: [`Credit: ${carrier.creditStatus}`, `Safety: ${carrier.safetyStatus}`, `Preferred: ${carrier.preferred}`],
+  });
+
+  return { carrier, event };
+}
+
 export async function listSilLanes(filters?: { workspaceId?: string }) {
   await seedSilPersistence();
   const records = await prisma.silLaneRecord.findMany({ orderBy: [{ origin: "asc" }, { destination: "asc" }] });
@@ -506,14 +556,32 @@ export async function listSilBids(filters?: { workspaceId?: string }) {
   return records.map((record) => withWorkspace(fromRecord<SilBid>(record))).filter((record) => matchesWorkspace(record, filters?.workspaceId));
 }
 
-export async function createSilBid(input: Partial<SilBid> & Pick<SilBid, "postingId" | "loadId" | "carrierId" | "bidRate">) {
+export async function createSilBid(input: Partial<SilBid> & Pick<SilBid, "loadId" | "carrierId" | "bidRate">) {
   await seedSilPersistence();
   const load = await getSilLoad(input.loadId);
   const workspaceId = input.workspaceId ?? load?.workspaceId ?? DEFAULT_WORKSPACE_ID;
+  let postingId = input.postingId;
+  if (!postingId) {
+    const activePosting = (await listSilPostings({ workspaceId })).find(
+      (posting) => posting.loadId === input.loadId && ["POSTED", "DRAFT"].includes(posting.status)
+    );
+    if (activePosting) {
+      postingId = activePosting.postingId;
+    } else {
+      const createdPosting = await createSilPosting({
+        workspaceId,
+        loadId: input.loadId,
+        board: "INTERNAL",
+        visibility: "INVITED_CARRIERS",
+        status: "POSTED",
+      });
+      postingId = createdPosting.posting.postingId;
+    }
+  }
   const bid: SilBid = {
     workspaceId,
     bidId: input.bidId ?? `bid-${normalizeIdPart(input.carrierId, "carrier")}-${normalizeIdPart(input.loadId, "load")}-${Date.now()}`,
-    postingId: input.postingId,
+    postingId,
     loadId: input.loadId,
     carrierId: input.carrierId,
     bidRate: input.bidRate,

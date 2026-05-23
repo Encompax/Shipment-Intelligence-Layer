@@ -163,6 +163,27 @@ function registerShipmentIntelligenceRoutes(app) {
         const carriers = await (0, silPersistenceService_1.listSilCarriers)({ workspaceId: requestWorkspaceId(req) });
         res.json({ count: carriers.length, carriers });
     });
+    router.post("/carriers", async (req, res) => {
+        var _a;
+        if (!((_a = req.body) === null || _a === void 0 ? void 0 : _a.carrierName))
+            return res.status(400).json({ error: "carrierName is required" });
+        const result = await (0, silPersistenceService_1.upsertSilCarrier)({ ...req.body, workspaceId: requestWorkspaceId(req) });
+        res.status(201).json(result);
+    });
+    router.patch("/carriers/:carrierId", async (req, res) => {
+        var _a, _b;
+        const carrier = (await (0, silPersistenceService_1.listSilCarriers)({ workspaceId: requestWorkspaceId(req) })).find((item) => item.carrierId === req.params.carrierId);
+        if (!carrier)
+            return res.status(404).json({ error: "Carrier not found" });
+        const result = await (0, silPersistenceService_1.upsertSilCarrier)({
+            ...carrier,
+            ...req.body,
+            carrierId: carrier.carrierId,
+            carrierName: (_b = (_a = req.body) === null || _a === void 0 ? void 0 : _a.carrierName) !== null && _b !== void 0 ? _b : carrier.carrierName,
+            workspaceId: carrier.workspaceId,
+        });
+        res.json(result);
+    });
     router.get("/lanes", async (req, res) => {
         const lanes = await (0, silPersistenceService_1.listSilLanes)({ workspaceId: requestWorkspaceId(req) });
         res.json({ count: lanes.length, lanes });
@@ -207,7 +228,7 @@ function registerShipmentIntelligenceRoutes(app) {
         res.json({ count: scoredBids.length, bids: scoredBids });
     });
     router.post("/load-board/bids", async (req, res) => {
-        const required = ["postingId", "loadId", "carrierId", "bidRate"];
+        const required = ["loadId", "carrierId", "bidRate"];
         const missing = required.filter((field) => { var _a; return ((_a = req.body) === null || _a === void 0 ? void 0 : _a[field]) === undefined; });
         if (missing.length > 0) {
             return res.status(400).json({ error: `Missing required bid fields: ${missing.join(", ")}` });
@@ -220,7 +241,7 @@ function registerShipmentIntelligenceRoutes(app) {
         ]);
         if (!loads.some((load) => load.loadId === req.body.loadId))
             return res.status(404).json({ error: "Load not found" });
-        if (!postings.some((posting) => posting.postingId === req.body.postingId)) {
+        if (req.body.postingId && !postings.some((posting) => posting.postingId === req.body.postingId)) {
             return res.status(404).json({ error: "Posting not found" });
         }
         if (!carriers.some((carrier) => carrier.carrierId === req.body.carrierId)) {

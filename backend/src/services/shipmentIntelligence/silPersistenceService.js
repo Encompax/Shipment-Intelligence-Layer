@@ -7,6 +7,7 @@ exports.updateSilLoadStatus = updateSilLoadStatus;
 exports.createSilLoad = createSilLoad;
 exports.listSilShipments = listSilShipments;
 exports.listSilCarriers = listSilCarriers;
+exports.upsertSilCarrier = upsertSilCarrier;
 exports.listSilLanes = listSilLanes;
 exports.listSilPostings = listSilPostings;
 exports.createSilPosting = createSilPosting;
@@ -362,6 +363,53 @@ async function listSilCarriers(filters) {
     const records = await prisma_1.prisma.silCarrierRecord.findMany({ orderBy: { carrierName: "asc" } });
     return records.map((record) => withWorkspace(fromRecord(record))).filter((record) => matchesWorkspace(record, filters === null || filters === void 0 ? void 0 : filters.workspaceId));
 }
+async function upsertSilCarrier(input) {
+    var _a, _b, _c, _d, _e, _f, _g, _h;
+    await seedSilPersistence();
+    const workspaceId = (_a = input.workspaceId) !== null && _a !== void 0 ? _a : DEFAULT_WORKSPACE_ID;
+    const carrier = {
+        workspaceId,
+        carrierId: (_b = input.carrierId) !== null && _b !== void 0 ? _b : `carrier-${normalizeIdPart(input.carrierName, "carrier")}`,
+        carrierName: input.carrierName,
+        mcNumber: input.mcNumber,
+        dotNumber: input.dotNumber,
+        insuranceStatus: (_c = input.insuranceStatus) !== null && _c !== void 0 ? _c : "UNKNOWN",
+        safetyStatus: (_d = input.safetyStatus) !== null && _d !== void 0 ? _d : "UNKNOWN",
+        creditStatus: (_e = input.creditStatus) !== null && _e !== void 0 ? _e : "UNKNOWN",
+        serviceScore: input.serviceScore,
+        falloffRate: input.falloffRate,
+        onTimeRate: input.onTimeRate,
+        blocked: (_f = input.blocked) !== null && _f !== void 0 ? _f : false,
+        preferred: (_g = input.preferred) !== null && _g !== void 0 ? _g : false,
+    };
+    const status = carrier.blocked ? "BLOCKED" : (_h = carrier.creditStatus) !== null && _h !== void 0 ? _h : "UNKNOWN";
+    await prisma_1.prisma.silCarrierRecord.upsert({
+        where: { carrierId: carrier.carrierId },
+        update: {
+            carrierName: carrier.carrierName,
+            status,
+            data: json(carrier),
+        },
+        create: {
+            carrierId: carrier.carrierId,
+            carrierName: carrier.carrierName,
+            status,
+            data: json(carrier),
+        },
+    });
+    const event = await persistSilWorkflowEvent({
+        eventId: makeId("sil_evt_carrier_profile_updated"),
+        eventType: "CARRIER_PROFILE_UPDATED",
+        occurredAt: new Date().toISOString(),
+        actor: "operator",
+        source: "USER",
+        workspaceId,
+        carrierId: carrier.carrierId,
+        summary: `Carrier profile updated for ${carrier.carrierName}.`,
+        evidence: [`Credit: ${carrier.creditStatus}`, `Safety: ${carrier.safetyStatus}`, `Preferred: ${carrier.preferred}`],
+    });
+    return { carrier, event };
+}
 async function listSilLanes(filters) {
     await seedSilPersistence();
     const records = await prisma_1.prisma.silLaneRecord.findMany({ orderBy: [{ origin: "asc" }, { destination: "asc" }] });
@@ -425,10 +473,27 @@ async function createSilBid(input) {
     await seedSilPersistence();
     const load = await getSilLoad(input.loadId);
     const workspaceId = (_b = (_a = input.workspaceId) !== null && _a !== void 0 ? _a : load === null || load === void 0 ? void 0 : load.workspaceId) !== null && _b !== void 0 ? _b : DEFAULT_WORKSPACE_ID;
+    let postingId = input.postingId;
+    if (!postingId) {
+        const activePosting = (await listSilPostings({ workspaceId })).find((posting) => posting.loadId === input.loadId && ["POSTED", "DRAFT"].includes(posting.status));
+        if (activePosting) {
+            postingId = activePosting.postingId;
+        }
+        else {
+            const createdPosting = await createSilPosting({
+                workspaceId,
+                loadId: input.loadId,
+                board: "INTERNAL",
+                visibility: "INVITED_CARRIERS",
+                status: "POSTED",
+            });
+            postingId = createdPosting.posting.postingId;
+        }
+    }
     const bid = {
         workspaceId,
         bidId: (_c = input.bidId) !== null && _c !== void 0 ? _c : `bid-${normalizeIdPart(input.carrierId, "carrier")}-${normalizeIdPart(input.loadId, "load")}-${Date.now()}`,
-        postingId: input.postingId,
+        postingId,
         loadId: input.loadId,
         carrierId: input.carrierId,
         bidRate: input.bidRate,

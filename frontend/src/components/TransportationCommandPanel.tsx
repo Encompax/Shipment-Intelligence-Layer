@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import {
   createLoadBoardBid,
   createLoadBoardPosting,
+  createTransportationCarrier,
   createTransportationLoad,
   decideLoadBoardBid,
   fetchCarrierQuotes,
@@ -18,6 +19,7 @@ import {
   fetchTransportationShipments,
   fetchWorkflowEvents,
   transitionLoad,
+  updateTransportationCarrier,
 } from "../api/client";
 import EncompaxMark from "./EncompaxMark";
 
@@ -77,6 +79,17 @@ type CarrierQuote = {
   serviceLevel: string;
   confidenceScore: number;
   evidence: string[];
+};
+
+type Carrier = {
+  carrierId: string;
+  carrierName: string;
+  creditStatus?: string;
+  safetyStatus?: string;
+  serviceScore?: number;
+  onTimeRate?: number;
+  preferred?: boolean;
+  blocked?: boolean;
 };
 
 type MarketAnalysis = {
@@ -144,7 +157,6 @@ async function loadTransportationData() {
   ]);
 
   void shipmentsResult;
-  void carriersResult;
   void marketRatesResult;
 
   return {
@@ -152,6 +164,7 @@ async function loadTransportationData() {
     loads: loadsResult.loads ?? [],
     postings: postingsResult.postings ?? [],
     bids: bidsResult.bids ?? [],
+    carriers: carriersResult.carriers ?? [],
     lanes: lanesResult.lanes ?? [],
     signals: signalsResult.governanceSignals ?? [],
   };
@@ -162,6 +175,7 @@ const TransportationCommandPanel: React.FC = () => {
   const [loads, setLoads] = useState<Load[]>([]);
   const [postings, setPostings] = useState<Posting[]>([]);
   const [bids, setBids] = useState<Bid[]>([]);
+  const [carriers, setCarriers] = useState<Carrier[]>([]);
   const [lanes, setLanes] = useState<Lane[]>([]);
   const [signals, setSignals] = useState<Signal[]>([]);
   const [carrierQuotes, setCarrierQuotes] = useState<CarrierQuote[]>([]);
@@ -187,6 +201,13 @@ const TransportationCommandPanel: React.FC = () => {
     carrierId: "carrier-riverbend",
     bidRate: "2650",
   });
+  const [carrierForm, setCarrierForm] = useState({
+    carrierName: "New Carrier",
+    creditStatus: "REVIEW",
+    safetyStatus: "REVIEW",
+    serviceScore: "0.72",
+    onTimeRate: "0.9",
+  });
 
   const refreshTransportationData = async (preferredLoadId?: string) => {
     const results = await loadTransportationData();
@@ -199,6 +220,7 @@ const TransportationCommandPanel: React.FC = () => {
     setLoads(results.loads);
     setPostings(results.postings);
     setBids(results.bids);
+    setCarriers(results.carriers);
     setLanes(results.lanes);
     setSignals(results.signals);
     setSelectedLoadId(nextSelectedLoadId);
@@ -218,6 +240,7 @@ const TransportationCommandPanel: React.FC = () => {
         setLoads(results.loads);
         setPostings(results.postings);
         setBids(results.bids);
+        setCarriers(results.carriers);
         setLanes(results.lanes);
         setSignals(results.signals);
         setSelectedLoadId((results.loads[0]?.loadId as string | undefined) ?? null);
@@ -364,6 +387,39 @@ const TransportationCommandPanel: React.FC = () => {
       setActionStatus("Carrier bid scored and stored.");
     } catch (err) {
       setActionStatus(err instanceof Error ? err.message : "Bid creation failed");
+    }
+  }
+
+  async function handleCreateCarrier(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    try {
+      setActionStatus("Saving carrier profile...");
+      const result = await createTransportationCarrier({
+        carrierName: carrierForm.carrierName,
+        creditStatus: carrierForm.creditStatus,
+        safetyStatus: carrierForm.safetyStatus,
+        serviceScore: Number(carrierForm.serviceScore),
+        onTimeRate: Number(carrierForm.onTimeRate),
+      });
+      setCarriers((current) => [result.carrier, ...current.filter((carrier) => carrier.carrierId !== result.carrier.carrierId)]);
+      setBidForm((current) => ({ ...current, carrierId: result.carrier.carrierId }));
+      setActionStatus("Carrier profile saved and selected for bidding.");
+    } catch (err) {
+      setActionStatus(err instanceof Error ? err.message : "Carrier creation failed");
+    }
+  }
+
+  async function handleCarrierFlag(carrier: Carrier, patch: Partial<Carrier>) {
+    try {
+      setActionStatus("Updating carrier profile...");
+      const result = await updateTransportationCarrier(carrier.carrierId, patch);
+      setCarriers((current) =>
+        current.map((item) => (item.carrierId === carrier.carrierId ? result.carrier : item))
+      );
+      setActionStatus("Carrier profile updated.");
+    } catch (err) {
+      setActionStatus(err instanceof Error ? err.message : "Carrier update failed");
     }
   }
 
@@ -570,10 +626,16 @@ const TransportationCommandPanel: React.FC = () => {
                 <form className="transport-inline-form" onSubmit={handleCreateBid}>
                   <label>
                     Carrier
-                    <input
+                    <select
                       value={bidForm.carrierId}
                       onChange={(event) => setBidForm((current) => ({ ...current, carrierId: event.target.value }))}
-                    />
+                    >
+                      {carriers.map((carrier) => (
+                        <option key={carrier.carrierId} value={carrier.carrierId}>
+                          {carrier.carrierName}
+                        </option>
+                      ))}
+                    </select>
                   </label>
                   <label>
                     Bid
@@ -740,6 +802,91 @@ const TransportationCommandPanel: React.FC = () => {
               </article>
             ))}
           </div>
+        </div>
+      </section>
+
+      <section className="transport-panel">
+        <div className="transport-panel-header">
+          <div>
+            <p className="transport-eyebrow">Brokerage Network</p>
+            <h3>Carrier Profiles</h3>
+          </div>
+          <span>{carriers.length} carriers</span>
+        </div>
+        <form className="transport-inline-actions carrier-management" onSubmit={handleCreateCarrier}>
+          <label>
+            Carrier Name
+            <input
+              value={carrierForm.carrierName}
+              onChange={(event) => setCarrierForm((current) => ({ ...current, carrierName: event.target.value }))}
+            />
+          </label>
+          <label>
+            Credit
+            <select
+              value={carrierForm.creditStatus}
+              onChange={(event) => setCarrierForm((current) => ({ ...current, creditStatus: event.target.value }))}
+            >
+              <option value="APPROVED">Approved</option>
+              <option value="REVIEW">Review</option>
+              <option value="BLOCKED">Blocked</option>
+              <option value="UNKNOWN">Unknown</option>
+            </select>
+          </label>
+          <label>
+            Safety
+            <select
+              value={carrierForm.safetyStatus}
+              onChange={(event) => setCarrierForm((current) => ({ ...current, safetyStatus: event.target.value }))}
+            >
+              <option value="CLEAR">Clear</option>
+              <option value="REVIEW">Review</option>
+              <option value="BLOCKED">Blocked</option>
+              <option value="UNKNOWN">Unknown</option>
+            </select>
+          </label>
+          <label>
+            Service
+            <input
+              value={carrierForm.serviceScore}
+              inputMode="decimal"
+              onChange={(event) => setCarrierForm((current) => ({ ...current, serviceScore: event.target.value }))}
+            />
+          </label>
+          <button className="btn btn-primary btn-sm" type="submit">
+            Add Carrier
+          </button>
+        </form>
+        <div className="carrier-profile-grid">
+          {carriers.slice(0, 8).map((carrier) => (
+            <article key={carrier.carrierId} className="carrier-profile-card">
+              <div>
+                <strong>{carrier.carrierName}</strong>
+                <span>{carrier.carrierId}</span>
+              </div>
+              <div className="transport-card-meta">
+                <span>{carrier.creditStatus ?? "UNKNOWN"}</span>
+                <span>{carrier.safetyStatus ?? "UNKNOWN"}</span>
+                <span>{Math.round((carrier.onTimeRate ?? 0) * 100)}% on time</span>
+              </div>
+              <div className="transport-row-actions">
+                <button
+                  className="btn btn-secondary btn-xs"
+                  type="button"
+                  onClick={() => handleCarrierFlag(carrier, { preferred: !carrier.preferred })}
+                >
+                  {carrier.preferred ? "Preferred" : "Prefer"}
+                </button>
+                <button
+                  className="btn btn-danger btn-xs"
+                  type="button"
+                  onClick={() => handleCarrierFlag(carrier, { blocked: !carrier.blocked })}
+                >
+                  {carrier.blocked ? "Unblock" : "Block"}
+                </button>
+              </div>
+            </article>
+          ))}
         </div>
       </section>
 

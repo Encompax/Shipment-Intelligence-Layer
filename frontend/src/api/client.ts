@@ -144,6 +144,30 @@ export async function fetchTransportationCarriers() {
   return fetchShipmentIntelligence("/carriers");
 }
 
+export async function createTransportationCarrier(payload: Record<string, unknown>) {
+  const res = await fetch(`${SHIPMENT_INTELLIGENCE_BASE}/carriers`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    throw new Error(`Create carrier error: ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function updateTransportationCarrier(carrierId: string, payload: Record<string, unknown>) {
+  const res = await fetch(`${SHIPMENT_INTELLIGENCE_BASE}/carriers/${encodeURIComponent(carrierId)}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    throw new Error(`Update carrier error: ${res.status}`);
+  }
+  return res.json();
+}
+
 export async function fetchTransportationLanes() {
   return fetchShipmentIntelligence("/lanes");
 }
