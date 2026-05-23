@@ -80,6 +80,22 @@ export async function fetchTransportationOverview() {
   return fetchShipmentIntelligence("/overview");
 }
 
+export async function fetchSilWorkspace() {
+  return fetchShipmentIntelligence("/workspace");
+}
+
+export async function updateSilWorkspace(payload: Record<string, unknown>) {
+  const res = await fetch(`${SHIPMENT_INTELLIGENCE_BASE}/workspace`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    throw new Error(`Workspace update error: ${res.status}`);
+  }
+  return res.json();
+}
+
 export async function fetchTransportationLoads() {
   return fetchShipmentIntelligence("/loads");
 }

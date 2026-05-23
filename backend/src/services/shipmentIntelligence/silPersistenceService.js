@@ -21,6 +21,8 @@ exports.listPersistedWorkflowEvents = listPersistedWorkflowEvents;
 exports.listSilLeanTemplates = listSilLeanTemplates;
 exports.createSilLeanRecord = createSilLeanRecord;
 exports.listSilLeanRecords = listSilLeanRecords;
+exports.getSilWorkspace = getSilWorkspace;
+exports.upsertSilWorkspace = upsertSilWorkspace;
 const prisma_1 = require("../../lib/prisma");
 const mockData_1 = require("./mockData");
 const leanTemplates_1 = require("./leanTemplates");
@@ -38,9 +40,70 @@ const signalId = (signal) => {
 };
 const makeId = (prefix) => `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 const normalizeIdPart = (value, fallback) => (value !== null && value !== void 0 ? value : fallback).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "") || fallback;
+async function ensureSilWorkspaceTable() {
+    await prisma_1.prisma.$executeRaw `
+    CREATE TABLE IF NOT EXISTS "SilWorkspaceRecord" (
+      "id" TEXT NOT NULL PRIMARY KEY,
+      "workspaceId" TEXT NOT NULL UNIQUE,
+      "organization" TEXT NOT NULL,
+      "ownerEmail" TEXT,
+      "status" TEXT NOT NULL DEFAULT 'ACTIVE',
+      "data" TEXT NOT NULL,
+      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "updatedAt" DATETIME NOT NULL
+    )
+  `;
+    await prisma_1.prisma.$executeRaw `CREATE INDEX IF NOT EXISTS "SilWorkspaceRecord_organization_idx" ON "SilWorkspaceRecord"("organization")`;
+    await prisma_1.prisma.$executeRaw `CREATE INDEX IF NOT EXISTS "SilWorkspaceRecord_status_idx" ON "SilWorkspaceRecord"("status")`;
+}
+const defaultWorkspace = {
+    workspaceId: "workspace-shipment-operations",
+    organization: "Example Organization",
+    workspaceName: "Shipment Operations",
+    ownerEmail: "operator@example.com",
+    status: "TRIAL",
+    selectedProductIds: ["sil"],
+    governanceMode: "SIGNAL_ONLY",
+    modules: [
+        {
+            productId: "sil",
+            status: "ACTIVE",
+            enabled: true,
+            connectedAt: new Date(0).toISOString(),
+            governanceRoute: "platform_overview",
+        },
+        {
+            productId: "marengo",
+            status: "AVAILABLE",
+            enabled: false,
+            governanceRoute: "governance_council",
+        },
+        {
+            productId: "kardia",
+            status: "PLANNED",
+            enabled: false,
+            governanceRoute: "ethos_sentinel_review",
+        },
+        {
+            productId: "encompax",
+            status: "AVAILABLE",
+            enabled: false,
+            governanceRoute: "platform_overview",
+        },
+    ],
+    teamMembers: [
+        {
+            email: "operator@example.com",
+            role: "OWNER",
+            status: "ACTIVE",
+        },
+    ],
+};
 async function seedSilPersistence() {
+    var _a, _b;
     if (seeded)
         return;
+    await ensureSilWorkspaceTable();
     await Promise.all([
         ...mockData_1.loads.map((load) => prisma_1.prisma.silLoadRecord.upsert({
             where: { loadId: load.loadId },
@@ -194,6 +257,15 @@ async function seedSilPersistence() {
             },
         })),
     ]);
+    const existingWorkspace = await prisma_1.prisma.$queryRaw `
+    SELECT "workspaceId" FROM "SilWorkspaceRecord" WHERE "workspaceId" = ${defaultWorkspace.workspaceId} LIMIT 1
+  `;
+    if (existingWorkspace.length === 0) {
+        await prisma_1.prisma.$executeRaw `
+      INSERT INTO "SilWorkspaceRecord" ("id", "workspaceId", "organization", "ownerEmail", "status", "data", "updatedAt")
+      VALUES (${makeId("sil_workspace")}, ${defaultWorkspace.workspaceId}, ${defaultWorkspace.organization}, ${(_a = defaultWorkspace.ownerEmail) !== null && _a !== void 0 ? _a : null}, ${(_b = defaultWorkspace.status) !== null && _b !== void 0 ? _b : "TRIAL"}, ${json(defaultWorkspace)}, ${new Date()})
+    `;
+    }
     seeded = true;
 }
 async function listSilLoads() {
@@ -512,4 +584,62 @@ async function listSilLeanRecords(filters) {
         orderBy: { updatedAt: "desc" },
     });
     return records.map((record) => fromRecord(record));
+}
+async function getSilWorkspace(workspaceId = defaultWorkspace.workspaceId) {
+    await seedSilPersistence();
+    const records = await prisma_1.prisma.$queryRaw `
+    SELECT "data" FROM "SilWorkspaceRecord" WHERE "workspaceId" = ${workspaceId} LIMIT 1
+  `;
+    return records[0] ? fromRecord(records[0]) : defaultWorkspace;
+}
+async function upsertSilWorkspace(input) {
+    var _a, _b, _c, _d, _e, _f, _g;
+    await seedSilPersistence();
+    const workspaceId = (_a = input.workspaceId) !== null && _a !== void 0 ? _a : defaultWorkspace.workspaceId;
+    const now = new Date().toISOString();
+    const selectedProductIds = Array.from(new Set(["sil", ...input.selectedProductIds]));
+    const modules = input.modules.map((module) => {
+        var _a;
+        return ({
+            ...module,
+            enabled: selectedProductIds.includes(module.productId) && module.status !== "PLANNED",
+            connectedAt: selectedProductIds.includes(module.productId) && module.status !== "PLANNED"
+                ? (_a = module.connectedAt) !== null && _a !== void 0 ? _a : now
+                : module.connectedAt,
+        });
+    });
+    const workspace = {
+        ...input,
+        workspaceId,
+        selectedProductIds,
+        modules,
+        status: (_b = input.status) !== null && _b !== void 0 ? _b : "TRIAL",
+        governanceMode: (_c = input.governanceMode) !== null && _c !== void 0 ? _c : "SIGNAL_ONLY",
+        teamMembers: (_d = input.teamMembers) !== null && _d !== void 0 ? _d : [],
+    };
+    await ensureSilWorkspaceTable();
+    await prisma_1.prisma.$executeRaw `
+    INSERT INTO "SilWorkspaceRecord" ("id", "workspaceId", "organization", "ownerEmail", "status", "data", "updatedAt")
+    VALUES (${makeId("sil_workspace")}, ${workspaceId}, ${workspace.organization}, ${(_e = workspace.ownerEmail) !== null && _e !== void 0 ? _e : null}, ${(_f = workspace.status) !== null && _f !== void 0 ? _f : "TRIAL"}, ${json(workspace)}, ${new Date()})
+    ON CONFLICT("workspaceId") DO UPDATE SET
+      "organization" = excluded."organization",
+      "ownerEmail" = excluded."ownerEmail",
+      "status" = excluded."status",
+      "data" = excluded."data",
+      "updatedAt" = excluded."updatedAt"
+  `;
+    const event = await persistSilWorkflowEvent({
+        eventId: makeId("sil_evt_workspace_updated"),
+        eventType: "WORKSPACE_UPDATED",
+        occurredAt: now,
+        actor: (_g = workspace.ownerEmail) !== null && _g !== void 0 ? _g : "operator",
+        source: "USER",
+        summary: `${workspace.workspaceName} product selection updated.`,
+        evidence: [
+            `Organization: ${workspace.organization}`,
+            `Selected products: ${workspace.selectedProductIds.join(", ")}`,
+            `Governance mode: ${workspace.governanceMode}`,
+        ],
+    });
+    return { workspace, event };
 }

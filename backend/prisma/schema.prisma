@@ -417,3 +417,17 @@ model SilLeanRecord {
  @@index([organization])
  @@index([status])
 }
+
+model SilWorkspaceRecord {
+ id          String   @id @default(cuid())
+ workspaceId String   @unique
+ organization String
+ ownerEmail  String?
+ status      String   @default("ACTIVE")
+ data        String
+ createdAt   DateTime @default(now())
+ updatedAt   DateTime @updatedAt
+
+ @@index([organization])
+ @@index([status])
+}

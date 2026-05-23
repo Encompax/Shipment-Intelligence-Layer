@@ -296,7 +296,8 @@ export type SilWorkflowEventType =
   | "GOVERNANCE_DECISION_RECORDED"
   | "CARRIER_PROVIDER_QUOTE_REQUESTED"
   | "CARRIER_PROVIDER_TRACKING_REQUESTED"
-  | "LEAN_RECORD_CREATED";
+  | "LEAN_RECORD_CREATED"
+  | "WORKSPACE_UPDATED";
 
 export type SilWorkflowEvent = {
   eventId: string;

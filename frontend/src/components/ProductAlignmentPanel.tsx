@@ -1,4 +1,5 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
+import { fetchSilWorkspace, updateSilWorkspace } from "../api/client";
 import EncompaxMark from "./EncompaxMark";
 import SILLogo from "./SILLogo";
 
@@ -14,6 +15,28 @@ type ProductModule = {
   dataFlow: string;
   unlocks: string[];
   governanceRoute: string;
+};
+
+type WorkspaceState = {
+  workspaceId: string;
+  organization: string;
+  workspaceName: string;
+  ownerEmail?: string;
+  status: "ACTIVE" | "TRIAL" | "MERGED" | "ARCHIVED";
+  selectedProductIds: string[];
+  governanceMode: "SIGNAL_ONLY" | "COUNCIL_REVIEW" | "ENTERPRISE_SYNC";
+  modules: Array<{
+    productId: string;
+    status: ProductStatus;
+    enabled: boolean;
+    connectedAt?: string;
+    governanceRoute: string;
+  }>;
+  teamMembers: Array<{
+    email: string;
+    role: "OWNER" | "ADMIN" | "OPERATOR" | "VIEWER";
+    status: "ACTIVE" | "INVITED";
+  }>;
 };
 
 const productModules: ProductModule[] = [
@@ -70,6 +93,40 @@ const defaultSelected = productModules
 const ProductAlignmentPanel: React.FC = () => {
   const [selectedProductIds, setSelectedProductIds] = useState<string[]>(defaultSelected);
   const [focusedProductId, setFocusedProductId] = useState("sil");
+  const [workspace, setWorkspace] = useState<WorkspaceState>({
+    workspaceId: "workspace-shipment-operations",
+    organization: "Example Organization",
+    workspaceName: "Shipment Operations",
+    ownerEmail: "operator@example.com",
+    status: "TRIAL",
+    selectedProductIds: defaultSelected,
+    governanceMode: "SIGNAL_ONLY",
+    modules: productModules.map((product) => ({
+      productId: product.id,
+      status: product.status,
+      enabled: product.status === "ACTIVE",
+      governanceRoute: product.governanceRoute,
+    })),
+    teamMembers: [{ email: "operator@example.com", role: "OWNER", status: "ACTIVE" }],
+  });
+  const [saveStatus, setSaveStatus] = useState<string | null>(null);
+
+  useEffect(() => {
+    let mounted = true;
+    fetchSilWorkspace()
+      .then((payload) => {
+        if (!mounted || !payload.workspace) return;
+        setWorkspace(payload.workspace);
+        setSelectedProductIds(payload.workspace.selectedProductIds ?? defaultSelected);
+      })
+      .catch(() => {
+        if (mounted) setSaveStatus("Workspace API unavailable; using local defaults.");
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   const focusedProduct =
     productModules.find((product) => product.id === focusedProductId) ?? productModules[0];
@@ -81,12 +138,39 @@ const ProductAlignmentPanel: React.FC = () => {
 
   const toggleProduct = (product: ProductModule) => {
     if (product.status === "PLANNED") return;
-    setSelectedProductIds((current) =>
-      current.includes(product.id)
+    setSelectedProductIds((current) => {
+      const next = current.includes(product.id)
         ? current.filter((id) => id !== product.id)
-        : [...current, product.id]
-    );
+        : [...current, product.id];
+      return next.includes("sil") ? next : ["sil", ...next];
+    });
     setFocusedProductId(product.id);
+  };
+
+  const handleWorkspaceSave = async () => {
+    try {
+      setSaveStatus("Saving workspace selection...");
+      const moduleState = productModules.map((product) => {
+        const existing = workspace.modules.find((module) => module.productId === product.id);
+        return {
+          productId: product.id,
+          status: product.status,
+          enabled: selectedProductIds.includes(product.id) && product.status !== "PLANNED",
+          connectedAt: existing?.connectedAt,
+          governanceRoute: product.governanceRoute,
+        };
+      });
+      const result = await updateSilWorkspace({
+        ...workspace,
+        selectedProductIds,
+        modules: moduleState,
+      });
+      setWorkspace(result.workspace);
+      setSelectedProductIds(result.workspace.selectedProductIds);
+      setSaveStatus("Workspace product selection saved.");
+    } catch (err) {
+      setSaveStatus(err instanceof Error ? err.message : "Workspace save failed");
+    }
   };
 
   return (
@@ -104,7 +188,7 @@ const ProductAlignmentPanel: React.FC = () => {
           <SILLogo size={42} />
           <div>
             <span>Current workspace</span>
-            <strong>Shipment Operations</strong>
+            <strong>{workspace.workspaceName}</strong>
           </div>
         </div>
       </section>
@@ -124,7 +208,7 @@ const ProductAlignmentPanel: React.FC = () => {
         </div>
         <div>
           <span>Org boundary</span>
-          <strong>Separated</strong>
+          <strong>{workspace.status}</strong>
         </div>
       </section>
 
@@ -205,7 +289,7 @@ const ProductAlignmentPanel: React.FC = () => {
       <section className="suite-selected-strip">
         <div>
           <p className="transport-eyebrow">Current Selection</p>
-          <h3>Enabled Product Path</h3>
+          <h3>{workspace.organization}</h3>
         </div>
         <div className="suite-path">
           {selectedProducts.map((product) => (
@@ -213,6 +297,10 @@ const ProductAlignmentPanel: React.FC = () => {
           ))}
           <span className="suite-path-governed">Encompax Review</span>
         </div>
+        <button className="btn btn-primary" type="button" onClick={handleWorkspaceSave}>
+          Save Selection
+        </button>
+        {saveStatus && <p className="ops-note">{saveStatus}</p>}
       </section>
     </div>
   );

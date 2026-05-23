@@ -43,6 +43,23 @@ const makeId = (prefix: string) => `${prefix}_${Date.now()}_${Math.random().toSt
 const normalizeIdPart = (value: string | undefined, fallback: string) =>
   (value ?? fallback).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "") || fallback;
 
+async function ensureSilWorkspaceTable() {
+  await prisma.$executeRaw`
+    CREATE TABLE IF NOT EXISTS "SilWorkspaceRecord" (
+      "id" TEXT NOT NULL PRIMARY KEY,
+      "workspaceId" TEXT NOT NULL UNIQUE,
+      "organization" TEXT NOT NULL,
+      "ownerEmail" TEXT,
+      "status" TEXT NOT NULL DEFAULT 'ACTIVE',
+      "data" TEXT NOT NULL,
+      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "updatedAt" DATETIME NOT NULL
+    )
+  `;
+  await prisma.$executeRaw`CREATE INDEX IF NOT EXISTS "SilWorkspaceRecord_organization_idx" ON "SilWorkspaceRecord"("organization")`;
+  await prisma.$executeRaw`CREATE INDEX IF NOT EXISTS "SilWorkspaceRecord_status_idx" ON "SilWorkspaceRecord"("status")`;
+}
+
 export type SilLeanRecordPayload = {
   recordId?: string;
   templateId: string;
@@ -57,8 +74,77 @@ export type SilLeanRecordPayload = {
   governanceTrigger?: string;
 };
 
+export type SilProductModuleSelection = {
+  productId: string;
+  status: "ACTIVE" | "AVAILABLE" | "PLANNED";
+  enabled: boolean;
+  connectedAt?: string;
+  governanceRoute: string;
+};
+
+export type SilWorkspacePayload = {
+  workspaceId?: string;
+  organization: string;
+  workspaceName: string;
+  ownerEmail?: string;
+  status?: "ACTIVE" | "TRIAL" | "MERGED" | "ARCHIVED";
+  selectedProductIds: string[];
+  modules: SilProductModuleSelection[];
+  teamMembers?: Array<{
+    email: string;
+    role: "OWNER" | "ADMIN" | "OPERATOR" | "VIEWER";
+    status: "ACTIVE" | "INVITED";
+  }>;
+  governanceMode?: "SIGNAL_ONLY" | "COUNCIL_REVIEW" | "ENTERPRISE_SYNC";
+};
+
+const defaultWorkspace: SilWorkspacePayload = {
+  workspaceId: "workspace-shipment-operations",
+  organization: "Example Organization",
+  workspaceName: "Shipment Operations",
+  ownerEmail: "operator@example.com",
+  status: "TRIAL",
+  selectedProductIds: ["sil"],
+  governanceMode: "SIGNAL_ONLY",
+  modules: [
+    {
+      productId: "sil",
+      status: "ACTIVE",
+      enabled: true,
+      connectedAt: new Date(0).toISOString(),
+      governanceRoute: "platform_overview",
+    },
+    {
+      productId: "marengo",
+      status: "AVAILABLE",
+      enabled: false,
+      governanceRoute: "governance_council",
+    },
+    {
+      productId: "kardia",
+      status: "PLANNED",
+      enabled: false,
+      governanceRoute: "ethos_sentinel_review",
+    },
+    {
+      productId: "encompax",
+      status: "AVAILABLE",
+      enabled: false,
+      governanceRoute: "platform_overview",
+    },
+  ],
+  teamMembers: [
+    {
+      email: "operator@example.com",
+      role: "OWNER",
+      status: "ACTIVE",
+    },
+  ],
+};
+
 export async function seedSilPersistence() {
   if (seeded) return;
+  await ensureSilWorkspaceTable();
 
   await Promise.all([
     ...loads.map((load) =>
@@ -228,6 +314,18 @@ export async function seedSilPersistence() {
       })
     ),
   ]);
+
+  const existingWorkspace = await prisma.$queryRaw<Array<{ workspaceId: string }>>`
+    SELECT "workspaceId" FROM "SilWorkspaceRecord" WHERE "workspaceId" = ${defaultWorkspace.workspaceId!} LIMIT 1
+  `;
+  if (existingWorkspace.length === 0) {
+    await prisma.$executeRaw`
+      INSERT INTO "SilWorkspaceRecord" ("id", "workspaceId", "organization", "ownerEmail", "status", "data", "updatedAt")
+      VALUES (${makeId("sil_workspace")}, ${defaultWorkspace.workspaceId!}, ${defaultWorkspace.organization}, ${
+        defaultWorkspace.ownerEmail ?? null
+      }, ${defaultWorkspace.status ?? "TRIAL"}, ${json(defaultWorkspace)}, ${new Date()})
+    `;
+  }
 
   seeded = true;
 }
@@ -582,4 +680,66 @@ export async function listSilLeanRecords(filters?: { organization?: string; temp
     orderBy: { updatedAt: "desc" },
   });
   return records.map((record) => fromRecord<Record<string, unknown>>(record));
+}
+
+export async function getSilWorkspace(workspaceId = defaultWorkspace.workspaceId!) {
+  await seedSilPersistence();
+  const records = await prisma.$queryRaw<Array<{ data: string }>>`
+    SELECT "data" FROM "SilWorkspaceRecord" WHERE "workspaceId" = ${workspaceId} LIMIT 1
+  `;
+  return records[0] ? fromRecord<SilWorkspacePayload>(records[0]) : defaultWorkspace;
+}
+
+export async function upsertSilWorkspace(input: SilWorkspacePayload) {
+  await seedSilPersistence();
+  const workspaceId = input.workspaceId ?? defaultWorkspace.workspaceId!;
+  const now = new Date().toISOString();
+  const selectedProductIds = Array.from(new Set(["sil", ...input.selectedProductIds]));
+  const modules = input.modules.map((module) => ({
+    ...module,
+    enabled: selectedProductIds.includes(module.productId) && module.status !== "PLANNED",
+    connectedAt:
+      selectedProductIds.includes(module.productId) && module.status !== "PLANNED"
+        ? module.connectedAt ?? now
+        : module.connectedAt,
+  }));
+  const workspace: SilWorkspacePayload = {
+    ...input,
+    workspaceId,
+    selectedProductIds,
+    modules,
+    status: input.status ?? "TRIAL",
+    governanceMode: input.governanceMode ?? "SIGNAL_ONLY",
+    teamMembers: input.teamMembers ?? [],
+  };
+
+  await ensureSilWorkspaceTable();
+  await prisma.$executeRaw`
+    INSERT INTO "SilWorkspaceRecord" ("id", "workspaceId", "organization", "ownerEmail", "status", "data", "updatedAt")
+    VALUES (${makeId("sil_workspace")}, ${workspaceId}, ${workspace.organization}, ${workspace.ownerEmail ?? null}, ${
+      workspace.status ?? "TRIAL"
+    }, ${json(workspace)}, ${new Date()})
+    ON CONFLICT("workspaceId") DO UPDATE SET
+      "organization" = excluded."organization",
+      "ownerEmail" = excluded."ownerEmail",
+      "status" = excluded."status",
+      "data" = excluded."data",
+      "updatedAt" = excluded."updatedAt"
+  `;
+
+  const event = await persistSilWorkflowEvent({
+    eventId: makeId("sil_evt_workspace_updated"),
+    eventType: "WORKSPACE_UPDATED",
+    occurredAt: now,
+    actor: workspace.ownerEmail ?? "operator",
+    source: "USER",
+    summary: `${workspace.workspaceName} product selection updated.`,
+    evidence: [
+      `Organization: ${workspace.organization}`,
+      `Selected products: ${workspace.selectedProductIds.join(", ")}`,
+      `Governance mode: ${workspace.governanceMode}`,
+    ],
+  });
+
+  return { workspace, event };
 }

@@ -23,6 +23,7 @@ import {
   createSilLeanRecord,
   createSilLoad,
   createSilPosting,
+  getSilWorkspace,
   listSilLeanRecords,
   listPersistedWorkflowEvents,
   listSilBids,
@@ -39,6 +40,7 @@ import {
   seedSilPersistence,
   updateSilBidStatus,
   updateSilLoadStatus,
+  upsertSilWorkspace,
 } from "../services/shipmentIntelligence/silPersistenceService";
 
 export function registerShipmentIntelligenceRoutes(app: Express) {
@@ -101,6 +103,22 @@ export function registerShipmentIntelligenceRoutes(app: Express) {
       loadsAtRisk: governanceSignals.filter((signal) => ["HIGH", "CRITICAL"].includes(signal.severity)).length,
       timestamp: new Date().toISOString(),
     });
+  });
+
+  router.get("/workspace", async (req: Request, res: Response) => {
+    const workspace = await getSilWorkspace(req.query.workspace as string | undefined);
+    res.json({ workspace });
+  });
+
+  router.put("/workspace", async (req: Request, res: Response) => {
+    const required = ["organization", "workspaceName", "selectedProductIds", "modules"];
+    const missing = required.filter((field) => req.body?.[field] === undefined);
+    if (missing.length > 0) {
+      return res.status(400).json({ error: `Missing required workspace fields: ${missing.join(", ")}` });
+    }
+
+    const result = await upsertSilWorkspace(req.body);
+    res.json(result);
   });
 
   router.get("/loads", async (_req: Request, res: Response) => {

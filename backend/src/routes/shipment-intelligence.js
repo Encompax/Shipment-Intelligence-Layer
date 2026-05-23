@@ -59,6 +59,19 @@ function registerShipmentIntelligenceRoutes(app) {
             timestamp: new Date().toISOString(),
         });
     });
+    router.get("/workspace", async (req, res) => {
+        const workspace = await (0, silPersistenceService_1.getSilWorkspace)(req.query.workspace);
+        res.json({ workspace });
+    });
+    router.put("/workspace", async (req, res) => {
+        const required = ["organization", "workspaceName", "selectedProductIds", "modules"];
+        const missing = required.filter((field) => { var _a; return ((_a = req.body) === null || _a === void 0 ? void 0 : _a[field]) === undefined; });
+        if (missing.length > 0) {
+            return res.status(400).json({ error: `Missing required workspace fields: ${missing.join(", ")}` });
+        }
+        const result = await (0, silPersistenceService_1.upsertSilWorkspace)(req.body);
+        res.json(result);
+    });
     router.get("/loads", async (_req, res) => {
         const loads = await (0, silPersistenceService_1.listSilLoads)();
         res.json({ count: loads.length, loads });

@@ -1267,10 +1267,19 @@ td {
 
 .suite-selected-strip {
   align-items: flex-start;
+  flex-wrap: wrap;
 }
 
 .suite-selected-strip h3 {
   margin: 0;
+}
+
+.suite-selected-strip > button {
+  margin-left: auto;
+}
+
+.suite-selected-strip .ops-note {
+  width: 100%;
 }
 
 .suite-path {
