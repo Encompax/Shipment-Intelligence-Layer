@@ -4,17 +4,23 @@ exports.seedSilPersistence = seedSilPersistence;
 exports.listSilLoads = listSilLoads;
 exports.getSilLoad = getSilLoad;
 exports.updateSilLoadStatus = updateSilLoadStatus;
+exports.createSilLoad = createSilLoad;
 exports.listSilShipments = listSilShipments;
 exports.listSilCarriers = listSilCarriers;
 exports.listSilLanes = listSilLanes;
 exports.listSilPostings = listSilPostings;
+exports.createSilPosting = createSilPosting;
 exports.listSilBids = listSilBids;
+exports.createSilBid = createSilBid;
+exports.updateSilBidStatus = updateSilBidStatus;
 exports.listSilMarketRates = listSilMarketRates;
 exports.listSilGovernanceSignals = listSilGovernanceSignals;
 exports.persistSilGovernanceSignal = persistSilGovernanceSignal;
 exports.persistSilWorkflowEvent = persistSilWorkflowEvent;
 exports.listPersistedWorkflowEvents = listPersistedWorkflowEvents;
 exports.listSilLeanTemplates = listSilLeanTemplates;
+exports.createSilLeanRecord = createSilLeanRecord;
+exports.listSilLeanRecords = listSilLeanRecords;
 const prisma_1 = require("../../lib/prisma");
 const mockData_1 = require("./mockData");
 const leanTemplates_1 = require("./leanTemplates");
@@ -30,6 +36,8 @@ const signalId = (signal) => {
         (_f = (_e = signal.affectedEntities.carriers) === null || _e === void 0 ? void 0 : _e[0]) !== null && _f !== void 0 ? _f : "system",
     ].join(":");
 };
+const makeId = (prefix) => `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+const normalizeIdPart = (value, fallback) => (value !== null && value !== void 0 ? value : fallback).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "") || fallback;
 async function seedSilPersistence() {
     if (seeded)
         return;
@@ -209,6 +217,54 @@ async function updateSilLoadStatus(loadId, status) {
     });
     return updatedLoad;
 }
+async function createSilLoad(input) {
+    var _a, _b, _c, _d;
+    await seedSilPersistence();
+    const loadId = (_a = input.loadId) !== null && _a !== void 0 ? _a : `load-${normalizeIdPart(input.customerId, "customer")}-${normalizeIdPart(input.origin.state, "origin")}-${normalizeIdPart(input.destination.state, "dest")}-${Date.now()}`;
+    const load = {
+        loadId,
+        customerId: input.customerId,
+        customerName: input.customerName,
+        origin: input.origin,
+        destination: input.destination,
+        pickupWindowStart: input.pickupWindowStart,
+        pickupWindowEnd: input.pickupWindowEnd,
+        deliveryWindowStart: input.deliveryWindowStart,
+        deliveryWindowEnd: input.deliveryWindowEnd,
+        mode: input.mode,
+        equipmentType: input.equipmentType,
+        weightLbs: input.weightLbs,
+        handlingRequirements: input.handlingRequirements,
+        hazmat: input.hazmat,
+        temperatureControlled: input.temperatureControlled,
+        status: (_b = input.status) !== null && _b !== void 0 ? _b : "LOAD_CREATED",
+        targetSellRate: input.targetSellRate,
+        targetBuyRate: input.targetBuyRate,
+        marginTarget: input.marginTarget,
+        source: (_c = input.source) !== null && _c !== void 0 ? _c : "manual",
+    };
+    await prisma_1.prisma.silLoadRecord.create({
+        data: {
+            loadId: load.loadId,
+            customerId: load.customerId,
+            status: load.status,
+            source: load.source,
+            data: json(load),
+        },
+    });
+    const event = await persistSilWorkflowEvent({
+        eventId: makeId("sil_evt_load_created"),
+        eventType: "LOAD_CREATED",
+        occurredAt: new Date().toISOString(),
+        actor: "operator",
+        source: "USER",
+        loadId: load.loadId,
+        nextState: load.status,
+        summary: `Load created for ${(_d = load.customerName) !== null && _d !== void 0 ? _d : load.customerId}.`,
+        evidence: ["Manual load creation", `Mode: ${load.mode}`, `Equipment: ${load.equipmentType}`],
+    });
+    return { load, event };
+}
 async function listSilShipments() {
     await seedSilPersistence();
     const records = await prisma_1.prisma.silShipmentRecord.findMany({ orderBy: { updatedAt: "desc" } });
@@ -229,10 +285,105 @@ async function listSilPostings() {
     const records = await prisma_1.prisma.silLoadPostingRecord.findMany({ orderBy: { updatedAt: "desc" } });
     return records.map((record) => fromRecord(record));
 }
+async function createSilPosting(input) {
+    var _a, _b, _c, _d, _e, _f, _g;
+    await seedSilPersistence();
+    const posting = {
+        postingId: (_a = input.postingId) !== null && _a !== void 0 ? _a : `posting-${normalizeIdPart(input.loadId, "load")}-${Date.now()}`,
+        loadId: input.loadId,
+        board: (_b = input.board) !== null && _b !== void 0 ? _b : "INTERNAL",
+        postedRate: input.postedRate,
+        visibility: (_c = input.visibility) !== null && _c !== void 0 ? _c : "INVITED_CARRIERS",
+        status: (_d = input.status) !== null && _d !== void 0 ? _d : "POSTED",
+        postedAt: (_e = input.postedAt) !== null && _e !== void 0 ? _e : new Date().toISOString(),
+        expiresAt: input.expiresAt,
+        bidCount: (_f = input.bidCount) !== null && _f !== void 0 ? _f : 0,
+        bestBidRate: input.bestBidRate,
+        bestCarrierId: input.bestCarrierId,
+    };
+    await prisma_1.prisma.silLoadPostingRecord.create({
+        data: {
+            postingId: posting.postingId,
+            loadId: posting.loadId,
+            status: posting.status,
+            board: posting.board,
+            data: json(posting),
+        },
+    });
+    await updateSilLoadStatus(posting.loadId, posting.status === "POSTED" ? "POSTED" : "READY_TO_POST");
+    const event = await persistSilWorkflowEvent({
+        eventId: makeId("sil_evt_load_posted"),
+        eventType: "LOAD_POSTED",
+        occurredAt: new Date().toISOString(),
+        actor: "operator",
+        source: "USER",
+        loadId: posting.loadId,
+        nextState: posting.status,
+        summary: `Load posted to ${posting.board}.`,
+        evidence: [`Visibility: ${posting.visibility}`, `Posted rate: ${(_g = posting.postedRate) !== null && _g !== void 0 ? _g : "not set"}`],
+    });
+    return { posting, event };
+}
 async function listSilBids() {
     await seedSilPersistence();
     const records = await prisma_1.prisma.silBidRecord.findMany({ orderBy: { updatedAt: "desc" } });
     return records.map((record) => fromRecord(record));
+}
+async function createSilBid(input) {
+    var _a, _b, _c;
+    await seedSilPersistence();
+    const bid = {
+        bidId: (_a = input.bidId) !== null && _a !== void 0 ? _a : `bid-${normalizeIdPart(input.carrierId, "carrier")}-${normalizeIdPart(input.loadId, "load")}-${Date.now()}`,
+        postingId: input.postingId,
+        loadId: input.loadId,
+        carrierId: input.carrierId,
+        bidRate: input.bidRate,
+        currency: "USD",
+        estimatedPickupCommitment: input.estimatedPickupCommitment,
+        estimatedDeliveryCommitment: input.estimatedDeliveryCommitment,
+        message: input.message,
+        status: (_b = input.status) !== null && _b !== void 0 ? _b : "RECEIVED",
+        receivedAt: (_c = input.receivedAt) !== null && _c !== void 0 ? _c : new Date().toISOString(),
+        score: input.score,
+    };
+    await prisma_1.prisma.silBidRecord.create({
+        data: {
+            bidId: bid.bidId,
+            postingId: bid.postingId,
+            loadId: bid.loadId,
+            carrierId: bid.carrierId,
+            status: bid.status,
+            bidRate: bid.bidRate,
+            data: json(bid),
+        },
+    });
+    const event = await persistSilWorkflowEvent({
+        eventId: makeId("sil_evt_bid_received"),
+        eventType: "BID_RECEIVED",
+        occurredAt: new Date().toISOString(),
+        actor: "carrier",
+        source: "USER",
+        loadId: bid.loadId,
+        bidId: bid.bidId,
+        carrierId: bid.carrierId,
+        nextState: bid.status,
+        summary: `Bid received for ${bid.loadId}.`,
+        evidence: [`Carrier: ${bid.carrierId}`, `Bid rate: ${bid.bidRate}`],
+    });
+    return { bid, event };
+}
+async function updateSilBidStatus(bidId, status) {
+    await seedSilPersistence();
+    const record = await prisma_1.prisma.silBidRecord.findUnique({ where: { bidId } });
+    if (!record)
+        return null;
+    const bid = fromRecord(record);
+    const updatedBid = { ...bid, status };
+    await prisma_1.prisma.silBidRecord.update({
+        where: { bidId },
+        data: { status, data: json(updatedBid) },
+    });
+    return updatedBid;
 }
 async function listSilMarketRates() {
     await seedSilPersistence();
@@ -308,5 +459,57 @@ async function listPersistedWorkflowEvents(filters) {
 async function listSilLeanTemplates() {
     await seedSilPersistence();
     const records = await prisma_1.prisma.silLeanTemplateRecord.findMany({ orderBy: [{ category: "asc" }, { title: "asc" }] });
+    return records.map((record) => fromRecord(record));
+}
+async function createSilLeanRecord(input) {
+    var _a, _b, _c, _d, _e;
+    await seedSilPersistence();
+    const recordId = (_a = input.recordId) !== null && _a !== void 0 ? _a : `lean-${normalizeIdPart(input.organization, "org")}-${normalizeIdPart(input.templateId, "template")}-${Date.now()}`;
+    const record = {
+        recordId,
+        templateId: input.templateId,
+        organization: input.organization,
+        program: input.program,
+        owner: (_b = input.owner) !== null && _b !== void 0 ? _b : "operator",
+        title: input.title,
+        status: (_c = input.status) !== null && _c !== void 0 ? _c : "SUBMITTED",
+        evidence: (_d = input.evidence) !== null && _d !== void 0 ? _d : [],
+        outputs: (_e = input.outputs) !== null && _e !== void 0 ? _e : [],
+        notes: input.notes,
+        governanceTrigger: input.governanceTrigger,
+        sourceModule: "SHIPMENT_INTELLIGENCE_LAYER",
+        createdAt: new Date().toISOString(),
+    };
+    await prisma_1.prisma.silLeanRecord.create({
+        data: {
+            recordId,
+            templateId: record.templateId,
+            organization: record.organization,
+            program: record.program,
+            status: record.status,
+            data: json(record),
+        },
+    });
+    const event = await persistSilWorkflowEvent({
+        eventId: makeId("sil_evt_lean_record_created"),
+        eventType: "LEAN_RECORD_CREATED",
+        occurredAt: new Date().toISOString(),
+        actor: record.owner,
+        source: "USER",
+        summary: `LEAN record submitted for ${record.organization}.`,
+        evidence: record.evidence,
+    });
+    return { record, event };
+}
+async function listSilLeanRecords(filters) {
+    await seedSilPersistence();
+    const records = await prisma_1.prisma.silLeanRecord.findMany({
+        where: {
+            organization: filters === null || filters === void 0 ? void 0 : filters.organization,
+            templateId: filters === null || filters === void 0 ? void 0 : filters.templateId,
+            status: filters === null || filters === void 0 ? void 0 : filters.status,
+        },
+        orderBy: { updatedAt: "desc" },
+    });
     return records.map((record) => fromRecord(record));
 }

@@ -17,8 +17,13 @@ import {
   listWorkflowEvents,
   seedWorkflowEvents,
 } from "../services/shipmentIntelligence/workflowEventService";
-import { BrokerageLoadState, SilCarrierProvider, SilGovernanceSignalDraft } from "../services/shipmentIntelligence/types";
+import { BidState, BrokerageLoadState, SilCarrierProvider, SilGovernanceSignalDraft } from "../services/shipmentIntelligence/types";
 import {
+  createSilBid,
+  createSilLeanRecord,
+  createSilLoad,
+  createSilPosting,
+  listSilLeanRecords,
   listPersistedWorkflowEvents,
   listSilBids,
   listSilCarriers,
@@ -32,6 +37,7 @@ import {
   persistSilGovernanceSignal,
   persistSilWorkflowEvent,
   seedSilPersistence,
+  updateSilBidStatus,
   updateSilLoadStatus,
 } from "../services/shipmentIntelligence/silPersistenceService";
 
@@ -100,6 +106,17 @@ export function registerShipmentIntelligenceRoutes(app: Express) {
   router.get("/loads", async (_req: Request, res: Response) => {
     const loads = await listSilLoads();
     res.json({ count: loads.length, loads });
+  });
+
+  router.post("/loads", async (req: Request, res: Response) => {
+    const required = ["customerId", "origin", "destination", "mode", "equipmentType"];
+    const missing = required.filter((field) => req.body?.[field] === undefined);
+    if (missing.length > 0) {
+      return res.status(400).json({ error: `Missing required load fields: ${missing.join(", ")}` });
+    }
+
+    const result = await createSilLoad(req.body);
+    res.status(201).json(result);
   });
 
   router.get("/loads/:loadId", async (req: Request, res: Response) => {
@@ -193,6 +210,15 @@ export function registerShipmentIntelligenceRoutes(app: Express) {
     res.json({ count: postings.length, postings });
   });
 
+  router.post("/load-board/postings", async (req: Request, res: Response) => {
+    if (!req.body?.loadId) return res.status(400).json({ error: "loadId is required" });
+    const load = (await listSilLoads()).find((item) => item.loadId === req.body.loadId);
+    if (!load) return res.status(404).json({ error: "Load not found" });
+
+    const result = await createSilPosting(req.body);
+    res.status(201).json(result);
+  });
+
   router.get("/load-board/bids", async (_req: Request, res: Response) => {
     const [bids, loads, carriers, postings, lanes] = await Promise.all([
       listSilBids(),
@@ -220,6 +246,26 @@ export function registerShipmentIntelligenceRoutes(app: Express) {
     });
 
     res.json({ count: scoredBids.length, bids: scoredBids });
+  });
+
+  router.post("/load-board/bids", async (req: Request, res: Response) => {
+    const required = ["postingId", "loadId", "carrierId", "bidRate"];
+    const missing = required.filter((field) => req.body?.[field] === undefined);
+    if (missing.length > 0) {
+      return res.status(400).json({ error: `Missing required bid fields: ${missing.join(", ")}` });
+    }
+
+    const [loads, postings, carriers] = await Promise.all([listSilLoads(), listSilPostings(), listSilCarriers()]);
+    if (!loads.some((load) => load.loadId === req.body.loadId)) return res.status(404).json({ error: "Load not found" });
+    if (!postings.some((posting) => posting.postingId === req.body.postingId)) {
+      return res.status(404).json({ error: "Posting not found" });
+    }
+    if (!carriers.some((carrier) => carrier.carrierId === req.body.carrierId)) {
+      return res.status(404).json({ error: "Carrier not found" });
+    }
+
+    const result = await createSilBid(req.body);
+    res.status(201).json(result);
   });
 
   router.get("/load-board/bids/:bidId/review", async (req: Request, res: Response) => {
@@ -259,6 +305,69 @@ export function registerShipmentIntelligenceRoutes(app: Express) {
       posting: posting ?? null,
       governanceSignal,
     });
+  });
+
+  router.post("/load-board/bids/:bidId/decision", async (req: Request, res: Response) => {
+    const decision = req.body?.decision as BidState | undefined;
+    if (!decision || !["SHORTLISTED", "REJECTED", "AWARDED", "WITHDRAWN"].includes(decision)) {
+      return res.status(400).json({ error: "decision must be SHORTLISTED, REJECTED, AWARDED, or WITHDRAWN" });
+    }
+
+    const [bids, loads, carriers, postings, lanes] = await Promise.all([
+      listSilBids(),
+      listSilLoads(),
+      listSilCarriers(),
+      listSilPostings(),
+      listSilLanes(),
+    ]);
+    const bid = bids.find((item) => item.bidId === req.params.bidId);
+    if (!bid) return res.status(404).json({ error: "Bid not found" });
+
+    const load = loads.find((item) => item.loadId === bid.loadId);
+    if (!load) return res.status(404).json({ error: "Load not found for bid" });
+
+    const carrier = carriers.find((item) => item.carrierId === bid.carrierId);
+    const posting = postings.find((item) => item.postingId === bid.postingId);
+    const lane = lanes.find(
+      (item) =>
+        item.originRegion === load.origin.state &&
+        item.destinationRegion === load.destination.state &&
+        item.mode === load.mode &&
+        item.equipmentType === load.equipmentType
+    );
+    const score = scoreBidMatch({ load, bid, carrier, lane, posting });
+    const updatedBid = await updateSilBidStatus(bid.bidId, decision);
+    const governanceSignal =
+      decision === "AWARDED" && score.governanceSignalRequired
+        ? buildGovernanceSignalFromMatch({ load, bid, carrier, lane, posting }, score)
+        : null;
+    if (governanceSignal) await persistSilGovernanceSignal(governanceSignal, "READY_FOR_ENCOMPAX");
+
+    const event = await persistSilWorkflowEvent({
+      eventId: `sil_evt_bid_decision_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      eventType: decision === "AWARDED" ? "CARRIER_AWARDED" : "BID_REVIEWED",
+      occurredAt: new Date().toISOString(),
+      actor: req.body?.actor ?? "operator",
+      source: "USER",
+      loadId: bid.loadId,
+      bidId: bid.bidId,
+      carrierId: bid.carrierId,
+      previousState: bid.status,
+      nextState: decision,
+      summary: `Bid ${bid.bidId} moved from ${bid.status} to ${decision}.`,
+      evidence: [
+        `Decision: ${decision}`,
+        `Score: ${score.score}`,
+        ...(Array.isArray(req.body?.evidence) ? req.body.evidence : score.evidence),
+      ],
+      governanceSignal: governanceSignal ?? undefined,
+    });
+
+    if (decision === "AWARDED") {
+      await updateSilLoadStatus(load.loadId, "CARRIER_SELECTED");
+    }
+
+    res.json({ bid: updatedBid, score, governanceSignal, event });
   });
 
   router.get("/matching/recommendations", async (_req: Request, res: Response) => {
@@ -355,6 +464,26 @@ export function registerShipmentIntelligenceRoutes(app: Express) {
   router.get("/lean/templates", async (_req: Request, res: Response) => {
     const templates = await listSilLeanTemplates();
     res.json({ count: templates.length, templates });
+  });
+
+  router.get("/lean/records", async (req: Request, res: Response) => {
+    const records = await listSilLeanRecords({
+      organization: req.query.organization as string | undefined,
+      templateId: req.query.templateId as string | undefined,
+      status: req.query.status as string | undefined,
+    });
+    res.json({ count: records.length, records });
+  });
+
+  router.post("/lean/records", async (req: Request, res: Response) => {
+    const required = ["templateId", "organization", "program"];
+    const missing = required.filter((field) => req.body?.[field] === undefined);
+    if (missing.length > 0) {
+      return res.status(400).json({ error: `Missing required LEAN record fields: ${missing.join(", ")}` });
+    }
+
+    const result = await createSilLeanRecord(req.body);
+    res.status(201).json(result);
   });
 
   app.use("/api/shipment-intelligence", router);
