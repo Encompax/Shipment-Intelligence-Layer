@@ -1,0 +1,17 @@
+// Only owners can see/modify their objects; expand for org roles later.
+rules_version = '2';
+service cloud.firestore {
+ match /databases/{db}/documents {
+   function isAuth() { return request.auth != null }
+   function isOwner(resource) {
+     return isAuth() && resource.data.ownerId == request.auth.uid
+   }
+   match /users/{uid} {
+     allow read, write: if request.auth.uid == uid;
+   }
+   match /{colName}/{docId} {
+     allow read, update, delete: if isOwner(resource);
+     allow create: if isAuth();
+   }
+ }
+}

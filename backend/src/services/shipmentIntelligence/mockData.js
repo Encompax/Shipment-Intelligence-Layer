@@ -1,0 +1,218 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.marketRates = exports.bids = exports.postings = exports.shipments = exports.loads = exports.carriers = exports.lanes = void 0;
+exports.getGovernanceSignals = getGovernanceSignals;
+exports.lanes = [
+    {
+        laneId: "lane-pa-ga-ftl-dv",
+        originRegion: "PA",
+        destinationRegion: "GA",
+        mode: "FTL",
+        equipmentType: "DRY_VAN",
+        averageTransitDays: 2.2,
+        transitVarianceDays: 0.5,
+        onTimeRate: 0.91,
+        marketRateLow: 2050,
+        marketRateMedian: 2450,
+        marketRateHigh: 2925,
+        lastUpdatedAt: new Date().toISOString(),
+    },
+    {
+        laneId: "lane-nj-ma-ltl-dv",
+        originRegion: "NJ",
+        destinationRegion: "MA",
+        mode: "LTL",
+        equipmentType: "DRY_VAN",
+        averageTransitDays: 1.6,
+        transitVarianceDays: 0.4,
+        onTimeRate: 0.94,
+        marketRateLow: 420,
+        marketRateMedian: 575,
+        marketRateHigh: 760,
+        lastUpdatedAt: new Date().toISOString(),
+    },
+];
+exports.carriers = [
+    {
+        carrierId: "carrier-northline",
+        carrierName: "Northline Logistics",
+        mcNumber: "MC-104288",
+        insuranceStatus: "VALID",
+        safetyStatus: "CLEAR",
+        creditStatus: "APPROVED",
+        serviceScore: 86,
+        falloffRate: 0.04,
+        onTimeRate: 0.93,
+        preferred: true,
+    },
+    {
+        carrierId: "carrier-riverbend",
+        carrierName: "Riverbend Freight",
+        mcNumber: "MC-882410",
+        insuranceStatus: "VALID",
+        safetyStatus: "REVIEW",
+        creditStatus: "REVIEW",
+        serviceScore: 71,
+        falloffRate: 0.12,
+        onTimeRate: 0.84,
+    },
+];
+exports.loads = [
+    {
+        loadId: "load-gpf-pa-ga-1001",
+        customerId: "gopuff",
+        customerName: "Gopuff",
+        origin: { facilityName: "Northeast FC", city: "Philadelphia", state: "PA", country: "US" },
+        destination: { facilityName: "Atlanta Crossdock", city: "Atlanta", state: "GA", country: "US" },
+        pickupWindowStart: "2026-05-23T09:00:00.000Z",
+        pickupWindowEnd: "2026-05-23T13:00:00.000Z",
+        deliveryWindowStart: "2026-05-25T08:00:00.000Z",
+        deliveryWindowEnd: "2026-05-25T16:00:00.000Z",
+        mode: "FTL",
+        equipmentType: "DRY_VAN",
+        weightLbs: 31500,
+        status: "POSTED",
+        targetSellRate: 2950,
+        targetBuyRate: 2450,
+        marginTarget: 500,
+        source: "manual",
+    },
+    {
+        loadId: "load-ethos-nj-ma-2044",
+        customerId: "ethos-biosciences",
+        customerName: "Ethos Biosciences",
+        origin: { facilityName: "Ethos Warehouse", city: "Logan Township", state: "NJ", country: "US" },
+        destination: { facilityName: "Boston Lab", city: "Boston", state: "MA", country: "US" },
+        pickupWindowStart: "2026-05-23T14:00:00.000Z",
+        pickupWindowEnd: "2026-05-23T17:00:00.000Z",
+        deliveryWindowStart: "2026-05-24T09:00:00.000Z",
+        deliveryWindowEnd: "2026-05-24T13:00:00.000Z",
+        mode: "LTL",
+        equipmentType: "DRY_VAN",
+        weightLbs: 2400,
+        handlingRequirements: ["temperature-sensitive"],
+        status: "TENDERED",
+        targetSellRate: 740,
+        targetBuyRate: 575,
+        marginTarget: 165,
+        source: "starship",
+    },
+];
+exports.shipments = [
+    {
+        shipmentId: "shipment-gpf-pa-ga-1001",
+        loadId: "load-gpf-pa-ga-1001",
+        carrierId: "carrier-riverbend",
+        carrierName: "Riverbend Freight",
+        state: "BOOKED",
+        stops: [
+            {
+                stopId: "stop-gpf-pa-ga-1001-pu",
+                sequence: 1,
+                type: "PICKUP",
+                location: exports.loads[0].origin,
+                appointmentStart: exports.loads[0].pickupWindowStart,
+                appointmentEnd: exports.loads[0].pickupWindowEnd,
+                status: "PENDING",
+            },
+            {
+                stopId: "stop-gpf-pa-ga-1001-del",
+                sequence: 2,
+                type: "DELIVERY",
+                location: exports.loads[0].destination,
+                appointmentStart: exports.loads[0].deliveryWindowStart,
+                appointmentEnd: exports.loads[0].deliveryWindowEnd,
+                status: "PENDING",
+            },
+        ],
+        cost: 2650,
+        source: "manual",
+    },
+];
+exports.postings = [
+    {
+        postingId: "posting-gpf-pa-ga-1001",
+        loadId: "load-gpf-pa-ga-1001",
+        board: "INTERNAL",
+        postedRate: 2500,
+        visibility: "INVITED_CARRIERS",
+        status: "POSTED",
+        postedAt: new Date().toISOString(),
+        expiresAt: "2026-05-23T08:00:00.000Z",
+        bidCount: 2,
+        bestBidRate: 2650,
+        bestCarrierId: "carrier-riverbend",
+    },
+];
+exports.bids = [
+    {
+        bidId: "bid-riverbend-gpf-pa-ga-1001",
+        postingId: "posting-gpf-pa-ga-1001",
+        loadId: "load-gpf-pa-ga-1001",
+        carrierId: "carrier-riverbend",
+        bidRate: 2650,
+        currency: "USD",
+        status: "SHORTLISTED",
+        receivedAt: new Date().toISOString(),
+        score: {
+            score: 72,
+            scoreBand: "HIGH",
+            recommendedAction: "ROUTE_TO_ENCOMPAX",
+            evidence: [
+                "Bid is above lane median but below customer sell rate.",
+                "Carrier safety and credit are in review.",
+                "Pickup window is inside 24 hours.",
+            ],
+            governanceSignalRequired: true,
+        },
+    },
+];
+exports.marketRates = [
+    {
+        observationId: "rate-pa-ga-20260522",
+        laneId: "lane-pa-ga-ftl-dv",
+        source: "MANUAL",
+        lowRate: 2050,
+        medianRate: 2450,
+        highRate: 2925,
+        currency: "USD",
+        sampleSize: 18,
+        observedAt: new Date().toISOString(),
+    },
+];
+function getGovernanceSignals() {
+    return [
+        {
+            signalType: "CARRIER_CREDIT_RISK",
+            sourceModule: "SHIPMENT_INTELLIGENCE_LAYER",
+            severity: "HIGH",
+            confidenceScore: 0.82,
+            description: "Riverbend Freight is shortlisted on a time-sensitive Gopuff load while credit and safety remain in review.",
+            businessDomains: ["TRANSPORTATION", "FREIGHT_BROKERAGE", "RISK", "CUSTOMER_SERVICE"],
+            affectedEntities: {
+                loads: ["load-gpf-pa-ga-1001"],
+                carriers: ["carrier-riverbend"],
+                lanes: ["lane-pa-ga-ftl-dv"],
+                customers: ["gopuff"],
+            },
+            metrics: {
+                bid_rate: 2650,
+                market_median_rate: 2450,
+                target_sell_rate: 2950,
+                projected_margin: 300,
+                carrier_service_score: 71,
+                carrier_falloff_rate: 0.12,
+            },
+            tags: ["sil", "brokerage", "carrier-risk", "load-board"],
+            recommendedActions: [
+                {
+                    actionType: "ROUTE_CARRIER_AWARD_FOR_REVIEW",
+                    targetModule: "PLATFORM_OVERVIEW",
+                    priority: "HIGH",
+                    description: "Review carrier award before dispatch because margin, service, and credit constraints are mixed.",
+                },
+            ],
+            rawPayloadRef: "sil:load:load-gpf-pa-ga-1001",
+        },
+    ];
+}

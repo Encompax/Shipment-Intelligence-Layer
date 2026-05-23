@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-label="Encompax logo">
+  <defs>
+    <style>
+      .ring { fill: none; stroke: #0A0A0A; stroke-width: 18; }
+      .petal { fill: none; stroke: #8B0000; stroke-width: 14; stroke-linecap: round; stroke-linejoin: round; }
+      .node { fill: #14B8A6; }
+    </style>
+  </defs>
+
+  <circle class="ring" cx="512" cy="512" r="250"/>
+
+  <circle class="petal" cx="512" cy="512" r="108"/>
+  <circle class="petal" cx="512" cy="404" r="108"/>
+  <circle class="petal" cx="605.53" cy="458" r="108"/>
+  <circle class="petal" cx="605.53" cy="566" r="108"/>
+  <circle class="petal" cx="512" cy="620" r="108"/>
+  <circle class="petal" cx="418.47" cy="566" r="108"/>
+  <circle class="petal" cx="418.47" cy="458" r="108"/>
+
+  <circle class="node" cx="512" cy="296" r="10"/>
+  <circle class="node" cx="699.06" cy="404" r="10"/>
+  <circle class="node" cx="699.06" cy="620" r="10"/>
+  <circle class="node" cx="512" cy="728" r="10"/>
+  <circle class="node" cx="324.94" cy="620" r="10"/>
+  <circle class="node" cx="324.94" cy="404" r="10"/>
+</svg>

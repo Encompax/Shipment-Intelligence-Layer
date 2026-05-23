@@ -1,0 +1,253 @@
+// prisma/schema.prisma
+generator client {
+ provider = "prisma-client-js"
+}
+datasource db {
+
+  provider = "sqlite"
+
+  url      = "file:./dev.db"
+}
+ 
+/// First real table for Encompax
+model Datasource {
+ id          String   @id @default(cuid())
+ name        String
+ type        String
+ description String?
+ endpointUrl String?
+ isActive    Boolean  @default(true)
+ createdAt   DateTime @default(now())
+ updatedAt   DateTime @updatedAt
+}
+model User {
+ id        String       @id @default(cuid())
+ email     String       @unique
+ name      String
+ createdAt DateTime     @default(now())
+ updatedAt DateTime     @updatedAt
+ roles     UserRole[]
+}
+model Role {
+ id          String            @id @default(cuid())
+ name        String            @unique
+ description String?
+ users       UserRole[]
+ permissions RolePermission[]
+}
+model Permission {
+ id          String            @id @default(cuid())
+ name        String            @unique
+ description String?
+ roles       RolePermission[]
+}
+model UserRole {
+ id        String   @id @default(cuid())
+ userId    String
+ roleId    String
+ user      User     @relation(fields: [userId], references: [id])
+ role      Role     @relation(fields: [roleId], references: [id])
+ createdAt DateTime @default(now())
+}
+model RolePermission {
+ id           String   @id @default(cuid())
+ roleId       String
+ permissionId String
+ role        Role        @relation(fields: [roleId], references: [id])
+ permission  Permission  @relation(fields: [permissionId], references: [id])
+ createdAt   DateTime    @default(now())
+}
+model Job {
+ id           Int      @id @default(autoincrement())
+ dataSourceId Int
+ status       String
+ createdAt    DateTime @default(now())
+ updatedAt    DateTime @updatedAt
+ uploads      Upload[]
+}
+model Upload {
+ id           Int      @id @default(autoincrement())
+ jobId        Int
+ originalName String
+ storedPath   String
+ sizeBytes    Int
+ contentType  String
+ createdAt    DateTime @default(now())
+ job          Job      @relation(fields: [jobId], references: [id])
+}
+
+// ─── Shipment Intelligence Models ──────────────────────────────────────────
+
+model PickingTicket {
+ id               String    @id @default(cuid())
+ picking_ticket_id String   @unique
+ order_id         String
+ item_number      String
+ item_description String
+ location         String
+ lot_number       String
+ quantity_to_pick Int
+ quantity_picked  Int
+ status           String    @default("pending") // pending, in-progress, completed
+ assigned_to      String?
+ assigned_time    DateTime?
+ scanned_timestamp DateTime?
+ scanner_id       String?   // Datalogic Skorpio X5 ID
+ created_at       DateTime  @default(now())
+ updated_at       DateTime  @updatedAt
+}
+
+model LotTrackingItem {
+ id                    String    @id @default(cuid())
+ item_number           String
+ item_description      String
+ lot_number            String    @unique
+ quantity_total        Int
+ quantity_picked       Int
+ quantity_available    Int
+ location              String
+ received_date         DateTime
+ expiration_date       DateTime
+ is_sysmex             Boolean   @default(false) // Tenant-specific priority / special-handling flag
+ status                String    @default("available") // available, picking, picked, staged, shipped
+ order_reference       String?
+ production_date       DateTime?
+ notes                 String?
+ created_at            DateTime  @default(now())
+ updated_at            DateTime  @updatedAt
+}
+
+model ShipmentCarrier {
+ id                  String    @id @default(cuid())
+ shipment_id         String    @unique
+ order_id            String
+ carrier_name        String    // Carrier display name
+ service_type        String
+ tracking_number     String?
+ weight_lbs          Float
+ cost                Float
+ on_time_delivery    Boolean?
+ actual_delivery_date DateTime?
+ estimated_delivery  DateTime?
+ status              String    @default("pending") // pending, picked_up, in_transit, delivered, exception
+ exception_code      String?
+ exception_message   String?
+ ship_date           DateTime
+ created_at          DateTime  @default(now())
+ updated_at          DateTime  @updatedAt
+}
+
+model QCApproval {
+ id                    String    @id @default(cuid())
+ batch_number          String    @unique
+ item_number           String
+ item_description      String
+ quantity              Int
+ production_date       DateTime
+ received_quarantine_date DateTime
+ inspected_status      String    @default("pending") // pending, passed, failed, rework
+ inspected_by          String?
+ inspected_date        DateTime?
+ qc_verified_status    String    @default("pending") // pending, passed, failed
+ qc_verified_by        String?
+ qc_verified_date      DateTime?
+ notes                 String?
+ created_at            DateTime  @default(now())
+ updated_at            DateTime  @updatedAt
+}
+
+model StagingItem {
+ id                   String    @id @default(cuid())
+ order_id             String
+ order_source         String    // e.g., pallet, ecommerce, wholesale
+ item_number          String
+ item_description     String
+ lot_number           String
+ quantity_ordered     Int
+ quantity_staged      Int
+ picking_ticket_id    String
+ staged_time          DateTime
+ verified             Boolean   @default(false)
+ verified_by          String?
+ verified_time        DateTime?
+ picked_by            String
+ carrier              String?
+ customer_name        String?
+ created_at           DateTime  @default(now())
+ updated_at           DateTime  @updatedAt
+}
+
+// ─── Order Fulfillment Transaction Models (WMS/ERP-aligned) ────────────────
+
+model OrderLineItem {
+ id                   String    @id @default(cuid())
+ sales_order_number   String    // ORD-xxxxx
+ line_number          Int
+ item_number          String
+ item_description     String
+ quantity_requested   Int       // What the order calls for
+ quantity_allocated   Int       // What GP allocated at order time
+ picked_transactions  PickingTransaction[]
+ verification_transactions VerificationTransaction[]
+ created_at           DateTime  @default(now())
+ updated_at           DateTime  @updatedAt
+
+ @@unique([sales_order_number, line_number])
+}
+
+model PickingTransaction {
+ id                   String    @id @default(cuid())
+ line_item_id         String
+ line_item            OrderLineItem @relation(fields: [line_item_id], references: [id])
+ sales_order_number   String    // Denormalized for quick lookup
+ quantity_picked      Int       // Actual amount picked (may differ from allocated)
+ lot_number           String?   // Which lot was picked
+ picked_by            String    // Operator name who performed pick
+ picked_timestamp     DateTime
+ scanner_id           String?   // Datalogic scanner that recorded this
+ notes                String?   // e.g., "Backlog ship from ORD-001829"
+ created_at           DateTime  @default(now())
+}
+
+model VerificationTransaction {
+ id                   String    @id @default(cuid())
+ line_item_id         String
+ line_item            OrderLineItem @relation(fields: [line_item_id], references: [id])
+ sales_order_number   String    // Denormalized for quick lookup
+ quantity_verified    Int       // Quantity that was verified (typically matches pick)
+ lot_number           String?   // Which lot was verified
+ verified_by          String    // Operator name who performed verification
+ verified_timestamp   DateTime
+ verification_status  String    @default("passed") // passed, failed, variance
+ variance_notes       String?   // If qty differs from what was allocated
+ created_at           DateTime  @default(now())
+}
+
+// ─── Warehouse Inventory Movement (WMS/ERP Item Bin Moves) ─────────────────
+
+model InventoryMovement {
+ id                   String    @id @default(cuid())
+ item_number          String
+ item_description     String
+ lot_number           String
+ quantity_moved       Int
+ from_location        String    // Source location (e.g., QUARANTINE, MAIN, PICKING)
+ to_location          String    // Destination location
+ from_bin             String?   // Specific bin within location
+ to_bin               String?   // Specific bin within location
+ moved_by             String    // Operator name
+ moved_timestamp      DateTime
+ reason               String    // QC_PASS, QC_FAIL, PICKING_PREP, DAMAGED, CYCLE_COUNT, RECEIVE, etc.
+ unit_of_measure      String    // Unit (each, box, case, etc.)
+ transaction_status   String    @default("success") // success, failed, reversed
+ panatracker_ref      String?   // Reference to external WMS/ERP transaction ID when available
+ notes                String?   // Additional context
+ created_at           DateTime  @default(now())
+ updated_at           DateTime  @updatedAt
+
+ @@index([item_number])
+ @@index([lot_number])
+ @@index([from_location])
+ @@index([to_location])
+ @@index([moved_timestamp])
+}

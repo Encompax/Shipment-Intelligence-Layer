@@ -1,0 +1,43 @@
+name: Deploy to Ethos Shipment Intelligence
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        env:
+          DEPLOY_PATH: ${{ secrets.ETHOS_DEPLOY_PATH }}
+        with:
+          host: ${{ secrets.ETHOS_VPS_HOST }}
+          username: ${{ secrets.ETHOS_VPS_USER }}
+          key: ${{ secrets.ETHOS_VPS_SSH_KEY }}
+          script: |
+            set -e
+            cd "${DEPLOY_PATH:-/opt/ethos-shipment-intelligence}"
+
+            # Pull latest code
+            git fetch origin main
+            git reset --hard origin/main
+
+            # Write .env from GitHub secret
+            echo "${{ secrets.ETHOS_ENV }}" > .env
+
+            # Rebuild and restart all services
+            docker compose pull nginx certbot 2>/dev/null || true
+            docker compose build --no-cache backend sil frontend
+            docker compose up -d --remove-orphans
+
+            # Clean up old images
+            docker image prune -f
