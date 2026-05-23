@@ -251,3 +251,153 @@ model InventoryMovement {
  @@index([to_location])
  @@index([moved_timestamp])
 }
+
+// Shipment Intelligence canonical product records. These keep rich logistics
+// payloads flexible while the broker/TMS workflow is still hardening.
+
+model SilLoadRecord {
+ id          String   @id @default(cuid())
+ loadId      String   @unique
+ customerId  String
+ status      String
+ source      String
+ data        String
+ createdAt   DateTime @default(now())
+ updatedAt   DateTime @updatedAt
+
+ @@index([customerId])
+ @@index([status])
+}
+
+model SilShipmentRecord {
+ id          String   @id @default(cuid())
+ shipmentId  String   @unique
+ loadId      String?
+ state       String
+ source      String
+ data        String
+ createdAt   DateTime @default(now())
+ updatedAt   DateTime @updatedAt
+
+ @@index([loadId])
+ @@index([state])
+}
+
+model SilCarrierRecord {
+ id          String   @id @default(cuid())
+ carrierId   String   @unique
+ carrierName String
+ status      String
+ data        String
+ createdAt   DateTime @default(now())
+ updatedAt   DateTime @updatedAt
+
+ @@index([status])
+}
+
+model SilLaneRecord {
+ id          String   @id @default(cuid())
+ laneId      String   @unique
+ origin      String
+ destination String
+ mode        String
+ equipment   String
+ data        String
+ createdAt   DateTime @default(now())
+ updatedAt   DateTime @updatedAt
+
+ @@index([origin, destination])
+}
+
+model SilLoadPostingRecord {
+ id          String   @id @default(cuid())
+ postingId   String   @unique
+ loadId      String
+ status      String
+ board       String
+ data        String
+ createdAt   DateTime @default(now())
+ updatedAt   DateTime @updatedAt
+
+ @@index([loadId])
+ @@index([status])
+}
+
+model SilBidRecord {
+ id          String   @id @default(cuid())
+ bidId       String   @unique
+ postingId   String
+ loadId      String
+ carrierId   String
+ status      String
+ bidRate     Float
+ data        String
+ createdAt   DateTime @default(now())
+ updatedAt   DateTime @updatedAt
+
+ @@index([postingId])
+ @@index([loadId])
+ @@index([carrierId])
+ @@index([status])
+}
+
+model SilMarketRateRecord {
+ id            String   @id @default(cuid())
+ observationId String   @unique
+ laneId        String
+ source        String
+ observedAt    DateTime
+ data          String
+ createdAt     DateTime @default(now())
+ updatedAt     DateTime @updatedAt
+
+ @@index([laneId])
+ @@index([observedAt])
+}
+
+model SilWorkflowEventRecord {
+ id          String   @id @default(cuid())
+ eventId     String   @unique
+ eventType   String
+ loadId      String?
+ shipmentId  String?
+ bidId       String?
+ carrierId   String?
+ occurredAt  DateTime
+ data        String
+ createdAt   DateTime @default(now())
+
+ @@index([eventType])
+ @@index([loadId])
+ @@index([shipmentId])
+ @@index([bidId])
+}
+
+model SilGovernanceSignalRecord {
+ id          String   @id @default(cuid())
+ signalId    String   @unique
+ signalType  String
+ severity    String
+ sourceModule String
+ status      String   @default("DRAFT")
+ data        String
+ createdAt   DateTime @default(now())
+ updatedAt   DateTime @updatedAt
+
+ @@index([signalType])
+ @@index([severity])
+ @@index([status])
+}
+
+model SilLeanTemplateRecord {
+ id          String   @id @default(cuid())
+ templateId  String   @unique
+ title       String
+ category    String
+ owner       String
+ data        String
+ createdAt   DateTime @default(now())
+ updatedAt   DateTime @updatedAt
+
+ @@index([category])
+}

@@ -168,6 +168,10 @@ export async function fetchWorkflowEvents(filters?: { loadId?: string; shipmentI
   return fetchShipmentIntelligence(`/workflow-events${query}`);
 }
 
+export async function fetchLeanTemplates() {
+  return fetchShipmentIntelligence("/lean/templates");
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 
 export async function uploadFile(dataSourceId: number, file: File) {

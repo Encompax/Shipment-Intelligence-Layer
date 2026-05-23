@@ -1,4 +1,5 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
+import { fetchLeanTemplates } from "../api/client";
 import EncompaxMark from "./EncompaxMark";
 
 type TemplateCategory =
@@ -11,6 +12,7 @@ type TemplateCategory =
 
 type LeanTemplate = {
   id: string;
+  templateId?: string;
   title: string;
   category: TemplateCategory;
   owner: string;
@@ -275,17 +277,45 @@ const LeanOperatingSystemPanel: React.FC = () => {
   const [activeCategory, setActiveCategory] = useState<(typeof categories)[number]>("All");
   const [selectedTemplateId, setSelectedTemplateId] = useState(templates[0].id);
   const [programProfile, setProgramProfile] = useState<ProgramProfile>(defaultProgramProfile);
+  const [persistedTemplates, setPersistedTemplates] = useState<LeanTemplate[]>([]);
+
+  useEffect(() => {
+    let mounted = true;
+    fetchLeanTemplates()
+      .then((payload) => {
+        if (!mounted || !Array.isArray(payload.templates)) return;
+        const normalized = payload.templates.map((template: LeanTemplate) => ({
+          ...template,
+          id: template.id ?? template.templateId ?? template.title,
+        }));
+        setPersistedTemplates(normalized);
+        if (normalized.length > 0) {
+          setSelectedTemplateId((current) =>
+            normalized.some((template: LeanTemplate) => template.id === current) ? current : normalized[0].id
+          );
+        }
+      })
+      .catch(() => {
+        if (mounted) setPersistedTemplates([]);
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  const templateLibrary = persistedTemplates.length > 0 ? persistedTemplates : templates;
 
   const filteredTemplates = useMemo(
     () =>
       activeCategory === "All"
-        ? templates
-        : templates.filter((template) => template.category === activeCategory),
-    [activeCategory]
+        ? templateLibrary
+        : templateLibrary.filter((template) => template.category === activeCategory),
+    [activeCategory, templateLibrary]
   );
 
   const selectedTemplate =
-    templates.find((template) => template.id === selectedTemplateId) ?? filteredTemplates[0] ?? templates[0];
+    templateLibrary.find((template) => template.id === selectedTemplateId) ?? filteredTemplates[0] ?? templateLibrary[0];
 
   const governancePacket = useMemo(
     () => ({
@@ -392,7 +422,7 @@ const LeanOperatingSystemPanel: React.FC = () => {
           <p className="transport-eyebrow">Templates</p>
               <h3>Program Library</h3>
             </div>
-            <span>{filteredTemplates.length} shown</span>
+            <span>{persistedTemplates.length > 0 ? "Persisted" : "Local"} / {filteredTemplates.length} shown</span>
           </div>
 
           {filteredTemplates.map((template) => (
