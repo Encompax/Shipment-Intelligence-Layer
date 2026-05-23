@@ -50,8 +50,11 @@ export function registerShipmentIntelligenceRoutes(app: Express) {
     console.error("SIL persistence seed failed", error);
   });
 
+  const requestWorkspaceId = (req: Request) =>
+    (req.query.workspaceId as string | undefined) ?? (req.body?.workspaceId as string | undefined);
+
   const findLaneForLoad = async (load: Awaited<ReturnType<typeof listSilLoads>>[number]) => {
-    const lanes = await listSilLanes();
+    const lanes = await listSilLanes({ workspaceId: load.workspaceId });
     return lanes.find(
       (item) =>
         item.originRegion === load.origin.state &&
@@ -61,12 +64,12 @@ export function registerShipmentIntelligenceRoutes(app: Express) {
     );
   };
 
-  const buildGeneratedGovernanceSignals = async () => {
+  const buildGeneratedGovernanceSignals = async (workspaceId?: string) => {
     const [bids, loads, carriers, postings] = await Promise.all([
-      listSilBids(),
-      listSilLoads(),
-      listSilCarriers(),
-      listSilPostings(),
+      listSilBids({ workspaceId }),
+      listSilLoads({ workspaceId }),
+      listSilCarriers({ workspaceId }),
+      listSilPostings({ workspaceId }),
     ]);
 
     const generatedSignals = await Promise.all(
@@ -88,12 +91,17 @@ export function registerShipmentIntelligenceRoutes(app: Express) {
     return generatedSignals.filter((signal): signal is SilGovernanceSignalDraft => Boolean(signal));
   };
 
-  router.get("/overview", async (_req: Request, res: Response) => {
-    const [loads, postings, bids] = await Promise.all([listSilLoads(), listSilPostings(), listSilBids()]);
+  router.get("/overview", async (req: Request, res: Response) => {
+    const workspaceId = requestWorkspaceId(req);
+    const [loads, postings, bids] = await Promise.all([
+      listSilLoads({ workspaceId }),
+      listSilPostings({ workspaceId }),
+      listSilBids({ workspaceId }),
+    ]);
     const activeLoads = loads.filter((load) => !["CLOSED", "CANCELED"].includes(load.status)).length;
     const activePostings = postings.filter((posting) => posting.status === "POSTED").length;
     const openBids = bids.filter((bid) => ["RECEIVED", "SHORTLISTED"].includes(bid.status)).length;
-    const governanceSignals = await buildGeneratedGovernanceSignals();
+    const governanceSignals = await buildGeneratedGovernanceSignals(workspaceId);
 
     res.json({
       activeLoads,
@@ -121,8 +129,8 @@ export function registerShipmentIntelligenceRoutes(app: Express) {
     res.json(result);
   });
 
-  router.get("/loads", async (_req: Request, res: Response) => {
-    const loads = await listSilLoads();
+  router.get("/loads", async (req: Request, res: Response) => {
+    const loads = await listSilLoads({ workspaceId: requestWorkspaceId(req) });
     res.json({ count: loads.length, loads });
   });
 
@@ -133,17 +141,17 @@ export function registerShipmentIntelligenceRoutes(app: Express) {
       return res.status(400).json({ error: `Missing required load fields: ${missing.join(", ")}` });
     }
 
-    const result = await createSilLoad(req.body);
+    const result = await createSilLoad({ ...req.body, workspaceId: requestWorkspaceId(req) });
     res.status(201).json(result);
   });
 
   router.get("/loads/:loadId", async (req: Request, res: Response) => {
     const [loads, postings, bids, carriers, lanes] = await Promise.all([
-      listSilLoads(),
-      listSilPostings(),
-      listSilBids(),
-      listSilCarriers(),
-      listSilLanes(),
+      listSilLoads({ workspaceId: requestWorkspaceId(req) }),
+      listSilPostings({ workspaceId: requestWorkspaceId(req) }),
+      listSilBids({ workspaceId: requestWorkspaceId(req) }),
+      listSilCarriers({ workspaceId: requestWorkspaceId(req) }),
+      listSilLanes({ workspaceId: requestWorkspaceId(req) }),
     ]);
     const load = loads.find((item) => item.loadId === req.params.loadId);
     if (!load) return res.status(404).json({ error: "Load not found" });
@@ -173,7 +181,7 @@ export function registerShipmentIntelligenceRoutes(app: Express) {
   });
 
   router.get("/loads/:loadId/transitions", async (req: Request, res: Response) => {
-    const loads = await listSilLoads();
+    const loads = await listSilLoads({ workspaceId: requestWorkspaceId(req) });
     const load = loads.find((item) => item.loadId === req.params.loadId);
     if (!load) return res.status(404).json({ error: "Load not found" });
 
@@ -185,7 +193,7 @@ export function registerShipmentIntelligenceRoutes(app: Express) {
   });
 
   router.post("/loads/:loadId/transition", async (req: Request, res: Response) => {
-    const loads = await listSilLoads();
+    const loads = await listSilLoads({ workspaceId: requestWorkspaceId(req) });
     const load = loads.find((item) => item.loadId === req.params.loadId);
     if (!load) return res.status(404).json({ error: "Load not found" });
 
@@ -203,47 +211,48 @@ export function registerShipmentIntelligenceRoutes(app: Express) {
       load.status = result.nextState;
       await updateSilLoadStatus(load.loadId, result.nextState);
     }
-    await persistSilWorkflowEvent(result.event);
+    await persistSilWorkflowEvent({ ...result.event, workspaceId: load.workspaceId });
 
     res.status(result.accepted ? 200 : 409).json(result);
   });
 
-  router.get("/shipments", async (_req: Request, res: Response) => {
-    const shipments = await listSilShipments();
+  router.get("/shipments", async (req: Request, res: Response) => {
+    const shipments = await listSilShipments({ workspaceId: requestWorkspaceId(req) });
     res.json({ count: shipments.length, shipments });
   });
 
-  router.get("/carriers", async (_req: Request, res: Response) => {
-    const carriers = await listSilCarriers();
+  router.get("/carriers", async (req: Request, res: Response) => {
+    const carriers = await listSilCarriers({ workspaceId: requestWorkspaceId(req) });
     res.json({ count: carriers.length, carriers });
   });
 
-  router.get("/lanes", async (_req: Request, res: Response) => {
-    const lanes = await listSilLanes();
+  router.get("/lanes", async (req: Request, res: Response) => {
+    const lanes = await listSilLanes({ workspaceId: requestWorkspaceId(req) });
     res.json({ count: lanes.length, lanes });
   });
 
-  router.get("/load-board/postings", async (_req: Request, res: Response) => {
-    const postings = await listSilPostings();
+  router.get("/load-board/postings", async (req: Request, res: Response) => {
+    const postings = await listSilPostings({ workspaceId: requestWorkspaceId(req) });
     res.json({ count: postings.length, postings });
   });
 
   router.post("/load-board/postings", async (req: Request, res: Response) => {
     if (!req.body?.loadId) return res.status(400).json({ error: "loadId is required" });
-    const load = (await listSilLoads()).find((item) => item.loadId === req.body.loadId);
+    const load = (await listSilLoads({ workspaceId: requestWorkspaceId(req) })).find((item) => item.loadId === req.body.loadId);
     if (!load) return res.status(404).json({ error: "Load not found" });
 
-    const result = await createSilPosting(req.body);
+    const result = await createSilPosting({ ...req.body, workspaceId: requestWorkspaceId(req) });
     res.status(201).json(result);
   });
 
-  router.get("/load-board/bids", async (_req: Request, res: Response) => {
+  router.get("/load-board/bids", async (req: Request, res: Response) => {
+    const workspaceId = requestWorkspaceId(req);
     const [bids, loads, carriers, postings, lanes] = await Promise.all([
-      listSilBids(),
-      listSilLoads(),
-      listSilCarriers(),
-      listSilPostings(),
-      listSilLanes(),
+      listSilBids({ workspaceId }),
+      listSilLoads({ workspaceId }),
+      listSilCarriers({ workspaceId }),
+      listSilPostings({ workspaceId }),
+      listSilLanes({ workspaceId }),
     ]);
     const scoredBids = bids.map((bid) => {
       const load = loads.find((item) => item.loadId === bid.loadId);
@@ -273,7 +282,12 @@ export function registerShipmentIntelligenceRoutes(app: Express) {
       return res.status(400).json({ error: `Missing required bid fields: ${missing.join(", ")}` });
     }
 
-    const [loads, postings, carriers] = await Promise.all([listSilLoads(), listSilPostings(), listSilCarriers()]);
+    const workspaceId = requestWorkspaceId(req);
+    const [loads, postings, carriers] = await Promise.all([
+      listSilLoads({ workspaceId }),
+      listSilPostings({ workspaceId }),
+      listSilCarriers({ workspaceId }),
+    ]);
     if (!loads.some((load) => load.loadId === req.body.loadId)) return res.status(404).json({ error: "Load not found" });
     if (!postings.some((posting) => posting.postingId === req.body.postingId)) {
       return res.status(404).json({ error: "Posting not found" });
@@ -282,17 +296,18 @@ export function registerShipmentIntelligenceRoutes(app: Express) {
       return res.status(404).json({ error: "Carrier not found" });
     }
 
-    const result = await createSilBid(req.body);
+    const result = await createSilBid({ ...req.body, workspaceId });
     res.status(201).json(result);
   });
 
   router.get("/load-board/bids/:bidId/review", async (req: Request, res: Response) => {
+    const workspaceId = requestWorkspaceId(req);
     const [bids, loads, carriers, postings, lanes] = await Promise.all([
-      listSilBids(),
-      listSilLoads(),
-      listSilCarriers(),
-      listSilPostings(),
-      listSilLanes(),
+      listSilBids({ workspaceId }),
+      listSilLoads({ workspaceId }),
+      listSilCarriers({ workspaceId }),
+      listSilPostings({ workspaceId }),
+      listSilLanes({ workspaceId }),
     ]);
     const bid = bids.find((item) => item.bidId === req.params.bidId);
     if (!bid) return res.status(404).json({ error: "Bid not found" });
@@ -331,12 +346,13 @@ export function registerShipmentIntelligenceRoutes(app: Express) {
       return res.status(400).json({ error: "decision must be SHORTLISTED, REJECTED, AWARDED, or WITHDRAWN" });
     }
 
+    const workspaceId = requestWorkspaceId(req);
     const [bids, loads, carriers, postings, lanes] = await Promise.all([
-      listSilBids(),
-      listSilLoads(),
-      listSilCarriers(),
-      listSilPostings(),
-      listSilLanes(),
+      listSilBids({ workspaceId }),
+      listSilLoads({ workspaceId }),
+      listSilCarriers({ workspaceId }),
+      listSilPostings({ workspaceId }),
+      listSilLanes({ workspaceId }),
     ]);
     const bid = bids.find((item) => item.bidId === req.params.bidId);
     if (!bid) return res.status(404).json({ error: "Bid not found" });
@@ -367,6 +383,7 @@ export function registerShipmentIntelligenceRoutes(app: Express) {
       occurredAt: new Date().toISOString(),
       actor: req.body?.actor ?? "operator",
       source: "USER",
+      workspaceId: bid.workspaceId,
       loadId: bid.loadId,
       bidId: bid.bidId,
       carrierId: bid.carrierId,
@@ -388,13 +405,14 @@ export function registerShipmentIntelligenceRoutes(app: Express) {
     res.json({ bid: updatedBid, score, governanceSignal, event });
   });
 
-  router.get("/matching/recommendations", async (_req: Request, res: Response) => {
+  router.get("/matching/recommendations", async (req: Request, res: Response) => {
+    const workspaceId = requestWorkspaceId(req);
     const [loads, postings, bids, carriers, lanes] = await Promise.all([
-      listSilLoads(),
-      listSilPostings(),
-      listSilBids(),
-      listSilCarriers(),
-      listSilLanes(),
+      listSilLoads({ workspaceId }),
+      listSilPostings({ workspaceId }),
+      listSilBids({ workspaceId }),
+      listSilCarriers({ workspaceId }),
+      listSilLanes({ workspaceId }),
     ]);
     const recommendations = loads.map((load) => {
       const posting = postings.find((item) => item.loadId === load.loadId);
@@ -409,7 +427,8 @@ export function registerShipmentIntelligenceRoutes(app: Express) {
   });
 
   router.get("/carrier-quotes/:loadId", async (req: Request, res: Response) => {
-    const [loads, carriers] = await Promise.all([listSilLoads(), listSilCarriers()]);
+    const workspaceId = requestWorkspaceId(req);
+    const [loads, carriers] = await Promise.all([listSilLoads({ workspaceId }), listSilCarriers({ workspaceId })]);
     const load = loads.find((item) => item.loadId === req.params.loadId);
     if (!load) return res.status(404).json({ error: "Load not found" });
 
@@ -419,7 +438,7 @@ export function registerShipmentIntelligenceRoutes(app: Express) {
   });
 
   router.get("/tracking/:shipmentId", async (req: Request, res: Response) => {
-    const shipments = await listSilShipments();
+    const shipments = await listSilShipments({ workspaceId: requestWorkspaceId(req) });
     const shipment = shipments.find((item) => item.shipmentId === req.params.shipmentId);
     if (!shipment) return res.status(404).json({ error: "Shipment not found" });
 
@@ -428,17 +447,18 @@ export function registerShipmentIntelligenceRoutes(app: Express) {
     res.json({ trackingUpdate });
   });
 
-  router.get("/market-rates", async (_req: Request, res: Response) => {
-    const marketRates = await listSilMarketRates();
+  router.get("/market-rates", async (req: Request, res: Response) => {
+    const marketRates = await listSilMarketRates({ workspaceId: requestWorkspaceId(req) });
     res.json({ count: marketRates.length, marketRates });
   });
 
   router.get("/market-rates/analyze", async (req: Request, res: Response) => {
+    const workspaceId = requestWorkspaceId(req);
     const [loads, bids, lanes, marketRates] = await Promise.all([
-      listSilLoads(),
-      listSilBids(),
-      listSilLanes(),
-      listSilMarketRates(),
+      listSilLoads({ workspaceId }),
+      listSilBids({ workspaceId }),
+      listSilLanes({ workspaceId }),
+      listSilMarketRates({ workspaceId }),
     ]);
     const load = loads.find((item) => item.loadId === req.query.loadId);
     if (!load) return res.status(404).json({ error: "Valid loadId query parameter is required" });
@@ -457,9 +477,10 @@ export function registerShipmentIntelligenceRoutes(app: Express) {
     res.json({ analysis });
   });
 
-  router.get("/governance-signals", async (_req: Request, res: Response) => {
-    await buildGeneratedGovernanceSignals();
-    const persistedSignals = await listSilGovernanceSignals();
+  router.get("/governance-signals", async (req: Request, res: Response) => {
+    const workspaceId = requestWorkspaceId(req);
+    await buildGeneratedGovernanceSignals(workspaceId);
+    const persistedSignals = await listSilGovernanceSignals({ workspaceId });
     const governanceSignals = persistedSignals;
     res.json({ count: governanceSignals.length, governanceSignals });
   });
@@ -469,12 +490,14 @@ export function registerShipmentIntelligenceRoutes(app: Express) {
       loadId: req.query.loadId as string | undefined,
       shipmentId: req.query.shipmentId as string | undefined,
       bidId: req.query.bidId as string | undefined,
+      workspaceId: requestWorkspaceId(req),
     });
     await Promise.all(memoryEvents.map((event) => persistSilWorkflowEvent(event)));
     const events = await listPersistedWorkflowEvents({
       loadId: req.query.loadId as string | undefined,
       shipmentId: req.query.shipmentId as string | undefined,
       bidId: req.query.bidId as string | undefined,
+      workspaceId: requestWorkspaceId(req),
     });
     res.json({ count: events.length, events });
   });
@@ -489,6 +512,7 @@ export function registerShipmentIntelligenceRoutes(app: Express) {
       organization: req.query.organization as string | undefined,
       templateId: req.query.templateId as string | undefined,
       status: req.query.status as string | undefined,
+      workspaceId: requestWorkspaceId(req),
     });
     res.json({ count: records.length, records });
   });
@@ -500,7 +524,7 @@ export function registerShipmentIntelligenceRoutes(app: Express) {
       return res.status(400).json({ error: `Missing required LEAN record fields: ${missing.join(", ")}` });
     }
 
-    const result = await createSilLeanRecord(req.body);
+    const result = await createSilLeanRecord({ ...req.body, workspaceId: requestWorkspaceId(req) });
     res.status(201).json(result);
   });
 

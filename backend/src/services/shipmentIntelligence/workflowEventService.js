@@ -14,6 +14,7 @@ function recordWorkflowEvent(input) {
         occurredAt: nowIso(),
         actor: (_a = input.actor) !== null && _a !== void 0 ? _a : "system",
         source: (_b = input.source) !== null && _b !== void 0 ? _b : "SYSTEM",
+        workspaceId: input.workspaceId,
         loadId: input.loadId,
         shipmentId: input.shipmentId,
         bidId: input.bidId,
@@ -29,11 +30,14 @@ function recordWorkflowEvent(input) {
 }
 function listWorkflowEvents(filters) {
     return workflowEvents.filter((event) => {
+        var _a;
         if ((filters === null || filters === void 0 ? void 0 : filters.loadId) && event.loadId !== filters.loadId)
             return false;
         if ((filters === null || filters === void 0 ? void 0 : filters.shipmentId) && event.shipmentId !== filters.shipmentId)
             return false;
         if ((filters === null || filters === void 0 ? void 0 : filters.bidId) && event.bidId !== filters.bidId)
+            return false;
+        if ((filters === null || filters === void 0 ? void 0 : filters.workspaceId) && ((_a = event.workspaceId) !== null && _a !== void 0 ? _a : "workspace-shipment-operations") !== filters.workspaceId)
             return false;
         return true;
     });

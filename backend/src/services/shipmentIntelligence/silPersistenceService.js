@@ -27,6 +27,7 @@ const prisma_1 = require("../../lib/prisma");
 const mockData_1 = require("./mockData");
 const leanTemplates_1 = require("./leanTemplates");
 let seeded = false;
+const DEFAULT_WORKSPACE_ID = "workspace-shipment-operations";
 const json = (value) => JSON.stringify(value);
 const fromRecord = (record) => JSON.parse(record.data);
 const signalId = (signal) => {
@@ -40,6 +41,14 @@ const signalId = (signal) => {
 };
 const makeId = (prefix) => `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 const normalizeIdPart = (value, fallback) => (value !== null && value !== void 0 ? value : fallback).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "") || fallback;
+const withWorkspace = (record, workspaceId = DEFAULT_WORKSPACE_ID) => {
+    var _a;
+    return ({
+        ...record,
+        workspaceId: (_a = record.workspaceId) !== null && _a !== void 0 ? _a : workspaceId,
+    });
+};
+const matchesWorkspace = (record, workspaceId) => { var _a; return !workspaceId || ((_a = record.workspaceId) !== null && _a !== void 0 ? _a : DEFAULT_WORKSPACE_ID) === workspaceId; };
 async function ensureSilWorkspaceTable() {
     await prisma_1.prisma.$executeRaw `
     CREATE TABLE IF NOT EXISTS "SilWorkspaceRecord" (
@@ -57,7 +66,7 @@ async function ensureSilWorkspaceTable() {
     await prisma_1.prisma.$executeRaw `CREATE INDEX IF NOT EXISTS "SilWorkspaceRecord_status_idx" ON "SilWorkspaceRecord"("status")`;
 }
 const defaultWorkspace = {
-    workspaceId: "workspace-shipment-operations",
+    workspaceId: DEFAULT_WORKSPACE_ID,
     organization: "Example Organization",
     workspaceName: "Shipment Operations",
     ownerEmail: "operator@example.com",
@@ -114,14 +123,14 @@ async function seedSilPersistence() {
                 customerId: load.customerId,
                 status: load.status,
                 source: load.source,
-                data: json(load),
+                data: json(withWorkspace(load)),
             },
             create: {
                 loadId: load.loadId,
                 customerId: load.customerId,
                 status: load.status,
                 source: load.source,
-                data: json(load),
+                data: json(withWorkspace(load)),
             },
         })),
         ...mockData_1.shipments.map((shipment) => prisma_1.prisma.silShipmentRecord.upsert({
@@ -130,14 +139,14 @@ async function seedSilPersistence() {
                 loadId: shipment.loadId,
                 state: shipment.state,
                 source: shipment.source,
-                data: json(shipment),
+                data: json(withWorkspace(shipment)),
             },
             create: {
                 shipmentId: shipment.shipmentId,
                 loadId: shipment.loadId,
                 state: shipment.state,
                 source: shipment.source,
-                data: json(shipment),
+                data: json(withWorkspace(shipment)),
             },
         })),
         ...mockData_1.carriers.map((carrier) => {
@@ -147,13 +156,13 @@ async function seedSilPersistence() {
                 update: {
                     carrierName: carrier.carrierName,
                     status: carrier.blocked ? "BLOCKED" : (_a = carrier.creditStatus) !== null && _a !== void 0 ? _a : "UNKNOWN",
-                    data: json(carrier),
+                    data: json(withWorkspace(carrier)),
                 },
                 create: {
                     carrierId: carrier.carrierId,
                     carrierName: carrier.carrierName,
                     status: carrier.blocked ? "BLOCKED" : (_b = carrier.creditStatus) !== null && _b !== void 0 ? _b : "UNKNOWN",
-                    data: json(carrier),
+                    data: json(withWorkspace(carrier)),
                 },
             });
         }),
@@ -164,7 +173,7 @@ async function seedSilPersistence() {
                 destination: lane.destinationRegion,
                 mode: lane.mode,
                 equipment: lane.equipmentType,
-                data: json(lane),
+                data: json(withWorkspace(lane)),
             },
             create: {
                 laneId: lane.laneId,
@@ -172,7 +181,7 @@ async function seedSilPersistence() {
                 destination: lane.destinationRegion,
                 mode: lane.mode,
                 equipment: lane.equipmentType,
-                data: json(lane),
+                data: json(withWorkspace(lane)),
             },
         })),
         ...mockData_1.postings.map((posting) => prisma_1.prisma.silLoadPostingRecord.upsert({
@@ -181,14 +190,14 @@ async function seedSilPersistence() {
                 loadId: posting.loadId,
                 status: posting.status,
                 board: posting.board,
-                data: json(posting),
+                data: json(withWorkspace(posting)),
             },
             create: {
                 postingId: posting.postingId,
                 loadId: posting.loadId,
                 status: posting.status,
                 board: posting.board,
-                data: json(posting),
+                data: json(withWorkspace(posting)),
             },
         })),
         ...mockData_1.bids.map((bid) => prisma_1.prisma.silBidRecord.upsert({
@@ -199,7 +208,7 @@ async function seedSilPersistence() {
                 carrierId: bid.carrierId,
                 status: bid.status,
                 bidRate: bid.bidRate,
-                data: json(bid),
+                data: json(withWorkspace(bid)),
             },
             create: {
                 bidId: bid.bidId,
@@ -208,7 +217,7 @@ async function seedSilPersistence() {
                 carrierId: bid.carrierId,
                 status: bid.status,
                 bidRate: bid.bidRate,
-                data: json(bid),
+                data: json(withWorkspace(bid)),
             },
         })),
         ...mockData_1.marketRates.map((rate) => prisma_1.prisma.silMarketRateRecord.upsert({
@@ -217,14 +226,14 @@ async function seedSilPersistence() {
                 laneId: rate.laneId,
                 source: rate.source,
                 observedAt: new Date(rate.observedAt),
-                data: json(rate),
+                data: json(withWorkspace(rate)),
             },
             create: {
                 observationId: rate.observationId,
                 laneId: rate.laneId,
                 source: rate.source,
                 observedAt: new Date(rate.observedAt),
-                data: json(rate),
+                data: json(withWorkspace(rate)),
             },
         })),
         ...(0, mockData_1.getGovernanceSignals)().map((signal) => prisma_1.prisma.silGovernanceSignalRecord.upsert({
@@ -233,14 +242,14 @@ async function seedSilPersistence() {
                 signalType: signal.signalType,
                 severity: signal.severity,
                 sourceModule: signal.sourceModule,
-                data: json(signal),
+                data: json(withWorkspace(signal)),
             },
             create: {
                 signalId: signalId(signal),
                 signalType: signal.signalType,
                 severity: signal.severity,
                 sourceModule: signal.sourceModule,
-                data: json(signal),
+                data: json(withWorkspace(signal)),
             },
         })),
         ...leanTemplates_1.leanTemplates.map((template) => prisma_1.prisma.silLeanTemplateRecord.upsert({
@@ -271,21 +280,21 @@ async function seedSilPersistence() {
     }
     seeded = true;
 }
-async function listSilLoads() {
+async function listSilLoads(filters) {
     await seedSilPersistence();
     const records = await prisma_1.prisma.silLoadRecord.findMany({ orderBy: { updatedAt: "desc" } });
-    return records.map((record) => fromRecord(record));
+    return records.map((record) => withWorkspace(fromRecord(record))).filter((record) => matchesWorkspace(record, filters === null || filters === void 0 ? void 0 : filters.workspaceId));
 }
 async function getSilLoad(loadId) {
     await seedSilPersistence();
     const record = await prisma_1.prisma.silLoadRecord.findUnique({ where: { loadId } });
-    return record ? fromRecord(record) : null;
+    return record ? withWorkspace(fromRecord(record)) : null;
 }
 async function updateSilLoadStatus(loadId, status) {
     const load = await getSilLoad(loadId);
     if (!load)
         return null;
-    const updatedLoad = { ...load, status };
+    const updatedLoad = withWorkspace({ ...load, status });
     await prisma_1.prisma.silLoadRecord.update({
         where: { loadId },
         data: { status, data: json(updatedLoad) },
@@ -293,10 +302,12 @@ async function updateSilLoadStatus(loadId, status) {
     return updatedLoad;
 }
 async function createSilLoad(input) {
-    var _a, _b, _c, _d;
+    var _a, _b, _c, _d, _e;
     await seedSilPersistence();
-    const loadId = (_a = input.loadId) !== null && _a !== void 0 ? _a : `load-${normalizeIdPart(input.customerId, "customer")}-${normalizeIdPart(input.origin.state, "origin")}-${normalizeIdPart(input.destination.state, "dest")}-${Date.now()}`;
+    const workspaceId = (_a = input.workspaceId) !== null && _a !== void 0 ? _a : DEFAULT_WORKSPACE_ID;
+    const loadId = (_b = input.loadId) !== null && _b !== void 0 ? _b : `load-${normalizeIdPart(input.customerId, "customer")}-${normalizeIdPart(input.origin.state, "origin")}-${normalizeIdPart(input.destination.state, "dest")}-${Date.now()}`;
     const load = {
+        workspaceId,
         loadId,
         customerId: input.customerId,
         customerName: input.customerName,
@@ -312,11 +323,11 @@ async function createSilLoad(input) {
         handlingRequirements: input.handlingRequirements,
         hazmat: input.hazmat,
         temperatureControlled: input.temperatureControlled,
-        status: (_b = input.status) !== null && _b !== void 0 ? _b : "LOAD_CREATED",
+        status: (_c = input.status) !== null && _c !== void 0 ? _c : "LOAD_CREATED",
         targetSellRate: input.targetSellRate,
         targetBuyRate: input.targetBuyRate,
         marginTarget: input.marginTarget,
-        source: (_c = input.source) !== null && _c !== void 0 ? _c : "manual",
+        source: (_d = input.source) !== null && _d !== void 0 ? _d : "manual",
     };
     await prisma_1.prisma.silLoadRecord.create({
         data: {
@@ -333,46 +344,50 @@ async function createSilLoad(input) {
         occurredAt: new Date().toISOString(),
         actor: "operator",
         source: "USER",
+        workspaceId,
         loadId: load.loadId,
         nextState: load.status,
-        summary: `Load created for ${(_d = load.customerName) !== null && _d !== void 0 ? _d : load.customerId}.`,
+        summary: `Load created for ${(_e = load.customerName) !== null && _e !== void 0 ? _e : load.customerId}.`,
         evidence: ["Manual load creation", `Mode: ${load.mode}`, `Equipment: ${load.equipmentType}`],
     });
     return { load, event };
 }
-async function listSilShipments() {
+async function listSilShipments(filters) {
     await seedSilPersistence();
     const records = await prisma_1.prisma.silShipmentRecord.findMany({ orderBy: { updatedAt: "desc" } });
-    return records.map((record) => fromRecord(record));
+    return records.map((record) => withWorkspace(fromRecord(record))).filter((record) => matchesWorkspace(record, filters === null || filters === void 0 ? void 0 : filters.workspaceId));
 }
-async function listSilCarriers() {
+async function listSilCarriers(filters) {
     await seedSilPersistence();
     const records = await prisma_1.prisma.silCarrierRecord.findMany({ orderBy: { carrierName: "asc" } });
-    return records.map((record) => fromRecord(record));
+    return records.map((record) => withWorkspace(fromRecord(record))).filter((record) => matchesWorkspace(record, filters === null || filters === void 0 ? void 0 : filters.workspaceId));
 }
-async function listSilLanes() {
+async function listSilLanes(filters) {
     await seedSilPersistence();
     const records = await prisma_1.prisma.silLaneRecord.findMany({ orderBy: [{ origin: "asc" }, { destination: "asc" }] });
-    return records.map((record) => fromRecord(record));
+    return records.map((record) => withWorkspace(fromRecord(record))).filter((record) => matchesWorkspace(record, filters === null || filters === void 0 ? void 0 : filters.workspaceId));
 }
-async function listSilPostings() {
+async function listSilPostings(filters) {
     await seedSilPersistence();
     const records = await prisma_1.prisma.silLoadPostingRecord.findMany({ orderBy: { updatedAt: "desc" } });
-    return records.map((record) => fromRecord(record));
+    return records.map((record) => withWorkspace(fromRecord(record))).filter((record) => matchesWorkspace(record, filters === null || filters === void 0 ? void 0 : filters.workspaceId));
 }
 async function createSilPosting(input) {
-    var _a, _b, _c, _d, _e, _f, _g;
+    var _a, _b, _c, _d, _e, _f, _g, _h, _j;
     await seedSilPersistence();
+    const load = await getSilLoad(input.loadId);
+    const workspaceId = (_b = (_a = input.workspaceId) !== null && _a !== void 0 ? _a : load === null || load === void 0 ? void 0 : load.workspaceId) !== null && _b !== void 0 ? _b : DEFAULT_WORKSPACE_ID;
     const posting = {
-        postingId: (_a = input.postingId) !== null && _a !== void 0 ? _a : `posting-${normalizeIdPart(input.loadId, "load")}-${Date.now()}`,
+        workspaceId,
+        postingId: (_c = input.postingId) !== null && _c !== void 0 ? _c : `posting-${normalizeIdPart(input.loadId, "load")}-${Date.now()}`,
         loadId: input.loadId,
-        board: (_b = input.board) !== null && _b !== void 0 ? _b : "INTERNAL",
+        board: (_d = input.board) !== null && _d !== void 0 ? _d : "INTERNAL",
         postedRate: input.postedRate,
-        visibility: (_c = input.visibility) !== null && _c !== void 0 ? _c : "INVITED_CARRIERS",
-        status: (_d = input.status) !== null && _d !== void 0 ? _d : "POSTED",
-        postedAt: (_e = input.postedAt) !== null && _e !== void 0 ? _e : new Date().toISOString(),
+        visibility: (_e = input.visibility) !== null && _e !== void 0 ? _e : "INVITED_CARRIERS",
+        status: (_f = input.status) !== null && _f !== void 0 ? _f : "POSTED",
+        postedAt: (_g = input.postedAt) !== null && _g !== void 0 ? _g : new Date().toISOString(),
         expiresAt: input.expiresAt,
-        bidCount: (_f = input.bidCount) !== null && _f !== void 0 ? _f : 0,
+        bidCount: (_h = input.bidCount) !== null && _h !== void 0 ? _h : 0,
         bestBidRate: input.bestBidRate,
         bestCarrierId: input.bestCarrierId,
     };
@@ -392,23 +407,27 @@ async function createSilPosting(input) {
         occurredAt: new Date().toISOString(),
         actor: "operator",
         source: "USER",
+        workspaceId,
         loadId: posting.loadId,
         nextState: posting.status,
         summary: `Load posted to ${posting.board}.`,
-        evidence: [`Visibility: ${posting.visibility}`, `Posted rate: ${(_g = posting.postedRate) !== null && _g !== void 0 ? _g : "not set"}`],
+        evidence: [`Visibility: ${posting.visibility}`, `Posted rate: ${(_j = posting.postedRate) !== null && _j !== void 0 ? _j : "not set"}`],
     });
     return { posting, event };
 }
-async function listSilBids() {
+async function listSilBids(filters) {
     await seedSilPersistence();
     const records = await prisma_1.prisma.silBidRecord.findMany({ orderBy: { updatedAt: "desc" } });
-    return records.map((record) => fromRecord(record));
+    return records.map((record) => withWorkspace(fromRecord(record))).filter((record) => matchesWorkspace(record, filters === null || filters === void 0 ? void 0 : filters.workspaceId));
 }
 async function createSilBid(input) {
-    var _a, _b, _c;
+    var _a, _b, _c, _d, _e;
     await seedSilPersistence();
+    const load = await getSilLoad(input.loadId);
+    const workspaceId = (_b = (_a = input.workspaceId) !== null && _a !== void 0 ? _a : load === null || load === void 0 ? void 0 : load.workspaceId) !== null && _b !== void 0 ? _b : DEFAULT_WORKSPACE_ID;
     const bid = {
-        bidId: (_a = input.bidId) !== null && _a !== void 0 ? _a : `bid-${normalizeIdPart(input.carrierId, "carrier")}-${normalizeIdPart(input.loadId, "load")}-${Date.now()}`,
+        workspaceId,
+        bidId: (_c = input.bidId) !== null && _c !== void 0 ? _c : `bid-${normalizeIdPart(input.carrierId, "carrier")}-${normalizeIdPart(input.loadId, "load")}-${Date.now()}`,
         postingId: input.postingId,
         loadId: input.loadId,
         carrierId: input.carrierId,
@@ -417,8 +436,8 @@ async function createSilBid(input) {
         estimatedPickupCommitment: input.estimatedPickupCommitment,
         estimatedDeliveryCommitment: input.estimatedDeliveryCommitment,
         message: input.message,
-        status: (_b = input.status) !== null && _b !== void 0 ? _b : "RECEIVED",
-        receivedAt: (_c = input.receivedAt) !== null && _c !== void 0 ? _c : new Date().toISOString(),
+        status: (_d = input.status) !== null && _d !== void 0 ? _d : "RECEIVED",
+        receivedAt: (_e = input.receivedAt) !== null && _e !== void 0 ? _e : new Date().toISOString(),
         score: input.score,
     };
     await prisma_1.prisma.silBidRecord.create({
@@ -438,6 +457,7 @@ async function createSilBid(input) {
         occurredAt: new Date().toISOString(),
         actor: "carrier",
         source: "USER",
+        workspaceId,
         loadId: bid.loadId,
         bidId: bid.bidId,
         carrierId: bid.carrierId,
@@ -452,27 +472,28 @@ async function updateSilBidStatus(bidId, status) {
     const record = await prisma_1.prisma.silBidRecord.findUnique({ where: { bidId } });
     if (!record)
         return null;
-    const bid = fromRecord(record);
-    const updatedBid = { ...bid, status };
+    const bid = withWorkspace(fromRecord(record));
+    const updatedBid = withWorkspace({ ...bid, status });
     await prisma_1.prisma.silBidRecord.update({
         where: { bidId },
         data: { status, data: json(updatedBid) },
     });
     return updatedBid;
 }
-async function listSilMarketRates() {
+async function listSilMarketRates(filters) {
     await seedSilPersistence();
     const records = await prisma_1.prisma.silMarketRateRecord.findMany({ orderBy: { observedAt: "desc" } });
-    return records.map((record) => fromRecord(record));
+    return records.map((record) => withWorkspace(fromRecord(record))).filter((record) => matchesWorkspace(record, filters === null || filters === void 0 ? void 0 : filters.workspaceId));
 }
-async function listSilGovernanceSignals() {
+async function listSilGovernanceSignals(filters) {
     await seedSilPersistence();
     const records = await prisma_1.prisma.silGovernanceSignalRecord.findMany({ orderBy: { updatedAt: "desc" } });
-    return records.map((record) => fromRecord(record));
+    return records.map((record) => withWorkspace(fromRecord(record))).filter((record) => matchesWorkspace(record, filters === null || filters === void 0 ? void 0 : filters.workspaceId));
 }
 async function persistSilGovernanceSignal(signal, status = "DRAFT") {
     await seedSilPersistence();
-    const id = signalId(signal);
+    const scopedSignal = withWorkspace(signal);
+    const id = signalId(scopedSignal);
     await prisma_1.prisma.silGovernanceSignalRecord.upsert({
         where: { signalId: id },
         update: {
@@ -480,7 +501,7 @@ async function persistSilGovernanceSignal(signal, status = "DRAFT") {
             severity: signal.severity,
             sourceModule: signal.sourceModule,
             status,
-            data: json(signal),
+            data: json(scopedSignal),
         },
         create: {
             signalId: id,
@@ -488,36 +509,37 @@ async function persistSilGovernanceSignal(signal, status = "DRAFT") {
             severity: signal.severity,
             sourceModule: signal.sourceModule,
             status,
-            data: json(signal),
+            data: json(scopedSignal),
         },
     });
-    return { signalId: id, signal };
+    return { signalId: id, signal: scopedSignal };
 }
 async function persistSilWorkflowEvent(event) {
     await seedSilPersistence();
+    const scopedEvent = withWorkspace(event);
     await prisma_1.prisma.silWorkflowEventRecord.upsert({
-        where: { eventId: event.eventId },
+        where: { eventId: scopedEvent.eventId },
         update: {
-            eventType: event.eventType,
-            loadId: event.loadId,
-            shipmentId: event.shipmentId,
-            bidId: event.bidId,
-            carrierId: event.carrierId,
-            occurredAt: new Date(event.occurredAt),
-            data: json(event),
+            eventType: scopedEvent.eventType,
+            loadId: scopedEvent.loadId,
+            shipmentId: scopedEvent.shipmentId,
+            bidId: scopedEvent.bidId,
+            carrierId: scopedEvent.carrierId,
+            occurredAt: new Date(scopedEvent.occurredAt),
+            data: json(scopedEvent),
         },
         create: {
-            eventId: event.eventId,
-            eventType: event.eventType,
-            loadId: event.loadId,
-            shipmentId: event.shipmentId,
-            bidId: event.bidId,
-            carrierId: event.carrierId,
-            occurredAt: new Date(event.occurredAt),
-            data: json(event),
+            eventId: scopedEvent.eventId,
+            eventType: scopedEvent.eventType,
+            loadId: scopedEvent.loadId,
+            shipmentId: scopedEvent.shipmentId,
+            bidId: scopedEvent.bidId,
+            carrierId: scopedEvent.carrierId,
+            occurredAt: new Date(scopedEvent.occurredAt),
+            data: json(scopedEvent),
         },
     });
-    return event;
+    return scopedEvent;
 }
 async function listPersistedWorkflowEvents(filters) {
     await seedSilPersistence();
@@ -529,7 +551,7 @@ async function listPersistedWorkflowEvents(filters) {
         },
         orderBy: { occurredAt: "desc" },
     });
-    return records.map((record) => fromRecord(record));
+    return records.map((record) => withWorkspace(fromRecord(record))).filter((record) => matchesWorkspace(record, filters === null || filters === void 0 ? void 0 : filters.workspaceId));
 }
 async function listSilLeanTemplates() {
     await seedSilPersistence();
@@ -537,19 +559,20 @@ async function listSilLeanTemplates() {
     return records.map((record) => fromRecord(record));
 }
 async function createSilLeanRecord(input) {
-    var _a, _b, _c, _d, _e;
+    var _a, _b, _c, _d, _e, _f;
     await seedSilPersistence();
     const recordId = (_a = input.recordId) !== null && _a !== void 0 ? _a : `lean-${normalizeIdPart(input.organization, "org")}-${normalizeIdPart(input.templateId, "template")}-${Date.now()}`;
     const record = {
+        workspaceId: (_b = input.workspaceId) !== null && _b !== void 0 ? _b : DEFAULT_WORKSPACE_ID,
         recordId,
         templateId: input.templateId,
         organization: input.organization,
         program: input.program,
-        owner: (_b = input.owner) !== null && _b !== void 0 ? _b : "operator",
+        owner: (_c = input.owner) !== null && _c !== void 0 ? _c : "operator",
         title: input.title,
-        status: (_c = input.status) !== null && _c !== void 0 ? _c : "SUBMITTED",
-        evidence: (_d = input.evidence) !== null && _d !== void 0 ? _d : [],
-        outputs: (_e = input.outputs) !== null && _e !== void 0 ? _e : [],
+        status: (_d = input.status) !== null && _d !== void 0 ? _d : "SUBMITTED",
+        evidence: (_e = input.evidence) !== null && _e !== void 0 ? _e : [],
+        outputs: (_f = input.outputs) !== null && _f !== void 0 ? _f : [],
         notes: input.notes,
         governanceTrigger: input.governanceTrigger,
         sourceModule: "SHIPMENT_INTELLIGENCE_LAYER",
@@ -571,6 +594,7 @@ async function createSilLeanRecord(input) {
         occurredAt: new Date().toISOString(),
         actor: record.owner,
         source: "USER",
+        workspaceId: record.workspaceId,
         summary: `LEAN record submitted for ${record.organization}.`,
         evidence: record.evidence,
     });
@@ -586,7 +610,9 @@ async function listSilLeanRecords(filters) {
         },
         orderBy: { updatedAt: "desc" },
     });
-    return records.map((record) => fromRecord(record));
+    return records
+        .map((record) => withWorkspace(fromRecord(record)))
+        .filter((record) => matchesWorkspace(record, filters === null || filters === void 0 ? void 0 : filters.workspaceId));
 }
 async function getSilWorkspace(workspaceId = defaultWorkspace.workspaceId) {
     await seedSilPersistence();

@@ -25,6 +25,7 @@ import {
 } from "./types";
 
 let seeded = false;
+const DEFAULT_WORKSPACE_ID = "workspace-shipment-operations";
 
 const json = <T>(value: T) => JSON.stringify(value);
 
@@ -42,6 +43,14 @@ const makeId = (prefix: string) => `${prefix}_${Date.now()}_${Math.random().toSt
 
 const normalizeIdPart = (value: string | undefined, fallback: string) =>
   (value ?? fallback).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "") || fallback;
+
+const withWorkspace = <T extends { workspaceId?: string }>(record: T, workspaceId = DEFAULT_WORKSPACE_ID): T => ({
+  ...record,
+  workspaceId: record.workspaceId ?? workspaceId,
+});
+
+const matchesWorkspace = <T extends { workspaceId?: string }>(record: T, workspaceId?: string) =>
+  !workspaceId || (record.workspaceId ?? DEFAULT_WORKSPACE_ID) === workspaceId;
 
 async function ensureSilWorkspaceTable() {
   await prisma.$executeRaw`
@@ -61,6 +70,7 @@ async function ensureSilWorkspaceTable() {
 }
 
 export type SilLeanRecordPayload = {
+  workspaceId?: string;
   recordId?: string;
   templateId: string;
   organization: string;
@@ -102,7 +112,7 @@ export type SilWorkspacePayload = {
 };
 
 const defaultWorkspace: SilWorkspacePayload = {
-  workspaceId: "workspace-shipment-operations",
+  workspaceId: DEFAULT_WORKSPACE_ID,
   organization: "Example Organization",
   workspaceName: "Shipment Operations",
   ownerEmail: "operator@example.com",
@@ -160,14 +170,14 @@ export async function seedSilPersistence() {
           customerId: load.customerId,
           status: load.status,
           source: load.source,
-          data: json(load),
+          data: json(withWorkspace(load)),
         },
         create: {
           loadId: load.loadId,
           customerId: load.customerId,
           status: load.status,
           source: load.source,
-          data: json(load),
+          data: json(withWorkspace(load)),
         },
       })
     ),
@@ -178,14 +188,14 @@ export async function seedSilPersistence() {
           loadId: shipment.loadId,
           state: shipment.state,
           source: shipment.source,
-          data: json(shipment),
+          data: json(withWorkspace(shipment)),
         },
         create: {
           shipmentId: shipment.shipmentId,
           loadId: shipment.loadId,
           state: shipment.state,
           source: shipment.source,
-          data: json(shipment),
+          data: json(withWorkspace(shipment)),
         },
       })
     ),
@@ -195,13 +205,13 @@ export async function seedSilPersistence() {
         update: {
           carrierName: carrier.carrierName,
           status: carrier.blocked ? "BLOCKED" : carrier.creditStatus ?? "UNKNOWN",
-          data: json(carrier),
+          data: json(withWorkspace(carrier)),
         },
         create: {
           carrierId: carrier.carrierId,
           carrierName: carrier.carrierName,
           status: carrier.blocked ? "BLOCKED" : carrier.creditStatus ?? "UNKNOWN",
-          data: json(carrier),
+          data: json(withWorkspace(carrier)),
         },
       })
     ),
@@ -213,7 +223,7 @@ export async function seedSilPersistence() {
           destination: lane.destinationRegion,
           mode: lane.mode,
           equipment: lane.equipmentType,
-          data: json(lane),
+          data: json(withWorkspace(lane)),
         },
         create: {
           laneId: lane.laneId,
@@ -221,7 +231,7 @@ export async function seedSilPersistence() {
           destination: lane.destinationRegion,
           mode: lane.mode,
           equipment: lane.equipmentType,
-          data: json(lane),
+          data: json(withWorkspace(lane)),
         },
       })
     ),
@@ -232,14 +242,14 @@ export async function seedSilPersistence() {
           loadId: posting.loadId,
           status: posting.status,
           board: posting.board,
-          data: json(posting),
+          data: json(withWorkspace(posting)),
         },
         create: {
           postingId: posting.postingId,
           loadId: posting.loadId,
           status: posting.status,
           board: posting.board,
-          data: json(posting),
+          data: json(withWorkspace(posting)),
         },
       })
     ),
@@ -252,7 +262,7 @@ export async function seedSilPersistence() {
           carrierId: bid.carrierId,
           status: bid.status,
           bidRate: bid.bidRate,
-          data: json(bid),
+          data: json(withWorkspace(bid)),
         },
         create: {
           bidId: bid.bidId,
@@ -261,7 +271,7 @@ export async function seedSilPersistence() {
           carrierId: bid.carrierId,
           status: bid.status,
           bidRate: bid.bidRate,
-          data: json(bid),
+          data: json(withWorkspace(bid)),
         },
       })
     ),
@@ -272,14 +282,14 @@ export async function seedSilPersistence() {
           laneId: rate.laneId,
           source: rate.source,
           observedAt: new Date(rate.observedAt),
-          data: json(rate),
+          data: json(withWorkspace(rate)),
         },
         create: {
           observationId: rate.observationId,
           laneId: rate.laneId,
           source: rate.source,
           observedAt: new Date(rate.observedAt),
-          data: json(rate),
+          data: json(withWorkspace(rate)),
         },
       })
     ),
@@ -290,14 +300,14 @@ export async function seedSilPersistence() {
           signalType: signal.signalType,
           severity: signal.severity,
           sourceModule: signal.sourceModule,
-          data: json(signal),
+          data: json(withWorkspace(signal)),
         },
         create: {
           signalId: signalId(signal),
           signalType: signal.signalType,
           severity: signal.severity,
           sourceModule: signal.sourceModule,
-          data: json(signal),
+          data: json(withWorkspace(signal)),
         },
       })
     ),
@@ -336,22 +346,22 @@ export async function seedSilPersistence() {
   seeded = true;
 }
 
-export async function listSilLoads() {
+export async function listSilLoads(filters?: { workspaceId?: string }) {
   await seedSilPersistence();
   const records = await prisma.silLoadRecord.findMany({ orderBy: { updatedAt: "desc" } });
-  return records.map((record) => fromRecord<SilLoad>(record));
+  return records.map((record) => withWorkspace(fromRecord<SilLoad>(record))).filter((record) => matchesWorkspace(record, filters?.workspaceId));
 }
 
 export async function getSilLoad(loadId: string) {
   await seedSilPersistence();
   const record = await prisma.silLoadRecord.findUnique({ where: { loadId } });
-  return record ? fromRecord<SilLoad>(record) : null;
+  return record ? withWorkspace(fromRecord<SilLoad>(record)) : null;
 }
 
 export async function updateSilLoadStatus(loadId: string, status: BrokerageLoadState) {
   const load = await getSilLoad(loadId);
   if (!load) return null;
-  const updatedLoad = { ...load, status };
+  const updatedLoad = withWorkspace({ ...load, status });
   await prisma.silLoadRecord.update({
     where: { loadId },
     data: { status, data: json(updatedLoad) },
@@ -361,6 +371,7 @@ export async function updateSilLoadStatus(loadId: string, status: BrokerageLoadS
 
 export async function createSilLoad(input: Partial<SilLoad> & Pick<SilLoad, "customerId" | "origin" | "destination" | "mode" | "equipmentType">) {
   await seedSilPersistence();
+  const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;
   const loadId =
     input.loadId ??
     `load-${normalizeIdPart(input.customerId, "customer")}-${normalizeIdPart(input.origin.state, "origin")}-${normalizeIdPart(
@@ -369,6 +380,7 @@ export async function createSilLoad(input: Partial<SilLoad> & Pick<SilLoad, "cus
     )}-${Date.now()}`;
 
   const load: SilLoad = {
+    workspaceId,
     loadId,
     customerId: input.customerId,
     customerName: input.customerName,
@@ -407,6 +419,7 @@ export async function createSilLoad(input: Partial<SilLoad> & Pick<SilLoad, "cus
     occurredAt: new Date().toISOString(),
     actor: "operator",
     source: "USER",
+    workspaceId,
     loadId: load.loadId,
     nextState: load.status,
     summary: `Load created for ${load.customerName ?? load.customerId}.`,
@@ -416,33 +429,36 @@ export async function createSilLoad(input: Partial<SilLoad> & Pick<SilLoad, "cus
   return { load, event };
 }
 
-export async function listSilShipments() {
+export async function listSilShipments(filters?: { workspaceId?: string }) {
   await seedSilPersistence();
   const records = await prisma.silShipmentRecord.findMany({ orderBy: { updatedAt: "desc" } });
-  return records.map((record) => fromRecord<SilShipment>(record));
+  return records.map((record) => withWorkspace(fromRecord<SilShipment>(record))).filter((record) => matchesWorkspace(record, filters?.workspaceId));
 }
 
-export async function listSilCarriers() {
+export async function listSilCarriers(filters?: { workspaceId?: string }) {
   await seedSilPersistence();
   const records = await prisma.silCarrierRecord.findMany({ orderBy: { carrierName: "asc" } });
-  return records.map((record) => fromRecord<SilCarrierProfile>(record));
+  return records.map((record) => withWorkspace(fromRecord<SilCarrierProfile>(record))).filter((record) => matchesWorkspace(record, filters?.workspaceId));
 }
 
-export async function listSilLanes() {
+export async function listSilLanes(filters?: { workspaceId?: string }) {
   await seedSilPersistence();
   const records = await prisma.silLaneRecord.findMany({ orderBy: [{ origin: "asc" }, { destination: "asc" }] });
-  return records.map((record) => fromRecord<SilLaneProfile>(record));
+  return records.map((record) => withWorkspace(fromRecord<SilLaneProfile>(record))).filter((record) => matchesWorkspace(record, filters?.workspaceId));
 }
 
-export async function listSilPostings() {
+export async function listSilPostings(filters?: { workspaceId?: string }) {
   await seedSilPersistence();
   const records = await prisma.silLoadPostingRecord.findMany({ orderBy: { updatedAt: "desc" } });
-  return records.map((record) => fromRecord<SilLoadPosting>(record));
+  return records.map((record) => withWorkspace(fromRecord<SilLoadPosting>(record))).filter((record) => matchesWorkspace(record, filters?.workspaceId));
 }
 
 export async function createSilPosting(input: Partial<SilLoadPosting> & Pick<SilLoadPosting, "loadId">) {
   await seedSilPersistence();
+  const load = await getSilLoad(input.loadId);
+  const workspaceId = input.workspaceId ?? load?.workspaceId ?? DEFAULT_WORKSPACE_ID;
   const posting: SilLoadPosting = {
+    workspaceId,
     postingId: input.postingId ?? `posting-${normalizeIdPart(input.loadId, "load")}-${Date.now()}`,
     loadId: input.loadId,
     board: input.board ?? "INTERNAL",
@@ -474,6 +490,7 @@ export async function createSilPosting(input: Partial<SilLoadPosting> & Pick<Sil
     occurredAt: new Date().toISOString(),
     actor: "operator",
     source: "USER",
+    workspaceId,
     loadId: posting.loadId,
     nextState: posting.status,
     summary: `Load posted to ${posting.board}.`,
@@ -483,15 +500,18 @@ export async function createSilPosting(input: Partial<SilLoadPosting> & Pick<Sil
   return { posting, event };
 }
 
-export async function listSilBids() {
+export async function listSilBids(filters?: { workspaceId?: string }) {
   await seedSilPersistence();
   const records = await prisma.silBidRecord.findMany({ orderBy: { updatedAt: "desc" } });
-  return records.map((record) => fromRecord<SilBid>(record));
+  return records.map((record) => withWorkspace(fromRecord<SilBid>(record))).filter((record) => matchesWorkspace(record, filters?.workspaceId));
 }
 
 export async function createSilBid(input: Partial<SilBid> & Pick<SilBid, "postingId" | "loadId" | "carrierId" | "bidRate">) {
   await seedSilPersistence();
+  const load = await getSilLoad(input.loadId);
+  const workspaceId = input.workspaceId ?? load?.workspaceId ?? DEFAULT_WORKSPACE_ID;
   const bid: SilBid = {
+    workspaceId,
     bidId: input.bidId ?? `bid-${normalizeIdPart(input.carrierId, "carrier")}-${normalizeIdPart(input.loadId, "load")}-${Date.now()}`,
     postingId: input.postingId,
     loadId: input.loadId,
@@ -524,6 +544,7 @@ export async function createSilBid(input: Partial<SilBid> & Pick<SilBid, "postin
     occurredAt: new Date().toISOString(),
     actor: "carrier",
     source: "USER",
+    workspaceId,
     loadId: bid.loadId,
     bidId: bid.bidId,
     carrierId: bid.carrierId,
@@ -539,8 +560,8 @@ export async function updateSilBidStatus(bidId: string, status: BidState) {
   await seedSilPersistence();
   const record = await prisma.silBidRecord.findUnique({ where: { bidId } });
   if (!record) return null;
-  const bid = fromRecord<SilBid>(record);
-  const updatedBid = { ...bid, status };
+  const bid = withWorkspace(fromRecord<SilBid>(record));
+  const updatedBid = withWorkspace({ ...bid, status });
   await prisma.silBidRecord.update({
     where: { bidId },
     data: { status, data: json(updatedBid) },
@@ -548,21 +569,22 @@ export async function updateSilBidStatus(bidId: string, status: BidState) {
   return updatedBid;
 }
 
-export async function listSilMarketRates() {
+export async function listSilMarketRates(filters?: { workspaceId?: string }) {
   await seedSilPersistence();
   const records = await prisma.silMarketRateRecord.findMany({ orderBy: { observedAt: "desc" } });
-  return records.map((record) => fromRecord<SilMarketRateObservation>(record));
+  return records.map((record) => withWorkspace(fromRecord<SilMarketRateObservation>(record))).filter((record) => matchesWorkspace(record, filters?.workspaceId));
 }
 
-export async function listSilGovernanceSignals() {
+export async function listSilGovernanceSignals(filters?: { workspaceId?: string }) {
   await seedSilPersistence();
   const records = await prisma.silGovernanceSignalRecord.findMany({ orderBy: { updatedAt: "desc" } });
-  return records.map((record) => fromRecord<SilGovernanceSignalDraft>(record));
+  return records.map((record) => withWorkspace(fromRecord<SilGovernanceSignalDraft>(record))).filter((record) => matchesWorkspace(record, filters?.workspaceId));
 }
 
 export async function persistSilGovernanceSignal(signal: SilGovernanceSignalDraft, status = "DRAFT") {
   await seedSilPersistence();
-  const id = signalId(signal);
+  const scopedSignal = withWorkspace(signal);
+  const id = signalId(scopedSignal);
   await prisma.silGovernanceSignalRecord.upsert({
     where: { signalId: id },
     update: {
@@ -570,7 +592,7 @@ export async function persistSilGovernanceSignal(signal: SilGovernanceSignalDraf
       severity: signal.severity,
       sourceModule: signal.sourceModule,
       status,
-      data: json(signal),
+      data: json(scopedSignal),
     },
     create: {
       signalId: id,
@@ -578,40 +600,41 @@ export async function persistSilGovernanceSignal(signal: SilGovernanceSignalDraf
       severity: signal.severity,
       sourceModule: signal.sourceModule,
       status,
-      data: json(signal),
+      data: json(scopedSignal),
     },
   });
-  return { signalId: id, signal };
+  return { signalId: id, signal: scopedSignal };
 }
 
 export async function persistSilWorkflowEvent(event: SilWorkflowEvent) {
   await seedSilPersistence();
+  const scopedEvent = withWorkspace(event);
   await prisma.silWorkflowEventRecord.upsert({
-    where: { eventId: event.eventId },
+    where: { eventId: scopedEvent.eventId },
     update: {
-      eventType: event.eventType,
-      loadId: event.loadId,
-      shipmentId: event.shipmentId,
-      bidId: event.bidId,
-      carrierId: event.carrierId,
-      occurredAt: new Date(event.occurredAt),
-      data: json(event),
+      eventType: scopedEvent.eventType,
+      loadId: scopedEvent.loadId,
+      shipmentId: scopedEvent.shipmentId,
+      bidId: scopedEvent.bidId,
+      carrierId: scopedEvent.carrierId,
+      occurredAt: new Date(scopedEvent.occurredAt),
+      data: json(scopedEvent),
     },
     create: {
-      eventId: event.eventId,
-      eventType: event.eventType,
-      loadId: event.loadId,
-      shipmentId: event.shipmentId,
-      bidId: event.bidId,
-      carrierId: event.carrierId,
-      occurredAt: new Date(event.occurredAt),
-      data: json(event),
+      eventId: scopedEvent.eventId,
+      eventType: scopedEvent.eventType,
+      loadId: scopedEvent.loadId,
+      shipmentId: scopedEvent.shipmentId,
+      bidId: scopedEvent.bidId,
+      carrierId: scopedEvent.carrierId,
+      occurredAt: new Date(scopedEvent.occurredAt),
+      data: json(scopedEvent),
     },
   });
-  return event;
+  return scopedEvent;
 }
 
-export async function listPersistedWorkflowEvents(filters?: { loadId?: string; shipmentId?: string; bidId?: string }) {
+export async function listPersistedWorkflowEvents(filters?: { loadId?: string; shipmentId?: string; bidId?: string; workspaceId?: string }) {
   await seedSilPersistence();
   const records = await prisma.silWorkflowEventRecord.findMany({
     where: {
@@ -621,7 +644,7 @@ export async function listPersistedWorkflowEvents(filters?: { loadId?: string; s
     },
     orderBy: { occurredAt: "desc" },
   });
-  return records.map((record) => fromRecord<SilWorkflowEvent>(record));
+  return records.map((record) => withWorkspace(fromRecord<SilWorkflowEvent>(record))).filter((record) => matchesWorkspace(record, filters?.workspaceId));
 }
 
 export async function listSilLeanTemplates() {
@@ -636,6 +659,7 @@ export async function createSilLeanRecord(input: SilLeanRecordPayload) {
     input.recordId ??
     `lean-${normalizeIdPart(input.organization, "org")}-${normalizeIdPart(input.templateId, "template")}-${Date.now()}`;
   const record = {
+    workspaceId: input.workspaceId ?? DEFAULT_WORKSPACE_ID,
     recordId,
     templateId: input.templateId,
     organization: input.organization,
@@ -668,6 +692,7 @@ export async function createSilLeanRecord(input: SilLeanRecordPayload) {
     occurredAt: new Date().toISOString(),
     actor: record.owner,
     source: "USER",
+    workspaceId: record.workspaceId,
     summary: `LEAN record submitted for ${record.organization}.`,
     evidence: record.evidence,
   });
@@ -675,7 +700,7 @@ export async function createSilLeanRecord(input: SilLeanRecordPayload) {
   return { record, event };
 }
 
-export async function listSilLeanRecords(filters?: { organization?: string; templateId?: string; status?: string }) {
+export async function listSilLeanRecords(filters?: { organization?: string; templateId?: string; status?: string; workspaceId?: string }) {
   await seedSilPersistence();
   const records = await prisma.silLeanRecord.findMany({
     where: {
@@ -685,7 +710,9 @@ export async function listSilLeanRecords(filters?: { organization?: string; temp
     },
     orderBy: { updatedAt: "desc" },
   });
-  return records.map((record) => fromRecord<Record<string, unknown>>(record));
+  return records
+    .map((record) => withWorkspace(fromRecord<Record<string, unknown> & { workspaceId?: string }>(record)))
+    .filter((record) => matchesWorkspace(record, filters?.workspaceId));
 }
 
 export async function getSilWorkspace(workspaceId = defaultWorkspace.workspaceId!) {

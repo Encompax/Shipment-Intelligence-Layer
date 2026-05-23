@@ -15,6 +15,7 @@ export function recordWorkflowEvent(input: {
   shipmentId?: string;
   bidId?: string;
   carrierId?: string;
+  workspaceId?: string;
   previousState?: string;
   nextState?: string;
   summary: string;
@@ -27,6 +28,7 @@ export function recordWorkflowEvent(input: {
     occurredAt: nowIso(),
     actor: input.actor ?? "system",
     source: input.source ?? "SYSTEM",
+    workspaceId: input.workspaceId,
     loadId: input.loadId,
     shipmentId: input.shipmentId,
     bidId: input.bidId,
@@ -42,11 +44,12 @@ export function recordWorkflowEvent(input: {
   return event;
 }
 
-export function listWorkflowEvents(filters?: { loadId?: string; shipmentId?: string; bidId?: string }) {
+export function listWorkflowEvents(filters?: { loadId?: string; shipmentId?: string; bidId?: string; workspaceId?: string }) {
   return workflowEvents.filter((event) => {
     if (filters?.loadId && event.loadId !== filters.loadId) return false;
     if (filters?.shipmentId && event.shipmentId !== filters.shipmentId) return false;
     if (filters?.bidId && event.bidId !== filters.bidId) return false;
+    if (filters?.workspaceId && (event.workspaceId ?? "workspace-shipment-operations") !== filters.workspaceId) return false;
     return true;
   });
 }

@@ -152,6 +152,7 @@ export type SilStop = {
 };
 
 export type SilLoad = {
+  workspaceId?: string;
   loadId: string;
   customerId: string;
   customerName?: string;
@@ -175,6 +176,7 @@ export type SilLoad = {
 };
 
 export type SilShipment = {
+  workspaceId?: string;
   shipmentId: string;
   loadId?: string;
   orderId?: string;
@@ -192,6 +194,7 @@ export type SilShipment = {
 };
 
 export type SilCarrierProfile = {
+  workspaceId?: string;
   carrierId: string;
   carrierName: string;
   mcNumber?: string;
@@ -207,6 +210,7 @@ export type SilCarrierProfile = {
 };
 
 export type SilLaneProfile = {
+  workspaceId?: string;
   laneId: string;
   originRegion: string;
   destinationRegion: string;
@@ -222,6 +226,7 @@ export type SilLaneProfile = {
 };
 
 export type SilLoadPosting = {
+  workspaceId?: string;
   postingId: string;
   loadId: string;
   board: "INTERNAL" | "PUBLIC" | "DAT" | "TRUCKSTOP" | "OTHER";
@@ -236,6 +241,7 @@ export type SilLoadPosting = {
 };
 
 export type SilBid = {
+  workspaceId?: string;
   bidId: string;
   postingId: string;
   loadId: string;
@@ -273,6 +279,7 @@ export type SilMatchScore = {
 };
 
 export type SilMarketRateObservation = {
+  workspaceId?: string;
   observationId: string;
   laneId: string;
   source: "MANUAL" | "LOAD_BOARD" | "TMS" | "CARRIER_API" | "MARKET_INDEX";
@@ -300,6 +307,7 @@ export type SilWorkflowEventType =
   | "WORKSPACE_UPDATED";
 
 export type SilWorkflowEvent = {
+  workspaceId?: string;
   eventId: string;
   eventType: SilWorkflowEventType;
   occurredAt: string;
@@ -368,6 +376,7 @@ export type SilMarketRateAnalysis = {
 };
 
 export type SilGovernanceSignalDraft = {
+  workspaceId?: string;
   signalType: SilGovernanceSignalType;
   sourceModule: "SHIPMENT_INTELLIGENCE_LAYER";
   severity: SilSeverity;
