@@ -18,7 +18,7 @@ import {
   listWorkflowEvents,
   seedWorkflowEvents,
 } from "../services/shipmentIntelligence/workflowEventService";
-import { BidState, BrokerageLoadState, SilCarrierProvider, SilGovernanceSignalDraft } from "../services/shipmentIntelligence/types";
+import { BidState, BrokerageLoadState, SilCarrierProvider, SilGovernanceSignalDraft, SilSeverity } from "../services/shipmentIntelligence/types";
 import {
   createSilBid,
   createSilLeanRecord,
@@ -515,6 +515,99 @@ export function registerShipmentIntelligenceRoutes(app: Express) {
 
     const recommendations = buildCarrierEligibilityRecommendations({ load, carriers, lanes });
     res.json({ count: recommendations.length, recommendations });
+  });
+
+  router.post("/matching/carrier-eligibility/:loadId/invite-packet", async (req: Request, res: Response) => {
+    const workspaceId = requestWorkspaceId(req);
+    const [loads, carriers, lanes, postings] = await Promise.all([
+      listSilLoads({ workspaceId }),
+      listSilCarriers({ workspaceId }),
+      listSilLanes({ workspaceId }),
+      listSilPostings({ workspaceId }),
+    ]);
+    const load = loads.find((item) => item.loadId === req.params.loadId);
+    if (!load) return res.status(404).json({ error: "Load not found" });
+
+    const recommendations = buildCarrierEligibilityRecommendations({ load, carriers, lanes });
+    const selectedRecommendations = recommendations.filter((carrier) =>
+      ["INVITE", "INVITE_WITH_REVIEW"].includes(carrier.inviteRecommendation)
+    );
+    const invitedCarrierIds = selectedRecommendations.map((carrier) => carrier.carrierId);
+    const governanceReasons = [
+      ...selectedRecommendations
+        .filter((carrier) => carrier.governanceReviewRequired)
+        .map((carrier) => `${carrier.carrierName} requires governance review before invite.`),
+      ...(selectedRecommendations.length < 2 ? ["Invite packet has fewer than two eligible carrier options."] : []),
+      ...recommendations
+        .filter((carrier) => carrier.blocked)
+        .map((carrier) => `${carrier.carrierName} excluded because carrier is blocked.`),
+    ];
+    const primaryPosting = postings.find((posting) => posting.loadId === load.loadId) ?? null;
+    const severity: SilSeverity = governanceReasons.length > 1 ? "HIGH" : governanceReasons.length === 1 ? "MEDIUM" : "LOW";
+    const packet = {
+      loadId: load.loadId,
+      postingId: primaryPosting?.postingId ?? null,
+      invitedCarrierIds,
+      selectedRecommendations,
+      excludedCarrierIds: recommendations
+        .filter((carrier) => !invitedCarrierIds.includes(carrier.carrierId))
+        .map((carrier) => carrier.carrierId),
+      governanceReviewRequired: governanceReasons.length > 0,
+      governanceReasons,
+      createdAt: new Date().toISOString(),
+    };
+    const governanceSignal: SilGovernanceSignalDraft | null =
+      governanceReasons.length > 0
+        ? {
+            workspaceId,
+            signalType: "CARRIER_INVITE_REVIEW" as const,
+            sourceModule: "SHIPMENT_INTELLIGENCE_LAYER" as const,
+            severity,
+            confidenceScore: severity === "HIGH" ? 0.86 : 0.74,
+            description: `Carrier invite packet for ${load.customerName ?? load.customerId} requires governed review.`,
+            businessDomains: ["TRANSPORTATION", "FREIGHT_BROKERAGE", "RISK"],
+            affectedEntities: {
+              loads: [load.loadId],
+              carriers: invitedCarrierIds,
+              customers: [load.customerId],
+            },
+            metrics: {
+              invited_carrier_count: invitedCarrierIds.length,
+              excluded_carrier_count: packet.excludedCarrierIds.length,
+              governance_reason_count: governanceReasons.length,
+            },
+            tags: ["sil", "carrier-invite", "brokerage", severity.toLowerCase()],
+            recommendedActions: [
+              {
+                actionType: "REVIEW_CARRIER_INVITE_PACKET",
+                targetModule: "PLATFORM_OVERVIEW" as const,
+                priority: severity === "HIGH" ? "HIGH" : "MEDIUM",
+                description: "Review carrier invite list before posting outreach is committed.",
+              },
+            ],
+            rawPayloadRef: `sil:invite-packet:${load.loadId}`,
+          }
+        : null;
+    if (governanceSignal) await persistSilGovernanceSignal(governanceSignal, "READY_FOR_ENCOMPAX");
+
+    const event = await persistSilWorkflowEvent({
+      eventId: `sil_evt_invite_packet_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      eventType: governanceSignal ? "GOVERNANCE_SIGNAL_CREATED" : "LOAD_POSTED",
+      occurredAt: packet.createdAt,
+      actor: req.body?.actor ?? "operator",
+      source: "USER",
+      workspaceId,
+      loadId: load.loadId,
+      summary: `Carrier invite packet created for ${load.loadId}.`,
+      evidence: [
+        `Invited carriers: ${invitedCarrierIds.join(", ") || "none"}`,
+        `Governance review required: ${packet.governanceReviewRequired}`,
+        ...governanceReasons,
+      ],
+      governanceSignal: governanceSignal ?? undefined,
+    });
+
+    res.status(201).json({ packet, governanceSignal, event });
   });
 
   router.get("/carrier-quotes/:loadId", async (req: Request, res: Response) => {

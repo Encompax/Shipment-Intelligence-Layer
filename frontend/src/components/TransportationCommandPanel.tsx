@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import {
   createLoadBoardBid,
   createLoadBoardPosting,
+  createCarrierInvitePacket,
   createTransportationCarrier,
   createTransportationLoad,
   decideLoadBoardBid,
@@ -237,6 +238,7 @@ const TransportationCommandPanel: React.FC = () => {
   const [signals, setSignals] = useState<Signal[]>([]);
   const [carrierQuotes, setCarrierQuotes] = useState<CarrierQuote[]>([]);
   const [carrierEligibility, setCarrierEligibility] = useState<CarrierEligibility[]>([]);
+  const [invitePacketSummary, setInvitePacketSummary] = useState<string | null>(null);
   const [allowedTransitions, setAllowedTransitions] = useState<string[]>([]);
   const [marketAnalysis, setMarketAnalysis] = useState<MarketAnalysis | null>(null);
   const [workflowEvents, setWorkflowEvents] = useState<WorkflowEvent[]>([]);
@@ -560,6 +562,29 @@ const TransportationCommandPanel: React.FC = () => {
     }
   }
 
+  async function handleCreateInvitePacket() {
+    if (!selectedLoad) return;
+
+    try {
+      setActionStatus("Creating governed invite packet...");
+      const result = await createCarrierInvitePacket(selectedLoad.loadId, { actor: "operator" });
+      if (result.governanceSignal) {
+        setSignals((current) => [result.governanceSignal, ...current]);
+      }
+      setWorkflowEvents((current) => [result.event, ...current]);
+      setInvitePacketSummary(
+        `${result.packet.invitedCarrierIds.length} carrier(s), review ${result.packet.governanceReviewRequired ? "required" : "not required"}`
+      );
+      setActionStatus(
+        result.governanceSignal
+          ? "Invite packet created and routed to Encompax."
+          : "Invite packet created."
+      );
+    } catch (err) {
+      setActionStatus(err instanceof Error ? err.message : "Invite packet creation failed");
+    }
+  }
+
   async function handleShipmentProgress(
     state: string,
     stop?: ShipmentStop,
@@ -855,8 +880,14 @@ const TransportationCommandPanel: React.FC = () => {
                     <p className="transport-eyebrow">Carrier Eligibility</p>
                     <h4>Recommended Invite List</h4>
                   </div>
-                  <span>{carrierEligibility.filter((carrier) => carrier.inviteRecommendation === "INVITE").length} ready</span>
+                  <div className="transport-row-actions">
+                    <span>{carrierEligibility.filter((carrier) => carrier.inviteRecommendation === "INVITE").length} ready</span>
+                    <button className="btn btn-primary btn-xs" type="button" onClick={handleCreateInvitePacket}>
+                      Review Packet
+                    </button>
+                  </div>
                 </div>
+                {invitePacketSummary && <p className="ops-note">Latest packet: {invitePacketSummary}</p>}
                 <div className="carrier-eligibility-list">
                   {carrierEligibility.slice(0, 4).map((carrier) => (
                     <article key={carrier.carrierId} className="carrier-eligibility-card">

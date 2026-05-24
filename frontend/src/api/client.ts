@@ -264,6 +264,18 @@ export async function fetchCarrierEligibilityRecommendations(loadId: string) {
   return fetchShipmentIntelligence(`/matching/carrier-eligibility/${encodeURIComponent(loadId)}`);
 }
 
+export async function createCarrierInvitePacket(loadId: string, payload: Record<string, unknown>) {
+  const res = await fetch(`${SHIPMENT_INTELLIGENCE_BASE}/matching/carrier-eligibility/${encodeURIComponent(loadId)}/invite-packet`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    throw new Error(`Carrier invite packet error: ${res.status}`);
+  }
+  return res.json();
+}
+
 export async function fetchCarrierQuotes(loadId: string, provider = "MOCK") {
   return fetchShipmentIntelligence(`/carrier-quotes/${encodeURIComponent(loadId)}?provider=${encodeURIComponent(provider)}`);
 }
