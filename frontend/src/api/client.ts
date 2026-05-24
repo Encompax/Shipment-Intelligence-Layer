@@ -276,6 +276,25 @@ export async function createCarrierInvitePacket(loadId: string, payload: Record<
   return res.json();
 }
 
+export async function fetchDispatchReadiness(loadId: string, bidId?: string) {
+  const params = new URLSearchParams();
+  if (bidId) params.set("bidId", bidId);
+  const query = params.toString() ? `?${params}` : "";
+  return fetchShipmentIntelligence(`/dispatch/readiness/${encodeURIComponent(loadId)}${query}`);
+}
+
+export async function createDispatchReadinessReview(loadId: string, payload: Record<string, unknown>) {
+  const res = await fetch(`${SHIPMENT_INTELLIGENCE_BASE}/dispatch/readiness/${encodeURIComponent(loadId)}/review`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    throw new Error(`Dispatch readiness review error: ${res.status}`);
+  }
+  return res.json();
+}
+
 export async function fetchCarrierQuotes(loadId: string, provider = "MOCK") {
   return fetchShipmentIntelligence(`/carrier-quotes/${encodeURIComponent(loadId)}?provider=${encodeURIComponent(provider)}`);
 }

@@ -1,5 +1,6 @@
 import { Express, Request, Response, Router } from "express";
 import {
+  buildDispatchReadiness,
   buildCarrierEligibilityRecommendations,
   buildGovernanceSignalFromMatch,
   buildLoadRecommendations,
@@ -608,6 +609,99 @@ export function registerShipmentIntelligenceRoutes(app: Express) {
     });
 
     res.status(201).json({ packet, governanceSignal, event });
+  });
+
+  router.get("/dispatch/readiness/:loadId", async (req: Request, res: Response) => {
+    const workspaceId = requestWorkspaceId(req);
+    const [loads, postings, bids, carriers, lanes, shipments] = await Promise.all([
+      listSilLoads({ workspaceId }),
+      listSilPostings({ workspaceId }),
+      listSilBids({ workspaceId }),
+      listSilCarriers({ workspaceId }),
+      listSilLanes({ workspaceId }),
+      listSilShipments({ workspaceId }),
+    ]);
+    const load = loads.find((item) => item.loadId === req.params.loadId);
+    if (!load) return res.status(404).json({ error: "Load not found" });
+
+    const posting = postings.find((item) => item.loadId === load.loadId);
+    const candidateBids = buildLoadRecommendations({ load, posting, bids, carriers, lanes }).filter((bid) =>
+      ["RECEIVED", "SHORTLISTED", "AWARDED"].includes(bid.status)
+    );
+    const bid =
+      (req.query.bidId ? candidateBids.find((item) => item.bidId === req.query.bidId) : undefined) ??
+      candidateBids[0] ??
+      bids.find((item) => item.loadId === load.loadId);
+    const carrier = bid ? carriers.find((item) => item.carrierId === bid.carrierId) : undefined;
+    const lane = lanes.find(
+      (item) =>
+        item.originRegion === load.origin.state &&
+        item.destinationRegion === load.destination.state &&
+        item.mode === load.mode &&
+        item.equipmentType === load.equipmentType
+    );
+    const shipment = shipments.find((item) => item.loadId === load.loadId);
+    const readiness = buildDispatchReadiness({ load, bid, carrier, lane, posting, shipment });
+
+    res.json({ readiness });
+  });
+
+  router.post("/dispatch/readiness/:loadId/review", async (req: Request, res: Response) => {
+    const workspaceId = requestWorkspaceId(req);
+    const [loads, postings, bids, carriers, lanes, shipments] = await Promise.all([
+      listSilLoads({ workspaceId }),
+      listSilPostings({ workspaceId }),
+      listSilBids({ workspaceId }),
+      listSilCarriers({ workspaceId }),
+      listSilLanes({ workspaceId }),
+      listSilShipments({ workspaceId }),
+    ]);
+    const load = loads.find((item) => item.loadId === req.params.loadId);
+    if (!load) return res.status(404).json({ error: "Load not found" });
+
+    const posting = postings.find((item) => item.loadId === load.loadId);
+    const candidateBids = buildLoadRecommendations({ load, posting, bids, carriers, lanes }).filter((bid) =>
+      ["RECEIVED", "SHORTLISTED", "AWARDED"].includes(bid.status)
+    );
+    const bid =
+      (req.body?.bidId ? candidateBids.find((item) => item.bidId === req.body.bidId) : undefined) ??
+      candidateBids[0] ??
+      bids.find((item) => item.loadId === load.loadId);
+    const carrier = bid ? carriers.find((item) => item.carrierId === bid.carrierId) : undefined;
+    const lane = lanes.find(
+      (item) =>
+        item.originRegion === load.origin.state &&
+        item.destinationRegion === load.destination.state &&
+        item.mode === load.mode &&
+        item.equipmentType === load.equipmentType
+    );
+    const shipment = shipments.find((item) => item.loadId === load.loadId);
+    const readiness = buildDispatchReadiness({ load, bid, carrier, lane, posting, shipment });
+    const governanceSignal = readiness.governanceSignal ?? null;
+    if (governanceSignal) await persistSilGovernanceSignal(governanceSignal, "READY_FOR_ENCOMPAX");
+
+    const event = await persistSilWorkflowEvent({
+      eventId: `sil_evt_dispatch_readiness_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      eventType: "DISPATCH_READINESS_CHECKED",
+      occurredAt: new Date().toISOString(),
+      actor: req.body?.actor ?? "operator",
+      source: "USER",
+      workspaceId: load.workspaceId,
+      loadId: load.loadId,
+      shipmentId: shipment?.shipmentId,
+      bidId: bid?.bidId,
+      carrierId: bid?.carrierId,
+      summary: `Dispatch readiness for ${load.loadId} returned ${readiness.status}.`,
+      evidence: [
+        `Readiness score: ${readiness.score}`,
+        ...readiness.blockingReasons.map((reason) => `Blocking: ${reason}`),
+        ...readiness.reviewReasons.map((reason) => `Review: ${reason}`),
+        ...(Array.isArray(req.body?.evidence) ? req.body.evidence : readiness.evidence),
+      ],
+      governanceSignal: governanceSignal ?? undefined,
+    });
+
+    res.status(governanceSignal ? 201 : 200).json({ readiness, governanceSignal, event });
   });
 
   router.get("/carrier-quotes/:loadId", async (req: Request, res: Response) => {

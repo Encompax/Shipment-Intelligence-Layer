@@ -3,11 +3,13 @@ import {
   createLoadBoardBid,
   createLoadBoardPosting,
   createCarrierInvitePacket,
+  createDispatchReadinessReview,
   createTransportationCarrier,
   createTransportationLoad,
   decideLoadBoardBid,
   fetchCarrierEligibilityRecommendations,
   fetchCarrierQuotes,
+  fetchDispatchReadiness,
   fetchLoadBoardBids,
   fetchLoadBoardPostings,
   fetchLoadTransitions,
@@ -159,6 +161,20 @@ type MarketAnalysis = {
   evidence: string[];
 };
 
+type DispatchReadiness = {
+  loadId: string;
+  bidId?: string;
+  carrierId?: string;
+  postingId?: string;
+  shipmentId?: string;
+  status: "READY" | "READY_WITH_REVIEW" | "HOLD";
+  score: number;
+  blockingReasons: string[];
+  reviewReasons: string[];
+  evidence: string[];
+  governanceSignal?: Signal;
+};
+
 type WorkflowEvent = {
   eventId: string;
   eventType: string;
@@ -241,6 +257,7 @@ const TransportationCommandPanel: React.FC = () => {
   const [invitePacketSummary, setInvitePacketSummary] = useState<string | null>(null);
   const [allowedTransitions, setAllowedTransitions] = useState<string[]>([]);
   const [marketAnalysis, setMarketAnalysis] = useState<MarketAnalysis | null>(null);
+  const [dispatchReadiness, setDispatchReadiness] = useState<DispatchReadiness | null>(null);
   const [workflowEvents, setWorkflowEvents] = useState<WorkflowEvent[]>([]);
   const [selectedLoadId, setSelectedLoadId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -351,12 +368,13 @@ const TransportationCommandPanel: React.FC = () => {
       if (!selectedLoad?.loadId) return;
 
       try {
-        const [quotesResult, transitionsResult, marketResult, eventsResult, eligibilityResult] = await Promise.all([
+        const [quotesResult, transitionsResult, marketResult, eventsResult, eligibilityResult, readinessResult] = await Promise.all([
           fetchCarrierQuotes(selectedLoad.loadId),
           fetchLoadTransitions(selectedLoad.loadId),
           fetchMarketRateAnalysis(selectedLoad.loadId, selectedBid?.bidId),
           fetchWorkflowEvents({ loadId: selectedLoad.loadId }),
           fetchCarrierEligibilityRecommendations(selectedLoad.loadId),
+          fetchDispatchReadiness(selectedLoad.loadId, selectedBid?.bidId),
         ]);
 
         if (!alive) return;
@@ -366,6 +384,7 @@ const TransportationCommandPanel: React.FC = () => {
         setMarketAnalysis(marketResult.analysis ?? null);
         setWorkflowEvents(eventsResult.events ?? []);
         setCarrierEligibility(eligibilityResult.recommendations ?? []);
+        setDispatchReadiness(readinessResult.readiness ?? null);
       } catch (err) {
         if (!alive) return;
         setActionStatus(err instanceof Error ? err.message : "Failed to load operational context");
@@ -582,6 +601,33 @@ const TransportationCommandPanel: React.FC = () => {
       );
     } catch (err) {
       setActionStatus(err instanceof Error ? err.message : "Invite packet creation failed");
+    }
+  }
+
+  async function handleDispatchReadinessReview() {
+    if (!selectedLoad) return;
+
+    try {
+      setActionStatus("Routing dispatch readiness review...");
+      const result = await createDispatchReadinessReview(selectedLoad.loadId, {
+        bidId: selectedBid?.bidId,
+        actor: "operator",
+        evidence: ["operator requested dispatch readiness review from Transportation Command"],
+      });
+      setDispatchReadiness(result.readiness ?? null);
+      if (result.governanceSignal) {
+        setSignals((current) => [result.governanceSignal, ...current]);
+      }
+      if (result.event) {
+        setWorkflowEvents((current) => [result.event, ...current]);
+      }
+      setActionStatus(
+        result.governanceSignal
+          ? "Dispatch readiness routed to Encompax."
+          : "Dispatch readiness checked without governed exception."
+      );
+    } catch (err) {
+      setActionStatus(err instanceof Error ? err.message : "Dispatch readiness review failed");
     }
   }
 
@@ -1030,6 +1076,44 @@ const TransportationCommandPanel: React.FC = () => {
               )}
 
               <div className="transport-ops-grid">
+                <div className={`ops-card dispatch-readiness-card readiness-${(dispatchReadiness?.status ?? "unknown").toLowerCase()}`}>
+                  <div className="ops-card-header">
+                    <span>Dispatch Readiness</span>
+                    <strong>{dispatchReadiness?.status?.replaceAll("_", " ") ?? "--"}</strong>
+                  </div>
+                  <div className="readiness-score-row">
+                    <div>
+                      <span>Go/No-Go Score</span>
+                      <strong>{dispatchReadiness?.score ?? "--"}</strong>
+                    </div>
+                    <div>
+                      <span>Carrier</span>
+                      <strong>{dispatchReadiness?.carrierId?.replace("carrier-", "") ?? selectedBid?.carrierId.replace("carrier-", "") ?? "--"}</strong>
+                    </div>
+                  </div>
+                  <div className="governance-reason-list">
+                    {(dispatchReadiness?.blockingReasons.length
+                      ? dispatchReadiness.blockingReasons
+                      : dispatchReadiness?.reviewReasons ?? []
+                    ).slice(0, 4).map((reason) => (
+                      <span key={reason}>{reason}</span>
+                    ))}
+                    {dispatchReadiness && dispatchReadiness.blockingReasons.length === 0 && dispatchReadiness.reviewReasons.length === 0 && (
+                      <span>Carrier, posting, bid, and shipment evidence are clean.</span>
+                    )}
+                  </div>
+                  <div className="ops-action-row">
+                    <button
+                      className="btn btn-primary btn-sm"
+                      type="button"
+                      onClick={handleDispatchReadinessReview}
+                    >
+                      Route Readiness Review
+                    </button>
+                  </div>
+                  {dispatchReadiness?.evidence?.[0] && <p className="ops-note">{dispatchReadiness.evidence[0]}</p>}
+                </div>
+
                 <div className="ops-card">
                   <div className="ops-card-header">
                     <span>Lifecycle</span>

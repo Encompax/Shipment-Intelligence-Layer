@@ -4,6 +4,7 @@ exports.scoreBidMatch = scoreBidMatch;
 exports.buildLoadRecommendations = buildLoadRecommendations;
 exports.buildCarrierEligibilityRecommendations = buildCarrierEligibilityRecommendations;
 exports.buildGovernanceSignalFromMatch = buildGovernanceSignalFromMatch;
+exports.buildDispatchReadiness = buildDispatchReadiness;
 const clamp = (value, min = 0, max = 100) => Math.min(max, Math.max(min, value));
 const round = (value) => Math.round(value * 100) / 100;
 const normalizeStatus = (value) => value === null || value === void 0 ? void 0 : value.trim().toUpperCase();
@@ -355,5 +356,141 @@ function buildGovernanceSignalFromMatch(context, score) {
             },
         ],
         rawPayloadRef: `sil:bid:${context.bid.bidId}`,
+    };
+}
+function buildDispatchReadiness(context) {
+    var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q, _r, _s, _t, _u, _v, _w, _x, _y, _z, _0, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11;
+    const matchScore = context.bid
+        ? scoreBidMatch({
+            load: context.load,
+            bid: context.bid,
+            carrier: context.carrier,
+            lane: context.lane,
+            posting: context.posting,
+        })
+        : undefined;
+    const blockingReasons = [];
+    const reviewReasons = [];
+    const evidence = [];
+    const carrierName = (_d = (_b = (_a = context.carrier) === null || _a === void 0 ? void 0 : _a.carrierName) !== null && _b !== void 0 ? _b : (_c = context.bid) === null || _c === void 0 ? void 0 : _c.carrierId) !== null && _d !== void 0 ? _d : "No carrier selected";
+    const postingVisibility = (_f = (_e = context.posting) === null || _e === void 0 ? void 0 : _e.visibility) !== null && _f !== void 0 ? _f : "NOT_POSTED";
+    const safetyStatus = normalizeStatus((_g = context.carrier) === null || _g === void 0 ? void 0 : _g.safetyStatus);
+    const creditStatus = normalizeStatus((_h = context.carrier) === null || _h === void 0 ? void 0 : _h.creditStatus);
+    const insuranceStatus = normalizeStatus((_j = context.carrier) === null || _j === void 0 ? void 0 : _j.insuranceStatus);
+    if (!context.bid) {
+        blockingReasons.push("No carrier bid is selected for award or dispatch.");
+    }
+    else if (["REJECTED", "WITHDRAWN", "EXPIRED"].includes(context.bid.status)) {
+        blockingReasons.push(`Selected bid is ${context.bid.status}.`);
+    }
+    if (((_k = context.bid) === null || _k === void 0 ? void 0 : _k.expiresAt) && new Date(context.bid.expiresAt).getTime() < Date.now()) {
+        blockingReasons.push("Selected bid response window has expired.");
+    }
+    if (!context.carrier) {
+        reviewReasons.push("Carrier profile is missing.");
+    }
+    else {
+        if (context.carrier.blocked || safetyStatus === "BLOCKED" || creditStatus === "BLOCKED") {
+            blockingReasons.push("Carrier is blocked by workspace, safety, or credit policy.");
+        }
+        if (safetyStatus === "REVIEW" || creditStatus === "REVIEW" || insuranceStatus === "REVIEW") {
+            reviewReasons.push("Carrier compliance status requires review.");
+        }
+        if (!safetyStatus || safetyStatus === "UNKNOWN")
+            reviewReasons.push("Carrier safety status is unknown.");
+        if (!creditStatus || creditStatus === "UNKNOWN")
+            reviewReasons.push("Carrier credit status is unknown.");
+        if (!insuranceStatus || insuranceStatus === "UNKNOWN")
+            reviewReasons.push("Carrier insurance status is unknown.");
+        if (["EXPIRED", "INVALID", "BLOCKED"].includes(insuranceStatus !== null && insuranceStatus !== void 0 ? insuranceStatus : "")) {
+            blockingReasons.push("Carrier insurance is not valid.");
+        }
+    }
+    if (!context.posting) {
+        reviewReasons.push("Load has no posting record tied to the selected bid.");
+    }
+    else if (context.posting.visibility === "INVITED_CARRIERS") {
+        if (!context.posting.invitedAt)
+            reviewReasons.push("Invite packet has not been timestamped as reviewed.");
+        if (context.bid && !((_l = context.posting.invitedCarrierIds) !== null && _l !== void 0 ? _l : []).includes(context.bid.carrierId)) {
+            blockingReasons.push("Selected carrier is not on the invited carrier list.");
+        }
+    }
+    if (((_m = context.shipment) === null || _m === void 0 ? void 0 : _m.state) === "EXCEPTION") {
+        blockingReasons.push("Shipment is currently in exception state.");
+    }
+    if (!context.shipment) {
+        reviewReasons.push("No shipment execution record exists yet.");
+    }
+    else if (["DISPATCHED", "AT_PICKUP", "IN_TRANSIT", "AT_DELIVERY"].includes(context.shipment.state) && !context.shipment.trackingNumber) {
+        reviewReasons.push("Dispatched shipment does not have a tracking number.");
+    }
+    if (matchScore === null || matchScore === void 0 ? void 0 : matchScore.governanceSignalRequired) {
+        reviewReasons.push(...((_o = matchScore.governanceReasons) !== null && _o !== void 0 ? _o : ["Bid score requires governed review."]));
+    }
+    if (((_p = matchScore === null || matchScore === void 0 ? void 0 : matchScore.score) !== null && _p !== void 0 ? _p : 0) < 68 && context.bid) {
+        reviewReasons.push(`Dispatch score is below award threshold: ${(_q = matchScore === null || matchScore === void 0 ? void 0 : matchScore.score) !== null && _q !== void 0 ? _q : 0}.`);
+    }
+    evidence.push(`Load status: ${context.load.status}`, `Posting visibility: ${postingVisibility}`, `Carrier: ${carrierName}`, `Bid status: ${(_s = (_r = context.bid) === null || _r === void 0 ? void 0 : _r.status) !== null && _s !== void 0 ? _s : "not selected"}`, `Bid score: ${(_t = matchScore === null || matchScore === void 0 ? void 0 : matchScore.score) !== null && _t !== void 0 ? _t : "unavailable"}`, `Shipment state: ${(_v = (_u = context.shipment) === null || _u === void 0 ? void 0 : _u.state) !== null && _v !== void 0 ? _v : "not created"}`);
+    if ((_w = context.shipment) === null || _w === void 0 ? void 0 : _w.trackingNumber)
+        evidence.push(`Tracking number: ${context.shipment.trackingNumber}`);
+    if (matchScore === null || matchScore === void 0 ? void 0 : matchScore.carrierDecisionSummary)
+        evidence.push(matchScore.carrierDecisionSummary);
+    const uniqueBlockingReasons = [...new Set(blockingReasons)];
+    const uniqueReviewReasons = [...new Set(reviewReasons)];
+    const baseScore = (_x = matchScore === null || matchScore === void 0 ? void 0 : matchScore.score) !== null && _x !== void 0 ? _x : 45;
+    const readinessScore = clamp(baseScore - uniqueBlockingReasons.length * 22 - uniqueReviewReasons.length * 8);
+    const status = uniqueBlockingReasons.length > 0 ? "HOLD" : uniqueReviewReasons.length > 0 ? "READY_WITH_REVIEW" : "READY";
+    const severity = status === "HOLD" ? "CRITICAL" : uniqueReviewReasons.length > 2 ? "HIGH" : "MEDIUM";
+    const governanceSignal = status === "READY"
+        ? undefined
+        : {
+            workspaceId: context.load.workspaceId,
+            signalType: "DISPATCH_READINESS_REVIEW",
+            sourceModule: "SHIPMENT_INTELLIGENCE_LAYER",
+            severity,
+            confidenceScore: round(Math.max(0.62, Math.min(0.94, (100 - readinessScore) / 100))),
+            description: `${carrierName} dispatch readiness for ${(_y = context.load.customerName) !== null && _y !== void 0 ? _y : context.load.customerId} is ${status.replace(/_/g, " ").toLowerCase()}.`,
+            businessDomains: ["TRANSPORTATION", "FREIGHT_BROKERAGE", "SHIPMENT_VISIBILITY", "RISK"],
+            affectedEntities: {
+                loads: [context.load.loadId],
+                carriers: ((_z = context.bid) === null || _z === void 0 ? void 0 : _z.carrierId) ? [context.bid.carrierId] : [],
+                shipments: ((_0 = context.shipment) === null || _0 === void 0 ? void 0 : _0.shipmentId) ? [context.shipment.shipmentId] : [],
+                lanes: context.lane ? [context.lane.laneId] : [],
+                customers: [context.load.customerId],
+            },
+            metrics: {
+                readiness_score: Math.round(readinessScore),
+                match_score: (_1 = matchScore === null || matchScore === void 0 ? void 0 : matchScore.score) !== null && _1 !== void 0 ? _1 : null,
+                blocking_reason_count: uniqueBlockingReasons.length,
+                review_reason_count: uniqueReviewReasons.length,
+                bid_rate: (_3 = (_2 = context.bid) === null || _2 === void 0 ? void 0 : _2.bidRate) !== null && _3 !== void 0 ? _3 : null,
+                target_buy_rate: (_4 = context.load.targetBuyRate) !== null && _4 !== void 0 ? _4 : null,
+                target_sell_rate: (_5 = context.load.targetSellRate) !== null && _5 !== void 0 ? _5 : null,
+            },
+            tags: ["sil", "dispatch-readiness", "carrier-award", severity.toLowerCase()],
+            recommendedActions: [
+                {
+                    actionType: status === "HOLD" ? "HOLD_DISPATCH_FOR_REVIEW" : "REVIEW_DISPATCH_BEFORE_COMMITMENT",
+                    targetModule: "PLATFORM_OVERVIEW",
+                    priority: severity === "CRITICAL" ? "CRITICAL" : "HIGH",
+                    description: "Review carrier, posting, bid, and shipment evidence before dispatch commitment.",
+                },
+            ],
+            rawPayloadRef: `sil:dispatch-readiness:${context.load.loadId}:${(_7 = (_6 = context.bid) === null || _6 === void 0 ? void 0 : _6.bidId) !== null && _7 !== void 0 ? _7 : "no-bid"}`,
+        };
+    return {
+        loadId: context.load.loadId,
+        bidId: (_8 = context.bid) === null || _8 === void 0 ? void 0 : _8.bidId,
+        carrierId: (_9 = context.bid) === null || _9 === void 0 ? void 0 : _9.carrierId,
+        postingId: (_10 = context.posting) === null || _10 === void 0 ? void 0 : _10.postingId,
+        shipmentId: (_11 = context.shipment) === null || _11 === void 0 ? void 0 : _11.shipmentId,
+        status,
+        score: Math.round(readinessScore),
+        matchScore,
+        blockingReasons: uniqueBlockingReasons,
+        reviewReasons: uniqueReviewReasons,
+        evidence,
+        governanceSignal,
     };
 }

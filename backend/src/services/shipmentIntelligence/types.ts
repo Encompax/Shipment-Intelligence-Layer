@@ -81,6 +81,7 @@ export type SilGovernanceSignalType =
   | "BROKER_MARGIN_RISK"
   | "CARRIER_CREDIT_RISK"
   | "CARRIER_INVITE_REVIEW"
+  | "DISPATCH_READINESS_REVIEW"
   | "CUSTOMER_DELIVERY_COMMITMENT_RISK"
   | "SHIPMENT_EXECUTION_EXCEPTION"
   | "MARKET_RATE_VOLATILITY";
@@ -95,6 +96,7 @@ export const SIL_GOVERNANCE_SIGNAL_TYPES: SilGovernanceSignalType[] = [
   "BROKER_MARGIN_RISK",
   "CARRIER_CREDIT_RISK",
   "CARRIER_INVITE_REVIEW",
+  "DISPATCH_READINESS_REVIEW",
   "CUSTOMER_DELIVERY_COMMITMENT_RISK",
   "SHIPMENT_EXECUTION_EXCEPTION",
   "MARKET_RATE_VOLATILITY",
@@ -289,6 +291,23 @@ export type SilMatchScore = {
   governanceSignalRequired: boolean;
 };
 
+export type SilDispatchReadinessStatus = "READY" | "READY_WITH_REVIEW" | "HOLD";
+
+export type SilDispatchReadinessResult = {
+  loadId: string;
+  bidId?: string;
+  carrierId?: string;
+  postingId?: string;
+  shipmentId?: string;
+  status: SilDispatchReadinessStatus;
+  score: number;
+  matchScore?: SilMatchScore;
+  blockingReasons: string[];
+  reviewReasons: string[];
+  evidence: string[];
+  governanceSignal?: SilGovernanceSignalDraft;
+};
+
 export type SilMarketRateObservation = {
   workspaceId?: string;
   observationId: string;
@@ -316,6 +335,7 @@ export type SilWorkflowEventType =
   | "CARRIER_PROVIDER_QUOTE_REQUESTED"
   | "CARRIER_PROVIDER_TRACKING_REQUESTED"
   | "SHIPMENT_PROGRESS_UPDATED"
+  | "DISPATCH_READINESS_CHECKED"
   | "CARRIER_PROFILE_UPDATED"
   | "LEAN_RECORD_CREATED"
   | "WORKSPACE_UPDATED";
