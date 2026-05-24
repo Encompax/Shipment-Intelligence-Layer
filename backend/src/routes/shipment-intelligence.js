@@ -212,6 +212,24 @@ function registerShipmentIntelligenceRoutes(app) {
         const result = await (0, silPersistenceService_1.createSilPosting)({ ...req.body, workspaceId: requestWorkspaceId(req) });
         res.status(201).json(result);
     });
+    router.patch("/load-board/postings/:postingId/visibility", async (req, res) => {
+        var _a, _b, _c, _d, _e, _f;
+        const workspaceId = requestWorkspaceId(req);
+        const posting = (await (0, silPersistenceService_1.listSilPostings)({ workspaceId })).find((item) => item.postingId === req.params.postingId);
+        if (!posting)
+            return res.status(404).json({ error: "Posting not found" });
+        const result = await (0, silPersistenceService_1.updateSilPostingVisibility)(req.params.postingId, {
+            visibility: (_a = req.body) === null || _a === void 0 ? void 0 : _a.visibility,
+            invitedCarrierIds: (_b = req.body) === null || _b === void 0 ? void 0 : _b.invitedCarrierIds,
+            status: (_c = req.body) === null || _c === void 0 ? void 0 : _c.status,
+            expiresAt: (_d = req.body) === null || _d === void 0 ? void 0 : _d.expiresAt,
+            actor: (_e = req.body) === null || _e === void 0 ? void 0 : _e.actor,
+            evidence: (_f = req.body) === null || _f === void 0 ? void 0 : _f.evidence,
+        });
+        if (!result)
+            return res.status(404).json({ error: "Posting not found" });
+        res.json(result);
+    });
     router.get("/load-board/bids", async (req, res) => {
         const workspaceId = requestWorkspaceId(req);
         const [bids, loads, carriers, postings, lanes] = await Promise.all([
@@ -257,8 +275,13 @@ function registerShipmentIntelligenceRoutes(app) {
         if (!carriers.some((carrier) => carrier.carrierId === req.body.carrierId)) {
             return res.status(404).json({ error: "Carrier not found" });
         }
-        const result = await (0, silPersistenceService_1.createSilBid)({ ...req.body, workspaceId });
-        res.status(201).json(result);
+        try {
+            const result = await (0, silPersistenceService_1.createSilBid)({ ...req.body, workspaceId });
+            res.status(201).json(result);
+        }
+        catch (error) {
+            res.status(409).json({ error: error instanceof Error ? error.message : "Bid rejected by posting controls" });
+        }
     });
     router.get("/load-board/bids/:bidId/review", async (req, res) => {
         const workspaceId = requestWorkspaceId(req);

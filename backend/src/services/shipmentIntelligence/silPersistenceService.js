@@ -12,6 +12,7 @@ exports.upsertSilCarrier = upsertSilCarrier;
 exports.listSilLanes = listSilLanes;
 exports.listSilPostings = listSilPostings;
 exports.createSilPosting = createSilPosting;
+exports.updateSilPostingVisibility = updateSilPostingVisibility;
 exports.listSilBids = listSilBids;
 exports.createSilBid = createSilBid;
 exports.updateSilBidCommercials = updateSilBidCommercials;
@@ -545,7 +546,7 @@ async function listSilPostings(filters) {
     return records.map((record) => withWorkspace(fromRecord(record))).filter((record) => matchesWorkspace(record, filters === null || filters === void 0 ? void 0 : filters.workspaceId));
 }
 async function createSilPosting(input) {
-    var _a, _b, _c, _d, _e, _f, _g, _h, _j;
+    var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p;
     await seedSilPersistence();
     const load = await getSilLoad(input.loadId);
     const workspaceId = (_b = (_a = input.workspaceId) !== null && _a !== void 0 ? _a : load === null || load === void 0 ? void 0 : load.workspaceId) !== null && _b !== void 0 ? _b : DEFAULT_WORKSPACE_ID;
@@ -557,9 +558,11 @@ async function createSilPosting(input) {
         postedRate: input.postedRate,
         visibility: (_e = input.visibility) !== null && _e !== void 0 ? _e : "INVITED_CARRIERS",
         status: (_f = input.status) !== null && _f !== void 0 ? _f : "POSTED",
-        postedAt: (_g = input.postedAt) !== null && _g !== void 0 ? _g : new Date().toISOString(),
+        invitedCarrierIds: (_g = input.invitedCarrierIds) !== null && _g !== void 0 ? _g : [],
+        invitedAt: ((_h = input.invitedCarrierIds) === null || _h === void 0 ? void 0 : _h.length) ? (_j = input.invitedAt) !== null && _j !== void 0 ? _j : new Date().toISOString() : input.invitedAt,
+        postedAt: (_k = input.postedAt) !== null && _k !== void 0 ? _k : new Date().toISOString(),
         expiresAt: input.expiresAt,
-        bidCount: (_h = input.bidCount) !== null && _h !== void 0 ? _h : 0,
+        bidCount: (_l = input.bidCount) !== null && _l !== void 0 ? _l : 0,
         bestBidRate: input.bestBidRate,
         bestCarrierId: input.bestCarrierId,
     };
@@ -583,9 +586,54 @@ async function createSilPosting(input) {
         loadId: posting.loadId,
         nextState: posting.status,
         summary: `Load posted to ${posting.board}.`,
-        evidence: [`Visibility: ${posting.visibility}`, `Posted rate: ${(_j = posting.postedRate) !== null && _j !== void 0 ? _j : "not set"}`],
+        evidence: [
+            `Visibility: ${posting.visibility}`,
+            `Posted rate: ${(_m = posting.postedRate) !== null && _m !== void 0 ? _m : "not set"}`,
+            `Invited carriers: ${(_p = (_o = posting.invitedCarrierIds) === null || _o === void 0 ? void 0 : _o.length) !== null && _p !== void 0 ? _p : 0}`,
+        ],
     });
     return { posting, event };
+}
+async function updateSilPostingVisibility(postingId, input) {
+    var _a, _b, _c, _d, _e, _f, _g, _h;
+    await seedSilPersistence();
+    const record = await prisma_1.prisma.silLoadPostingRecord.findUnique({ where: { postingId } });
+    if (!record)
+        return null;
+    const posting = withWorkspace(fromRecord(record));
+    const invitedCarrierIds = (_b = (_a = input.invitedCarrierIds) !== null && _a !== void 0 ? _a : posting.invitedCarrierIds) !== null && _b !== void 0 ? _b : [];
+    const updatedPosting = withWorkspace({
+        ...posting,
+        visibility: (_c = input.visibility) !== null && _c !== void 0 ? _c : posting.visibility,
+        status: (_d = input.status) !== null && _d !== void 0 ? _d : posting.status,
+        expiresAt: (_e = input.expiresAt) !== null && _e !== void 0 ? _e : posting.expiresAt,
+        invitedCarrierIds,
+        invitedAt: input.invitedCarrierIds ? new Date().toISOString() : posting.invitedAt,
+    });
+    await prisma_1.prisma.silLoadPostingRecord.update({
+        where: { postingId },
+        data: {
+            status: updatedPosting.status,
+            board: updatedPosting.board,
+            data: json(updatedPosting),
+        },
+    });
+    const event = await persistSilWorkflowEvent({
+        eventId: makeId("sil_evt_posting_visibility_updated"),
+        eventType: "LOAD_POSTED",
+        occurredAt: new Date().toISOString(),
+        actor: (_f = input.actor) !== null && _f !== void 0 ? _f : "operator",
+        source: "USER",
+        workspaceId: updatedPosting.workspaceId,
+        loadId: updatedPosting.loadId,
+        nextState: updatedPosting.status,
+        summary: `Posting visibility updated for ${updatedPosting.loadId}.`,
+        evidence: (_g = input.evidence) !== null && _g !== void 0 ? _g : [
+            `Visibility: ${updatedPosting.visibility}`,
+            `Invited carriers: ${((_h = updatedPosting.invitedCarrierIds) === null || _h === void 0 ? void 0 : _h.join(", ")) || "none"}`,
+        ],
+    });
+    return { posting: updatedPosting, event };
 }
 async function listSilBids(filters) {
     await seedSilPersistence();
@@ -593,7 +641,7 @@ async function listSilBids(filters) {
     return records.map((record) => withWorkspace(fromRecord(record))).filter((record) => matchesWorkspace(record, filters === null || filters === void 0 ? void 0 : filters.workspaceId));
 }
 async function createSilBid(input) {
-    var _a, _b, _c, _d, _e, _f;
+    var _a, _b, _c, _d, _e, _f, _g;
     await seedSilPersistence();
     const load = await getSilLoad(input.loadId);
     const workspaceId = (_b = (_a = input.workspaceId) !== null && _a !== void 0 ? _a : load === null || load === void 0 ? void 0 : load.workspaceId) !== null && _b !== void 0 ? _b : DEFAULT_WORKSPACE_ID;
@@ -614,9 +662,15 @@ async function createSilBid(input) {
             postingId = createdPosting.posting.postingId;
         }
     }
+    const posting = (await listSilPostings({ workspaceId })).find((item) => item.postingId === postingId);
+    if ((posting === null || posting === void 0 ? void 0 : posting.visibility) === "INVITED_CARRIERS" && ((_c = posting.invitedCarrierIds) === null || _c === void 0 ? void 0 : _c.length)) {
+        if (!posting.invitedCarrierIds.includes(input.carrierId)) {
+            throw new Error(`Carrier ${input.carrierId} is not invited to posting ${posting.postingId}`);
+        }
+    }
     const bid = {
         workspaceId,
-        bidId: (_c = input.bidId) !== null && _c !== void 0 ? _c : `bid-${normalizeIdPart(input.carrierId, "carrier")}-${normalizeIdPart(input.loadId, "load")}-${Date.now()}`,
+        bidId: (_d = input.bidId) !== null && _d !== void 0 ? _d : `bid-${normalizeIdPart(input.carrierId, "carrier")}-${normalizeIdPart(input.loadId, "load")}-${Date.now()}`,
         postingId,
         loadId: input.loadId,
         carrierId: input.carrierId,
@@ -626,10 +680,10 @@ async function createSilBid(input) {
         estimatedDeliveryCommitment: input.estimatedDeliveryCommitment,
         expiresAt: input.expiresAt,
         counterOfferRate: input.counterOfferRate,
-        counterOfferStatus: (_d = input.counterOfferStatus) !== null && _d !== void 0 ? _d : "NONE",
+        counterOfferStatus: (_e = input.counterOfferStatus) !== null && _e !== void 0 ? _e : "NONE",
         message: input.message,
-        status: (_e = input.status) !== null && _e !== void 0 ? _e : "RECEIVED",
-        receivedAt: (_f = input.receivedAt) !== null && _f !== void 0 ? _f : new Date().toISOString(),
+        status: (_f = input.status) !== null && _f !== void 0 ? _f : "RECEIVED",
+        receivedAt: (_g = input.receivedAt) !== null && _g !== void 0 ? _g : new Date().toISOString(),
         score: input.score,
     };
     await prisma_1.prisma.silBidRecord.create({

@@ -235,6 +235,8 @@ export type SilLoadPosting = {
   postedRate?: number;
   visibility: "PRIVATE" | "INVITED_CARRIERS" | "PUBLIC";
   status: "DRAFT" | "POSTED" | "PAUSED" | "EXPIRED" | "AWARDED" | "CANCELED";
+  invitedCarrierIds?: string[];
+  invitedAt?: string;
   postedAt?: string;
   expiresAt?: string;
   bidCount: number;

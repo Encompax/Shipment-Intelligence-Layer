@@ -20,6 +20,7 @@ import {
   fetchWorkflowEvents,
   transitionLoad,
   updateLoadBoardBidCommercials,
+  updateLoadBoardPostingVisibility,
   updateTransportationCarrier,
   updateTransportationShipmentProgress,
 } from "../api/client";
@@ -72,6 +73,8 @@ type Posting = {
   board: string;
   postedRate?: number;
   status: string;
+  visibility?: string;
+  invitedCarrierIds?: string[];
   bidCount: number;
   bestBidRate?: number;
 };
@@ -239,6 +242,7 @@ const TransportationCommandPanel: React.FC = () => {
     targetBuyRate: "2450",
   });
   const [postingRate, setPostingRate] = useState("2450");
+  const [postingVisibility, setPostingVisibility] = useState("INVITED_CARRIERS");
   const [bidForm, setBidForm] = useState({
     carrierId: "carrier-riverbend",
     bidRate: "2650",
@@ -414,6 +418,9 @@ const TransportationCommandPanel: React.FC = () => {
         loadId: selectedLoad.loadId,
         board: "SIL_LOAD_BOARD",
         postedRate: Number(postingRate),
+        visibility: postingVisibility,
+        invitedCarrierIds:
+          postingVisibility === "INVITED_CARRIERS" ? carriers.filter((carrier) => carrier.preferred).map((carrier) => carrier.carrierId) : [],
       });
       await refreshTransportationData(selectedLoad.loadId);
       setActionStatus("Load posted to the SIL load board.");
@@ -505,6 +512,34 @@ const TransportationCommandPanel: React.FC = () => {
       setActionStatus("Bid controls updated.");
     } catch (err) {
       setActionStatus(err instanceof Error ? err.message : "Bid controls update failed");
+    }
+  }
+
+  async function handlePostingInviteUpdate(mode: "preferred" | "all" | "private") {
+    if (!selectedPosting) return;
+
+    try {
+      setActionStatus("Updating posting visibility...");
+      const invitedCarrierIds =
+        mode === "preferred"
+          ? carriers.filter((carrier) => carrier.preferred).map((carrier) => carrier.carrierId)
+          : mode === "all"
+            ? carriers.map((carrier) => carrier.carrierId)
+            : [];
+      const visibility = mode === "private" ? "PRIVATE" : mode === "all" ? "PUBLIC" : "INVITED_CARRIERS";
+      const result = await updateLoadBoardPostingVisibility(selectedPosting.postingId, {
+        visibility,
+        invitedCarrierIds,
+        actor: "operator",
+        evidence: [`Posting visibility set to ${visibility}`, `Carrier invite count: ${invitedCarrierIds.length}`],
+      });
+      setPostings((current) =>
+        current.map((posting) => (posting.postingId === selectedPosting.postingId ? result.posting : posting))
+      );
+      setWorkflowEvents((current) => [result.event, ...current]);
+      setActionStatus("Posting visibility updated.");
+    } catch (err) {
+      setActionStatus(err instanceof Error ? err.message : "Posting visibility update failed");
     }
   }
 
@@ -714,7 +749,7 @@ const TransportationCommandPanel: React.FC = () => {
                 </div>
                 <div>
                   <span>Posting</span>
-                  <strong>{selectedPosting?.status ?? "Not posted"}</strong>
+                  <strong>{selectedPosting ? `${selectedPosting.status} / ${selectedPosting.visibility ?? "INVITED"}` : "Not posted"}</strong>
                 </div>
               </div>
 
@@ -727,6 +762,14 @@ const TransportationCommandPanel: React.FC = () => {
                       inputMode="numeric"
                       onChange={(event) => setPostingRate(event.target.value)}
                     />
+                  </label>
+                  <label>
+                    Visibility
+                    <select value={postingVisibility} onChange={(event) => setPostingVisibility(event.target.value)}>
+                      <option value="INVITED_CARRIERS">Invited</option>
+                      <option value="PRIVATE">Private</option>
+                      <option value="PUBLIC">Public</option>
+                    </select>
                   </label>
                   <button className="btn btn-primary btn-sm" type="submit">
                     Post Load
@@ -767,6 +810,27 @@ const TransportationCommandPanel: React.FC = () => {
                   </button>
                 </form>
               </div>
+
+              {selectedPosting && (
+                <div className="posting-visibility-panel">
+                  <div>
+                    <p className="transport-eyebrow">Posting Visibility</p>
+                    <h4>{selectedPosting.visibility ?? "INVITED_CARRIERS"}</h4>
+                    <span>{selectedPosting.invitedCarrierIds?.length ?? 0} invited carrier(s)</span>
+                  </div>
+                  <div className="transport-row-actions">
+                    <button className="btn btn-secondary btn-xs" type="button" onClick={() => handlePostingInviteUpdate("preferred")}>
+                      Invite Preferred
+                    </button>
+                    <button className="btn btn-secondary btn-xs" type="button" onClick={() => handlePostingInviteUpdate("all")}>
+                      Open Public
+                    </button>
+                    <button className="btn btn-secondary btn-xs" type="button" onClick={() => handlePostingInviteUpdate("private")}>
+                      Make Private
+                    </button>
+                  </div>
+                </div>
+              )}
 
               <div className="transport-table-wrap">
                 <table className="transport-table">

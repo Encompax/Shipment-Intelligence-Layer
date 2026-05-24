@@ -41,6 +41,7 @@ import {
   updateSilBidCommercials,
   updateSilBidStatus,
   updateSilLoadStatus,
+  updateSilPostingVisibility,
   updateSilShipmentProgress,
   upsertSilCarrier,
   upsertSilWorkspace,
@@ -280,6 +281,23 @@ export function registerShipmentIntelligenceRoutes(app: Express) {
     res.status(201).json(result);
   });
 
+  router.patch("/load-board/postings/:postingId/visibility", async (req: Request, res: Response) => {
+    const workspaceId = requestWorkspaceId(req);
+    const posting = (await listSilPostings({ workspaceId })).find((item) => item.postingId === req.params.postingId);
+    if (!posting) return res.status(404).json({ error: "Posting not found" });
+
+    const result = await updateSilPostingVisibility(req.params.postingId, {
+      visibility: req.body?.visibility,
+      invitedCarrierIds: req.body?.invitedCarrierIds,
+      status: req.body?.status,
+      expiresAt: req.body?.expiresAt,
+      actor: req.body?.actor,
+      evidence: req.body?.evidence,
+    });
+    if (!result) return res.status(404).json({ error: "Posting not found" });
+    res.json(result);
+  });
+
   router.get("/load-board/bids", async (req: Request, res: Response) => {
     const workspaceId = requestWorkspaceId(req);
     const [bids, loads, carriers, postings, lanes] = await Promise.all([
@@ -331,8 +349,12 @@ export function registerShipmentIntelligenceRoutes(app: Express) {
       return res.status(404).json({ error: "Carrier not found" });
     }
 
-    const result = await createSilBid({ ...req.body, workspaceId });
-    res.status(201).json(result);
+    try {
+      const result = await createSilBid({ ...req.body, workspaceId });
+      res.status(201).json(result);
+    } catch (error) {
+      res.status(409).json({ error: error instanceof Error ? error.message : "Bid rejected by posting controls" });
+    }
   });
 
   router.get("/load-board/bids/:bidId/review", async (req: Request, res: Response) => {

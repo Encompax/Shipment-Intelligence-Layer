@@ -661,6 +661,8 @@ export async function createSilPosting(input: Partial<SilLoadPosting> & Pick<Sil
     postedRate: input.postedRate,
     visibility: input.visibility ?? "INVITED_CARRIERS",
     status: input.status ?? "POSTED",
+    invitedCarrierIds: input.invitedCarrierIds ?? [],
+    invitedAt: input.invitedCarrierIds?.length ? input.invitedAt ?? new Date().toISOString() : input.invitedAt,
     postedAt: input.postedAt ?? new Date().toISOString(),
     expiresAt: input.expiresAt,
     bidCount: input.bidCount ?? 0,
@@ -690,10 +692,64 @@ export async function createSilPosting(input: Partial<SilLoadPosting> & Pick<Sil
     loadId: posting.loadId,
     nextState: posting.status,
     summary: `Load posted to ${posting.board}.`,
-    evidence: [`Visibility: ${posting.visibility}`, `Posted rate: ${posting.postedRate ?? "not set"}`],
+    evidence: [
+      `Visibility: ${posting.visibility}`,
+      `Posted rate: ${posting.postedRate ?? "not set"}`,
+      `Invited carriers: ${posting.invitedCarrierIds?.length ?? 0}`,
+    ],
   });
 
   return { posting, event };
+}
+
+export async function updateSilPostingVisibility(
+  postingId: string,
+  input: Pick<Partial<SilLoadPosting>, "visibility" | "invitedCarrierIds" | "status" | "expiresAt"> & {
+    actor?: string;
+    evidence?: string[];
+  }
+) {
+  await seedSilPersistence();
+  const record = await prisma.silLoadPostingRecord.findUnique({ where: { postingId } });
+  if (!record) return null;
+
+  const posting = withWorkspace(fromRecord<SilLoadPosting>(record));
+  const invitedCarrierIds = input.invitedCarrierIds ?? posting.invitedCarrierIds ?? [];
+  const updatedPosting = withWorkspace({
+    ...posting,
+    visibility: input.visibility ?? posting.visibility,
+    status: input.status ?? posting.status,
+    expiresAt: input.expiresAt ?? posting.expiresAt,
+    invitedCarrierIds,
+    invitedAt: input.invitedCarrierIds ? new Date().toISOString() : posting.invitedAt,
+  });
+
+  await prisma.silLoadPostingRecord.update({
+    where: { postingId },
+    data: {
+      status: updatedPosting.status,
+      board: updatedPosting.board,
+      data: json(updatedPosting),
+    },
+  });
+
+  const event = await persistSilWorkflowEvent({
+    eventId: makeId("sil_evt_posting_visibility_updated"),
+    eventType: "LOAD_POSTED",
+    occurredAt: new Date().toISOString(),
+    actor: input.actor ?? "operator",
+    source: "USER",
+    workspaceId: updatedPosting.workspaceId,
+    loadId: updatedPosting.loadId,
+    nextState: updatedPosting.status,
+    summary: `Posting visibility updated for ${updatedPosting.loadId}.`,
+    evidence: input.evidence ?? [
+      `Visibility: ${updatedPosting.visibility}`,
+      `Invited carriers: ${updatedPosting.invitedCarrierIds?.join(", ") || "none"}`,
+    ],
+  });
+
+  return { posting: updatedPosting, event };
 }
 
 export async function listSilBids(filters?: { workspaceId?: string }) {
@@ -722,6 +778,12 @@ export async function createSilBid(input: Partial<SilBid> & Pick<SilBid, "loadId
         status: "POSTED",
       });
       postingId = createdPosting.posting.postingId;
+    }
+  }
+  const posting = (await listSilPostings({ workspaceId })).find((item) => item.postingId === postingId);
+  if (posting?.visibility === "INVITED_CARRIERS" && posting.invitedCarrierIds?.length) {
+    if (!posting.invitedCarrierIds.includes(input.carrierId)) {
+      throw new Error(`Carrier ${input.carrierId} is not invited to posting ${posting.postingId}`);
     }
   }
   const bid: SilBid = {

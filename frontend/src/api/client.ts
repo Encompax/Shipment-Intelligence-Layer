@@ -200,6 +200,18 @@ export async function createLoadBoardPosting(payload: Record<string, unknown>) {
   return res.json();
 }
 
+export async function updateLoadBoardPostingVisibility(postingId: string, payload: Record<string, unknown>) {
+  const res = await fetch(`${SHIPMENT_INTELLIGENCE_BASE}/load-board/postings/${encodeURIComponent(postingId)}/visibility`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    throw new Error(`Posting visibility update error: ${res.status}`);
+  }
+  return res.json();
+}
+
 export async function fetchLoadBoardBids() {
   return fetchShipmentIntelligence("/load-board/bids");
 }
