@@ -415,6 +415,19 @@ function registerShipmentIntelligenceRoutes(app) {
         });
         res.json({ count: recommendations.length, recommendations });
     });
+    router.get("/matching/carrier-eligibility/:loadId", async (req, res) => {
+        const workspaceId = requestWorkspaceId(req);
+        const [loads, carriers, lanes] = await Promise.all([
+            (0, silPersistenceService_1.listSilLoads)({ workspaceId }),
+            (0, silPersistenceService_1.listSilCarriers)({ workspaceId }),
+            (0, silPersistenceService_1.listSilLanes)({ workspaceId }),
+        ]);
+        const load = loads.find((item) => item.loadId === req.params.loadId);
+        if (!load)
+            return res.status(404).json({ error: "Load not found" });
+        const recommendations = (0, matchingEngine_1.buildCarrierEligibilityRecommendations)({ load, carriers, lanes });
+        res.json({ count: recommendations.length, recommendations });
+    });
     router.get("/carrier-quotes/:loadId", async (req, res) => {
         var _a;
         const workspaceId = requestWorkspaceId(req);

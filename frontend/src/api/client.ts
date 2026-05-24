@@ -260,6 +260,10 @@ export async function fetchMatchingRecommendations() {
   return fetchShipmentIntelligence("/matching/recommendations");
 }
 
+export async function fetchCarrierEligibilityRecommendations(loadId: string) {
+  return fetchShipmentIntelligence(`/matching/carrier-eligibility/${encodeURIComponent(loadId)}`);
+}
+
 export async function fetchCarrierQuotes(loadId: string, provider = "MOCK") {
   return fetchShipmentIntelligence(`/carrier-quotes/${encodeURIComponent(loadId)}?provider=${encodeURIComponent(provider)}`);
 }

@@ -1,5 +1,6 @@
 import { Express, Request, Response, Router } from "express";
 import {
+  buildCarrierEligibilityRecommendations,
   buildGovernanceSignalFromMatch,
   buildLoadRecommendations,
   scoreBidMatch,
@@ -499,6 +500,20 @@ export function registerShipmentIntelligenceRoutes(app: Express) {
       };
     });
 
+    res.json({ count: recommendations.length, recommendations });
+  });
+
+  router.get("/matching/carrier-eligibility/:loadId", async (req: Request, res: Response) => {
+    const workspaceId = requestWorkspaceId(req);
+    const [loads, carriers, lanes] = await Promise.all([
+      listSilLoads({ workspaceId }),
+      listSilCarriers({ workspaceId }),
+      listSilLanes({ workspaceId }),
+    ]);
+    const load = loads.find((item) => item.loadId === req.params.loadId);
+    if (!load) return res.status(404).json({ error: "Load not found" });
+
+    const recommendations = buildCarrierEligibilityRecommendations({ load, carriers, lanes });
     res.json({ count: recommendations.length, recommendations });
   });
 

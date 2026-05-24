@@ -2,6 +2,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.scoreBidMatch = scoreBidMatch;
 exports.buildLoadRecommendations = buildLoadRecommendations;
+exports.buildCarrierEligibilityRecommendations = buildCarrierEligibilityRecommendations;
 exports.buildGovernanceSignalFromMatch = buildGovernanceSignalFromMatch;
 const clamp = (value, min = 0, max = 100) => Math.min(max, Math.max(min, value));
 const round = (value) => Math.round(value * 100) / 100;
@@ -257,6 +258,51 @@ function buildLoadRecommendations(context) {
         };
     })
         .sort((left, right) => { var _a, _b, _c, _d; return ((_b = (_a = right.score) === null || _a === void 0 ? void 0 : _a.score) !== null && _b !== void 0 ? _b : 0) - ((_d = (_c = left.score) === null || _c === void 0 ? void 0 : _c.score) !== null && _d !== void 0 ? _d : 0); });
+}
+function buildCarrierEligibilityRecommendations(input) {
+    const lane = findLane(input.load, input.lanes);
+    return input.carriers
+        .map((carrier) => {
+        var _a, _b, _c;
+        const trust = carrierTrust(carrier);
+        const reliability = carrierReliability(carrier);
+        const laneFit = lane ? 88 : 52;
+        const preferredBoost = carrier.preferred ? 8 : 0;
+        const blocked = carrier.blocked ||
+            normalizeStatus(carrier.safetyStatus) === "BLOCKED" ||
+            normalizeStatus(carrier.creditStatus) === "BLOCKED";
+        const reviewRequired = normalizeStatus(carrier.safetyStatus) === "REVIEW" ||
+            normalizeStatus(carrier.creditStatus) === "REVIEW" ||
+            normalizeStatus(carrier.insuranceStatus) === "REVIEW";
+        const eligibilityScore = blocked ? 0 : clamp(trust * 0.42 + reliability * 0.36 + laneFit * 0.14 + preferredBoost);
+        const inviteRecommendation = blocked
+            ? "DO_NOT_INVITE"
+            : reviewRequired || eligibilityScore < 64
+                ? "INVITE_WITH_REVIEW"
+                : eligibilityScore >= 78
+                    ? "INVITE"
+                    : "BACKUP";
+        const evidence = [
+            `Trust score: ${round(trust)}`,
+            `Reliability score: ${round(reliability)}`,
+            `Lane fit score: ${round(laneFit)}`,
+            carrier.preferred ? "Carrier is preferred." : "Carrier is not preferred.",
+            `Credit: ${(_a = carrier.creditStatus) !== null && _a !== void 0 ? _a : "UNKNOWN"}`,
+            `Safety: ${(_b = carrier.safetyStatus) !== null && _b !== void 0 ? _b : "UNKNOWN"}`,
+            `Insurance: ${(_c = carrier.insuranceStatus) !== null && _c !== void 0 ? _c : "UNKNOWN"}`,
+        ];
+        return {
+            carrierId: carrier.carrierId,
+            carrierName: carrier.carrierName,
+            eligibilityScore: Math.round(eligibilityScore),
+            inviteRecommendation,
+            governanceReviewRequired: reviewRequired,
+            blocked,
+            preferred: Boolean(carrier.preferred),
+            evidence,
+        };
+    })
+        .sort((left, right) => right.eligibilityScore - left.eligibilityScore);
 }
 function buildGovernanceSignalFromMatch(context, score) {
     var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q, _r, _s, _t, _u, _v, _w, _x;

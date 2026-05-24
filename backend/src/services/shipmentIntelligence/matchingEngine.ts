@@ -254,6 +254,59 @@ export function buildLoadRecommendations(context: RecommendationContext) {
     .sort((left, right) => (right.score?.score ?? 0) - (left.score?.score ?? 0));
 }
 
+export function buildCarrierEligibilityRecommendations(input: {
+  load: SilLoad;
+  carriers: SilCarrierProfile[];
+  lanes: SilLaneProfile[];
+}) {
+  const lane = findLane(input.load, input.lanes);
+
+  return input.carriers
+    .map((carrier) => {
+      const trust = carrierTrust(carrier);
+      const reliability = carrierReliability(carrier);
+      const laneFit = lane ? 88 : 52;
+      const preferredBoost = carrier.preferred ? 8 : 0;
+      const blocked =
+        carrier.blocked ||
+        normalizeStatus(carrier.safetyStatus) === "BLOCKED" ||
+        normalizeStatus(carrier.creditStatus) === "BLOCKED";
+      const reviewRequired =
+        normalizeStatus(carrier.safetyStatus) === "REVIEW" ||
+        normalizeStatus(carrier.creditStatus) === "REVIEW" ||
+        normalizeStatus(carrier.insuranceStatus) === "REVIEW";
+      const eligibilityScore = blocked ? 0 : clamp(trust * 0.42 + reliability * 0.36 + laneFit * 0.14 + preferredBoost);
+      const inviteRecommendation = blocked
+        ? "DO_NOT_INVITE"
+        : reviewRequired || eligibilityScore < 64
+          ? "INVITE_WITH_REVIEW"
+          : eligibilityScore >= 78
+            ? "INVITE"
+            : "BACKUP";
+      const evidence = [
+        `Trust score: ${round(trust)}`,
+        `Reliability score: ${round(reliability)}`,
+        `Lane fit score: ${round(laneFit)}`,
+        carrier.preferred ? "Carrier is preferred." : "Carrier is not preferred.",
+        `Credit: ${carrier.creditStatus ?? "UNKNOWN"}`,
+        `Safety: ${carrier.safetyStatus ?? "UNKNOWN"}`,
+        `Insurance: ${carrier.insuranceStatus ?? "UNKNOWN"}`,
+      ];
+
+      return {
+        carrierId: carrier.carrierId,
+        carrierName: carrier.carrierName,
+        eligibilityScore: Math.round(eligibilityScore),
+        inviteRecommendation,
+        governanceReviewRequired: reviewRequired,
+        blocked,
+        preferred: Boolean(carrier.preferred),
+        evidence,
+      };
+    })
+    .sort((left, right) => right.eligibilityScore - left.eligibilityScore);
+}
+
 export function buildGovernanceSignalFromMatch(context: MatchContext, score: SilMatchScore): SilGovernanceSignalDraft {
   const projectedMargin =
     typeof context.load.targetSellRate === "number" ? context.load.targetSellRate - context.bid.bidRate : null;

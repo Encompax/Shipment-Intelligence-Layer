@@ -5,6 +5,7 @@ import {
   createTransportationCarrier,
   createTransportationLoad,
   decideLoadBoardBid,
+  fetchCarrierEligibilityRecommendations,
   fetchCarrierQuotes,
   fetchLoadBoardBids,
   fetchLoadBoardPostings,
@@ -96,6 +97,17 @@ type CarrierQuote = {
   rate: number;
   serviceLevel: string;
   confidenceScore: number;
+  evidence: string[];
+};
+
+type CarrierEligibility = {
+  carrierId: string;
+  carrierName: string;
+  eligibilityScore: number;
+  inviteRecommendation: string;
+  governanceReviewRequired: boolean;
+  blocked: boolean;
+  preferred: boolean;
   evidence: string[];
 };
 
@@ -224,6 +236,7 @@ const TransportationCommandPanel: React.FC = () => {
   const [lanes, setLanes] = useState<Lane[]>([]);
   const [signals, setSignals] = useState<Signal[]>([]);
   const [carrierQuotes, setCarrierQuotes] = useState<CarrierQuote[]>([]);
+  const [carrierEligibility, setCarrierEligibility] = useState<CarrierEligibility[]>([]);
   const [allowedTransitions, setAllowedTransitions] = useState<string[]>([]);
   const [marketAnalysis, setMarketAnalysis] = useState<MarketAnalysis | null>(null);
   const [workflowEvents, setWorkflowEvents] = useState<WorkflowEvent[]>([]);
@@ -336,11 +349,12 @@ const TransportationCommandPanel: React.FC = () => {
       if (!selectedLoad?.loadId) return;
 
       try {
-        const [quotesResult, transitionsResult, marketResult, eventsResult] = await Promise.all([
+        const [quotesResult, transitionsResult, marketResult, eventsResult, eligibilityResult] = await Promise.all([
           fetchCarrierQuotes(selectedLoad.loadId),
           fetchLoadTransitions(selectedLoad.loadId),
           fetchMarketRateAnalysis(selectedLoad.loadId, selectedBid?.bidId),
           fetchWorkflowEvents({ loadId: selectedLoad.loadId }),
+          fetchCarrierEligibilityRecommendations(selectedLoad.loadId),
         ]);
 
         if (!alive) return;
@@ -349,6 +363,7 @@ const TransportationCommandPanel: React.FC = () => {
         setAllowedTransitions(transitionsResult.allowedTransitions ?? []);
         setMarketAnalysis(marketResult.analysis ?? null);
         setWorkflowEvents(eventsResult.events ?? []);
+        setCarrierEligibility(eligibilityResult.recommendations ?? []);
       } catch (err) {
         if (!alive) return;
         setActionStatus(err instanceof Error ? err.message : "Failed to load operational context");
@@ -522,7 +537,9 @@ const TransportationCommandPanel: React.FC = () => {
       setActionStatus("Updating posting visibility...");
       const invitedCarrierIds =
         mode === "preferred"
-          ? carriers.filter((carrier) => carrier.preferred).map((carrier) => carrier.carrierId)
+          ? carrierEligibility
+              .filter((carrier) => ["INVITE", "INVITE_WITH_REVIEW"].includes(carrier.inviteRecommendation))
+              .map((carrier) => carrier.carrierId)
           : mode === "all"
             ? carriers.map((carrier) => carrier.carrierId)
             : [];
@@ -831,6 +848,34 @@ const TransportationCommandPanel: React.FC = () => {
                   </div>
                 </div>
               )}
+
+              <div className="carrier-eligibility-panel">
+                <div className="transport-panel-header compact">
+                  <div>
+                    <p className="transport-eyebrow">Carrier Eligibility</p>
+                    <h4>Recommended Invite List</h4>
+                  </div>
+                  <span>{carrierEligibility.filter((carrier) => carrier.inviteRecommendation === "INVITE").length} ready</span>
+                </div>
+                <div className="carrier-eligibility-list">
+                  {carrierEligibility.slice(0, 4).map((carrier) => (
+                    <article key={carrier.carrierId} className="carrier-eligibility-card">
+                      <div>
+                        <strong>{carrier.carrierName}</strong>
+                        <span>{carrier.inviteRecommendation.replaceAll("_", " ")}</span>
+                      </div>
+                      <div className="transport-card-meta">
+                        <span>Score {carrier.eligibilityScore}</span>
+                        {carrier.preferred && <span>Preferred</span>}
+                        {carrier.governanceReviewRequired && <span>Review</span>}
+                        {carrier.blocked && <span>Blocked</span>}
+                      </div>
+                      <small>{carrier.evidence[0]}</small>
+                    </article>
+                  ))}
+                  {carrierEligibility.length === 0 && <p className="ops-note">No carrier eligibility recommendations available.</p>}
+                </div>
+              </div>
 
               <div className="transport-table-wrap">
                 <table className="transport-table">
