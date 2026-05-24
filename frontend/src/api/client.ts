@@ -147,7 +147,8 @@ export async function updateTransportationShipmentProgress(shipmentId: string, p
     body: JSON.stringify(payload),
   });
   if (!res.ok) {
-    throw new Error(`Shipment progress update error: ${res.status}`);
+    const body = await res.json().catch(() => null);
+    throw new Error(body?.error ?? `Shipment progress update error: ${res.status}`);
   }
   return res.json();
 }
@@ -251,7 +252,8 @@ export async function decideLoadBoardBid(bidId: string, payload: Record<string, 
     body: JSON.stringify(payload),
   });
   if (!res.ok) {
-    throw new Error(`Bid decision error: ${res.status}`);
+    const body = await res.json().catch(() => null);
+    throw new Error(body?.error ?? `Bid decision error: ${res.status}`);
   }
   return res.json();
 }

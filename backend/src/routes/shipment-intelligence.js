@@ -160,10 +160,46 @@ function registerShipmentIntelligenceRoutes(app) {
         res.json({ count: shipments.length, shipments });
     });
     router.patch("/shipments/:shipmentId/progress", async (req, res) => {
+        var _a, _b, _c;
+        const workspaceId = requestWorkspaceId(req);
+        if (((_a = req.body) === null || _a === void 0 ? void 0 : _a.state) === "DISPATCHED" && !((_b = req.body) === null || _b === void 0 ? void 0 : _b.overrideReadiness)) {
+            const [shipments, loads, postings, bids, carriers, lanes] = await Promise.all([
+                (0, silPersistenceService_1.listSilShipments)({ workspaceId }),
+                (0, silPersistenceService_1.listSilLoads)({ workspaceId }),
+                (0, silPersistenceService_1.listSilPostings)({ workspaceId }),
+                (0, silPersistenceService_1.listSilBids)({ workspaceId }),
+                (0, silPersistenceService_1.listSilCarriers)({ workspaceId }),
+                (0, silPersistenceService_1.listSilLanes)({ workspaceId }),
+            ]);
+            const shipment = shipments.find((item) => item.shipmentId === req.params.shipmentId);
+            if (!shipment)
+                return res.status(404).json({ error: "Shipment not found" });
+            const load = shipment.loadId ? loads.find((item) => item.loadId === shipment.loadId) : undefined;
+            if (load) {
+                const posting = postings.find((item) => item.loadId === load.loadId);
+                const candidateBids = (0, matchingEngine_1.buildLoadRecommendations)({ load, posting, bids, carriers, lanes }).filter((bid) => ["AWARDED", "SHORTLISTED", "RECEIVED"].includes(bid.status));
+                const bid = (_c = candidateBids.find((item) => item.status === "AWARDED")) !== null && _c !== void 0 ? _c : candidateBids[0];
+                const carrier = bid ? carriers.find((item) => item.carrierId === bid.carrierId) : undefined;
+                const lane = lanes.find((item) => item.originRegion === load.origin.state &&
+                    item.destinationRegion === load.destination.state &&
+                    item.mode === load.mode &&
+                    item.equipmentType === load.equipmentType);
+                const readiness = (0, matchingEngine_1.buildDispatchReadiness)({ load, bid, carrier, lane, posting, shipment });
+                if (readiness.status === "HOLD") {
+                    return res.status(409).json({
+                        error: "Dispatch readiness is HOLD. Route readiness review before dispatch.",
+                        readiness,
+                    });
+                }
+                if (readiness.status === "READY_WITH_REVIEW" && readiness.governanceSignal) {
+                    await (0, silPersistenceService_1.persistSilGovernanceSignal)(readiness.governanceSignal, "READY_FOR_ENCOMPAX");
+                }
+            }
+        }
         const result = await (0, silPersistenceService_1.updateSilShipmentProgress)({
             ...req.body,
             shipmentId: req.params.shipmentId,
-            workspaceId: requestWorkspaceId(req),
+            workspaceId,
         });
         if (!result)
             return res.status(404).json({ error: "Shipment not found" });
@@ -232,12 +268,13 @@ function registerShipmentIntelligenceRoutes(app) {
     });
     router.get("/load-board/bids", async (req, res) => {
         const workspaceId = requestWorkspaceId(req);
-        const [bids, loads, carriers, postings, lanes] = await Promise.all([
+        const [bids, loads, carriers, postings, lanes, shipments] = await Promise.all([
             (0, silPersistenceService_1.listSilBids)({ workspaceId }),
             (0, silPersistenceService_1.listSilLoads)({ workspaceId }),
             (0, silPersistenceService_1.listSilCarriers)({ workspaceId }),
             (0, silPersistenceService_1.listSilPostings)({ workspaceId }),
             (0, silPersistenceService_1.listSilLanes)({ workspaceId }),
+            (0, silPersistenceService_1.listSilShipments)({ workspaceId }),
         ]);
         const scoredBids = bids.map((bid) => {
             const load = loads.find((item) => item.loadId === bid.loadId);
@@ -285,12 +322,13 @@ function registerShipmentIntelligenceRoutes(app) {
     });
     router.get("/load-board/bids/:bidId/review", async (req, res) => {
         const workspaceId = requestWorkspaceId(req);
-        const [bids, loads, carriers, postings, lanes] = await Promise.all([
+        const [bids, loads, carriers, postings, lanes, shipments] = await Promise.all([
             (0, silPersistenceService_1.listSilBids)({ workspaceId }),
             (0, silPersistenceService_1.listSilLoads)({ workspaceId }),
             (0, silPersistenceService_1.listSilCarriers)({ workspaceId }),
             (0, silPersistenceService_1.listSilPostings)({ workspaceId }),
             (0, silPersistenceService_1.listSilLanes)({ workspaceId }),
+            (0, silPersistenceService_1.listSilShipments)({ workspaceId }),
         ]);
         const bid = bids.find((item) => item.bidId === req.params.bidId);
         if (!bid)
@@ -339,18 +377,19 @@ function registerShipmentIntelligenceRoutes(app) {
         res.json(result);
     });
     router.post("/load-board/bids/:bidId/decision", async (req, res) => {
-        var _a, _b, _c, _d;
+        var _a, _b, _c, _d, _e, _f;
         const decision = (_a = req.body) === null || _a === void 0 ? void 0 : _a.decision;
         if (!decision || !["SHORTLISTED", "REJECTED", "AWARDED", "WITHDRAWN"].includes(decision)) {
             return res.status(400).json({ error: "decision must be SHORTLISTED, REJECTED, AWARDED, or WITHDRAWN" });
         }
         const workspaceId = requestWorkspaceId(req);
-        const [bids, loads, carriers, postings, lanes] = await Promise.all([
+        const [bids, loads, carriers, postings, lanes, shipments] = await Promise.all([
             (0, silPersistenceService_1.listSilBids)({ workspaceId }),
             (0, silPersistenceService_1.listSilLoads)({ workspaceId }),
             (0, silPersistenceService_1.listSilCarriers)({ workspaceId }),
             (0, silPersistenceService_1.listSilPostings)({ workspaceId }),
             (0, silPersistenceService_1.listSilLanes)({ workspaceId }),
+            (0, silPersistenceService_1.listSilShipments)({ workspaceId }),
         ]);
         const bid = bids.find((item) => item.bidId === req.params.bidId);
         if (!bid)
@@ -365,9 +404,17 @@ function registerShipmentIntelligenceRoutes(app) {
             item.mode === load.mode &&
             item.equipmentType === load.equipmentType);
         const score = (0, matchingEngine_1.scoreBidMatch)({ load, bid, carrier, lane, posting });
+        const shipment = shipments.find((item) => item.loadId === load.loadId);
+        const readiness = decision === "AWARDED" ? (0, matchingEngine_1.buildDispatchReadiness)({ load, bid, carrier, lane, posting, shipment }) : null;
+        if ((readiness === null || readiness === void 0 ? void 0 : readiness.status) === "HOLD" && !((_b = req.body) === null || _b === void 0 ? void 0 : _b.overrideReadiness)) {
+            return res.status(409).json({
+                error: "Dispatch readiness is HOLD. Route readiness review before award.",
+                readiness,
+            });
+        }
         const updatedBid = await (0, silPersistenceService_1.updateSilBidStatus)(bid.bidId, decision);
-        const governanceSignal = decision === "AWARDED" && score.governanceSignalRequired
-            ? (0, matchingEngine_1.buildGovernanceSignalFromMatch)({ load, bid, carrier, lane, posting }, score)
+        const governanceSignal = decision === "AWARDED" && ((readiness === null || readiness === void 0 ? void 0 : readiness.governanceSignal) || score.governanceSignalRequired)
+            ? (_c = readiness === null || readiness === void 0 ? void 0 : readiness.governanceSignal) !== null && _c !== void 0 ? _c : (0, matchingEngine_1.buildGovernanceSignalFromMatch)({ load, bid, carrier, lane, posting }, score)
             : null;
         if (governanceSignal)
             await (0, silPersistenceService_1.persistSilGovernanceSignal)(governanceSignal, "READY_FOR_ENCOMPAX");
@@ -375,7 +422,7 @@ function registerShipmentIntelligenceRoutes(app) {
             eventId: `sil_evt_bid_decision_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
             eventType: decision === "AWARDED" ? "CARRIER_AWARDED" : "BID_REVIEWED",
             occurredAt: new Date().toISOString(),
-            actor: (_c = (_b = req.body) === null || _b === void 0 ? void 0 : _b.actor) !== null && _c !== void 0 ? _c : "operator",
+            actor: (_e = (_d = req.body) === null || _d === void 0 ? void 0 : _d.actor) !== null && _e !== void 0 ? _e : "operator",
             source: "USER",
             workspaceId: bid.workspaceId,
             loadId: bid.loadId,
@@ -387,14 +434,15 @@ function registerShipmentIntelligenceRoutes(app) {
             evidence: [
                 `Decision: ${decision}`,
                 `Score: ${score.score}`,
-                ...(Array.isArray((_d = req.body) === null || _d === void 0 ? void 0 : _d.evidence) ? req.body.evidence : score.evidence),
+                ...(readiness ? [`Dispatch readiness: ${readiness.status}`, `Readiness score: ${readiness.score}`] : []),
+                ...(Array.isArray((_f = req.body) === null || _f === void 0 ? void 0 : _f.evidence) ? req.body.evidence : score.evidence),
             ],
             governanceSignal: governanceSignal !== null && governanceSignal !== void 0 ? governanceSignal : undefined,
         });
         if (decision === "AWARDED") {
             await (0, silPersistenceService_1.updateSilLoadStatus)(load.loadId, "CARRIER_SELECTED");
         }
-        res.json({ bid: updatedBid, score, governanceSignal, event });
+        res.json({ bid: updatedBid, score, readiness, governanceSignal, event });
     });
     router.get("/matching/recommendations", async (req, res) => {
         const workspaceId = requestWorkspaceId(req);

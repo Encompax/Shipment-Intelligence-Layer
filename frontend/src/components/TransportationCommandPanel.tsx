@@ -355,6 +355,8 @@ const TransportationCommandPanel: React.FC = () => {
   );
 
   const selectedBid = selectedBids[0] ?? null;
+  const selectedBidReadinessIsHold =
+    Boolean(dispatchReadiness && selectedBid?.bidId === dispatchReadiness.bidId && dispatchReadiness.status === "HOLD");
 
   const selectedShipment = useMemo(
     () => shipments.find((shipment) => shipment.loadId === selectedLoad?.loadId) ?? null,
@@ -519,6 +521,19 @@ const TransportationCommandPanel: React.FC = () => {
 
   async function handleBidDecision(bidId: string, decision: "SHORTLISTED" | "AWARDED" | "REJECTED") {
     try {
+      if (decision === "AWARDED" && selectedLoad) {
+        const readinessResult = await fetchDispatchReadiness(selectedLoad.loadId, bidId);
+        const readiness = readinessResult.readiness as DispatchReadiness | undefined;
+        if (readiness) setDispatchReadiness(readiness);
+        if (readiness?.status === "HOLD") {
+          setActionStatus("Award held by dispatch readiness. Route readiness review before carrier commitment.");
+          return;
+        }
+        if (readiness?.status === "READY_WITH_REVIEW") {
+          setActionStatus("Award has readiness review conditions; Encompax routing will be attached to the decision.");
+        }
+      }
+
       setActionStatus(`${decision.replaceAll("_", " ")} carrier bid...`);
       await decideLoadBoardBid(bidId, {
         decision,
@@ -639,6 +654,16 @@ const TransportationCommandPanel: React.FC = () => {
     if (!selectedShipment) return;
 
     try {
+      if (state === "DISPATCHED" && selectedLoad) {
+        const readinessResult = await fetchDispatchReadiness(selectedLoad.loadId, selectedBid?.bidId);
+        const readiness = readinessResult.readiness as DispatchReadiness | undefined;
+        if (readiness) setDispatchReadiness(readiness);
+        if (readiness?.status === "HOLD") {
+          setActionStatus("Dispatch held by readiness controls. Route readiness review before tender movement.");
+          return;
+        }
+      }
+
       setActionStatus(`Updating shipment to ${state}...`);
       const stopStatus = timestampField === "departedAt" || state === "DELIVERED" ? "COMPLETED" : "ARRIVED";
       const result = await updateTransportationShipmentProgress(selectedShipment.shipmentId, {
@@ -1017,6 +1042,12 @@ const TransportationCommandPanel: React.FC = () => {
                               className="btn btn-primary btn-xs"
                               type="button"
                               onClick={() => handleBidDecision(bid.bidId, "AWARDED")}
+                              disabled={dispatchReadiness?.bidId === bid.bidId && dispatchReadiness.status === "HOLD"}
+                              title={
+                                dispatchReadiness?.bidId === bid.bidId && dispatchReadiness.status === "HOLD"
+                                  ? "Dispatch readiness is HOLD. Route readiness review first."
+                                  : undefined
+                              }
                             >
                               Award
                             </button>
@@ -1187,7 +1218,13 @@ const TransportationCommandPanel: React.FC = () => {
                         ))}
                       </div>
                       <div className="ops-action-row">
-                        <button className="btn btn-secondary btn-sm" type="button" onClick={() => handleShipmentProgress("DISPATCHED")}>
+                        <button
+                          className="btn btn-secondary btn-sm"
+                          type="button"
+                          onClick={() => handleShipmentProgress("DISPATCHED")}
+                          disabled={selectedBidReadinessIsHold}
+                          title={selectedBidReadinessIsHold ? "Dispatch readiness is HOLD. Route readiness review first." : undefined}
+                        >
                           Dispatch
                         </button>
                         <button className="btn btn-danger btn-sm" type="button" onClick={() => handleShipmentProgress("EXCEPTION")}>
