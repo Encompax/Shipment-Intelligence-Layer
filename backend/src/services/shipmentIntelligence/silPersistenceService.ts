@@ -1012,6 +1012,73 @@ export async function sendSilCarrierInvites(
   return { posting: updatedPosting, communications, event };
 }
 
+export async function expireSilTenderWindow(
+  postingId: string,
+  input?: {
+    actor?: string;
+    reason?: string;
+  }
+) {
+  await seedSilPersistence();
+  const record = await prisma.silLoadPostingRecord.findUnique({ where: { postingId } });
+  if (!record) return null;
+
+  const posting = withWorkspace(fromRecord<SilLoadPosting>(record));
+  const expiredAt = new Date().toISOString();
+  const updatedPosting = withWorkspace({
+    ...posting,
+    status: "EXPIRED" as const,
+    expiresAt: posting.expiresAt ?? expiredAt,
+    inviteCommunications: (posting.inviteCommunications ?? []).map((communication) =>
+      ["SENT", "QUEUED"].includes(communication.status)
+        ? { ...communication, status: "EXPIRED" as const, expiresAt: communication.expiresAt ?? expiredAt }
+        : communication
+    ),
+  });
+
+  await prisma.silLoadPostingRecord.update({
+    where: { postingId },
+    data: {
+      status: updatedPosting.status,
+      board: updatedPosting.board,
+      data: json(updatedPosting),
+    },
+  });
+
+  const bidRecords = await prisma.silBidRecord.findMany({ where: { postingId } });
+  const expiredBids: SilBid[] = [];
+  for (const bidRecord of bidRecords) {
+    const bid = withWorkspace(fromRecord<SilBid>(bidRecord));
+    if (["RECEIVED", "SHORTLISTED"].includes(bid.status)) {
+      const updatedBid = withWorkspace({ ...bid, status: "EXPIRED" as const, expiresAt: bid.expiresAt ?? expiredAt });
+      await prisma.silBidRecord.update({
+        where: { bidId: updatedBid.bidId },
+        data: { status: updatedBid.status, data: json(updatedBid) },
+      });
+      expiredBids.push(updatedBid);
+    }
+  }
+
+  const event = await persistSilWorkflowEvent({
+    eventId: makeId("sil_evt_tender_window_expired"),
+    eventType: "TENDER_WINDOW_EXPIRED",
+    occurredAt: expiredAt,
+    actor: input?.actor ?? "operator",
+    source: "USER",
+    workspaceId: updatedPosting.workspaceId,
+    loadId: updatedPosting.loadId,
+    nextState: updatedPosting.status,
+    summary: `Tender window expired for ${updatedPosting.loadId}.`,
+    evidence: [
+      input?.reason ?? "Tender response window expired by operator action.",
+      `Expired bids: ${expiredBids.length}`,
+      `Invite communications: ${updatedPosting.inviteCommunications?.length ?? 0}`,
+    ],
+  });
+
+  return { posting: updatedPosting, expiredBids, event };
+}
+
 export async function listSilBids(filters?: { workspaceId?: string }) {
   await seedSilPersistence();
   const records = await prisma.silBidRecord.findMany({ orderBy: { updatedAt: "desc" } });

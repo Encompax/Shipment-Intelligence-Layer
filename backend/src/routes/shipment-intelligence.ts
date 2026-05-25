@@ -37,6 +37,7 @@ import {
   createSilLeanRecord,
   createSilLoad,
   createSilPosting,
+  expireSilTenderWindow,
   getSilWorkspace,
   listSilAppointmentCalendar,
   listSilShipmentDocuments,
@@ -494,6 +495,19 @@ export function registerShipmentIntelligenceRoutes(app: Express) {
       message: req.body?.message,
       expiresAt: req.body?.expiresAt,
       actor: req.body?.actor,
+    });
+    if (!result) return res.status(404).json({ error: "Posting not found" });
+    res.json(result);
+  });
+
+  router.post("/load-board/postings/:postingId/expire", async (req: Request, res: Response) => {
+    const workspaceId = requestWorkspaceId(req);
+    const posting = (await listSilPostings({ workspaceId })).find((item) => item.postingId === req.params.postingId);
+    if (!posting) return res.status(404).json({ error: "Posting not found" });
+
+    const result = await expireSilTenderWindow(req.params.postingId, {
+      actor: req.body?.actor,
+      reason: req.body?.reason,
     });
     if (!result) return res.status(404).json({ error: "Posting not found" });
     res.json(result);

@@ -274,6 +274,18 @@ export async function sendLoadBoardPostingInvites(postingId: string, payload: Re
   return res.json();
 }
 
+export async function expireLoadBoardTenderWindow(postingId: string, payload: Record<string, unknown>) {
+  const res = await fetch(`${SHIPMENT_INTELLIGENCE_BASE}/load-board/postings/${encodeURIComponent(postingId)}/expire`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    throw new Error(`Tender window expiration error: ${res.status}`);
+  }
+  return res.json();
+}
+
 export async function fetchLoadBoardBids() {
   return fetchShipmentIntelligence("/load-board/bids");
 }

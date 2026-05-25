@@ -411,6 +411,20 @@ function registerShipmentIntelligenceRoutes(app) {
             return res.status(404).json({ error: "Posting not found" });
         res.json(result);
     });
+    router.post("/load-board/postings/:postingId/expire", async (req, res) => {
+        var _a, _b;
+        const workspaceId = requestWorkspaceId(req);
+        const posting = (await (0, silPersistenceService_1.listSilPostings)({ workspaceId })).find((item) => item.postingId === req.params.postingId);
+        if (!posting)
+            return res.status(404).json({ error: "Posting not found" });
+        const result = await (0, silPersistenceService_1.expireSilTenderWindow)(req.params.postingId, {
+            actor: (_a = req.body) === null || _a === void 0 ? void 0 : _a.actor,
+            reason: (_b = req.body) === null || _b === void 0 ? void 0 : _b.reason,
+        });
+        if (!result)
+            return res.status(404).json({ error: "Posting not found" });
+        res.json(result);
+    });
     router.get("/load-board/bids", async (req, res) => {
         const workspaceId = requestWorkspaceId(req);
         const [bids, loads, carriers, postings, lanes, shipments] = await Promise.all([

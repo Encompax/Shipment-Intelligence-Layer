@@ -18,6 +18,7 @@ exports.listSilPostings = listSilPostings;
 exports.createSilPosting = createSilPosting;
 exports.updateSilPostingVisibility = updateSilPostingVisibility;
 exports.sendSilCarrierInvites = sendSilCarrierInvites;
+exports.expireSilTenderWindow = expireSilTenderWindow;
 exports.listSilBids = listSilBids;
 exports.createSilBid = createSilBid;
 exports.updateSilBidCommercials = updateSilBidCommercials;
@@ -868,6 +869,64 @@ async function sendSilCarrierInvites(postingId, input) {
         evidence: communications.flatMap((communication) => communication.evidence),
     });
     return { posting: updatedPosting, communications, event };
+}
+async function expireSilTenderWindow(postingId, input) {
+    var _a, _b, _c, _d, _e, _f, _g;
+    await seedSilPersistence();
+    const record = await prisma_1.prisma.silLoadPostingRecord.findUnique({ where: { postingId } });
+    if (!record)
+        return null;
+    const posting = withWorkspace(fromRecord(record));
+    const expiredAt = new Date().toISOString();
+    const updatedPosting = withWorkspace({
+        ...posting,
+        status: "EXPIRED",
+        expiresAt: (_a = posting.expiresAt) !== null && _a !== void 0 ? _a : expiredAt,
+        inviteCommunications: ((_b = posting.inviteCommunications) !== null && _b !== void 0 ? _b : []).map((communication) => {
+            var _a;
+            return ["SENT", "QUEUED"].includes(communication.status)
+                ? { ...communication, status: "EXPIRED", expiresAt: (_a = communication.expiresAt) !== null && _a !== void 0 ? _a : expiredAt }
+                : communication;
+        }),
+    });
+    await prisma_1.prisma.silLoadPostingRecord.update({
+        where: { postingId },
+        data: {
+            status: updatedPosting.status,
+            board: updatedPosting.board,
+            data: json(updatedPosting),
+        },
+    });
+    const bidRecords = await prisma_1.prisma.silBidRecord.findMany({ where: { postingId } });
+    const expiredBids = [];
+    for (const bidRecord of bidRecords) {
+        const bid = withWorkspace(fromRecord(bidRecord));
+        if (["RECEIVED", "SHORTLISTED"].includes(bid.status)) {
+            const updatedBid = withWorkspace({ ...bid, status: "EXPIRED", expiresAt: (_c = bid.expiresAt) !== null && _c !== void 0 ? _c : expiredAt });
+            await prisma_1.prisma.silBidRecord.update({
+                where: { bidId: updatedBid.bidId },
+                data: { status: updatedBid.status, data: json(updatedBid) },
+            });
+            expiredBids.push(updatedBid);
+        }
+    }
+    const event = await persistSilWorkflowEvent({
+        eventId: makeId("sil_evt_tender_window_expired"),
+        eventType: "TENDER_WINDOW_EXPIRED",
+        occurredAt: expiredAt,
+        actor: (_d = input === null || input === void 0 ? void 0 : input.actor) !== null && _d !== void 0 ? _d : "operator",
+        source: "USER",
+        workspaceId: updatedPosting.workspaceId,
+        loadId: updatedPosting.loadId,
+        nextState: updatedPosting.status,
+        summary: `Tender window expired for ${updatedPosting.loadId}.`,
+        evidence: [
+            (_e = input === null || input === void 0 ? void 0 : input.reason) !== null && _e !== void 0 ? _e : "Tender response window expired by operator action.",
+            `Expired bids: ${expiredBids.length}`,
+            `Invite communications: ${(_g = (_f = updatedPosting.inviteCommunications) === null || _f === void 0 ? void 0 : _f.length) !== null && _g !== void 0 ? _g : 0}`,
+        ],
+    });
+    return { posting: updatedPosting, expiredBids, event };
 }
 async function listSilBids(filters) {
     await seedSilPersistence();

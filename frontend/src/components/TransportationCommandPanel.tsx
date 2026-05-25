@@ -7,6 +7,7 @@ import {
   createTransportationCarrier,
   createTransportationLoad,
   decideLoadBoardBid,
+  expireLoadBoardTenderWindow,
   fetchAppointmentCalendar,
   fetchCarrierEligibilityRecommendations,
   fetchCarrierQuotes,
@@ -813,6 +814,28 @@ const TransportationCommandPanel: React.FC = () => {
     }
   }
 
+  async function handleExpireTenderWindow() {
+    if (!selectedPosting) return;
+
+    try {
+      setActionStatus("Expiring tender window...");
+      const result = await expireLoadBoardTenderWindow(selectedPosting.postingId, {
+        actor: "operator",
+        reason: "Operator closed tender response window from Transportation Command.",
+      });
+      setPostings((current) =>
+        current.map((posting) => (posting.postingId === selectedPosting.postingId ? result.posting : posting))
+      );
+      setBids((current) =>
+        current.map((bid) => result.expiredBids.find((expired: Bid) => expired.bidId === bid.bidId) ?? bid)
+      );
+      setWorkflowEvents((current) => [result.event, ...current]);
+      setActionStatus(`Tender window expired. ${result.expiredBids.length} outstanding bid(s) closed.`);
+    } catch (err) {
+      setActionStatus(err instanceof Error ? err.message : "Tender window expiration failed");
+    }
+  }
+
   async function handleTenderResponse(bid: Bid, responseType: string) {
     try {
       setActionStatus(`Recording ${responseType.replaceAll("_", " ").toLowerCase()}...`);
@@ -1322,6 +1345,9 @@ const TransportationCommandPanel: React.FC = () => {
                     </button>
                     <button className="btn btn-primary btn-xs" type="button" onClick={handleSendCarrierInvites}>
                       Send Invites
+                    </button>
+                    <button className="btn btn-danger btn-xs" type="button" onClick={handleExpireTenderWindow}>
+                      Expire Window
                     </button>
                   </div>
                 </div>
