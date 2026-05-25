@@ -421,6 +421,15 @@ export function buildDispatchReadiness(context: DispatchReadinessContext): SilDi
   const safetyStatus = normalizeStatus(context.carrier?.safetyStatus);
   const creditStatus = normalizeStatus(context.carrier?.creditStatus);
   const insuranceStatus = normalizeStatus(context.carrier?.insuranceStatus);
+  const tenderResponses = context.bid?.tenderResponses ?? [];
+  const latestTenderResponse = [...tenderResponses].sort(
+    (left, right) => new Date(right.respondedAt).getTime() - new Date(left.respondedAt).getTime()
+  )[0];
+  const carrierInvite = context.posting?.inviteCommunications
+    ?.filter((communication) => communication.carrierId === context.bid?.carrierId)
+    .sort((left, right) => new Date(right.sentAt).getTime() - new Date(left.sentAt).getTime())[0];
+  const tenderDueAt = carrierInvite?.expiresAt ?? context.bid?.expiresAt ?? context.posting?.expiresAt;
+  const tenderWindowExpired = Boolean(tenderDueAt && new Date(tenderDueAt).getTime() < Date.now());
 
   if (!context.bid) {
     blockingReasons.push("No carrier bid is selected for award or dispatch.");
@@ -430,6 +439,27 @@ export function buildDispatchReadiness(context: DispatchReadinessContext): SilDi
 
   if (context.bid?.expiresAt && new Date(context.bid.expiresAt).getTime() < Date.now()) {
     blockingReasons.push("Selected bid response window has expired.");
+  }
+
+  if (context.bid && !latestTenderResponse) {
+    if (tenderWindowExpired) {
+      blockingReasons.push("Selected carrier has not responded before the tender window expired.");
+    } else {
+      reviewReasons.push("Selected carrier has not accepted, declined, countered, or requested information on the tender.");
+    }
+  }
+
+  if (latestTenderResponse?.responseType === "DECLINE_TENDER") {
+    blockingReasons.push("Selected carrier declined the tender.");
+  }
+  if (latestTenderResponse?.responseType === "REQUEST_MORE_INFO") {
+    blockingReasons.push("Selected carrier requested more information before commitment.");
+  }
+  if (latestTenderResponse?.responseType === "COUNTER") {
+    reviewReasons.push("Selected carrier has a pending tender counter that requires operator review.");
+  }
+  if (latestTenderResponse?.responseType === "QUOTE" && context.bid?.status !== "AWARDED") {
+    reviewReasons.push("Selected carrier has quoted but has not accepted tender commitment.");
   }
 
   if (!context.carrier) {
@@ -480,9 +510,12 @@ export function buildDispatchReadiness(context: DispatchReadinessContext): SilDi
     `Posting visibility: ${postingVisibility}`,
     `Carrier: ${carrierName}`,
     `Bid status: ${context.bid?.status ?? "not selected"}`,
+    `Tender response: ${latestTenderResponse?.responseType ?? "none"}`,
+    `Tender due: ${tenderDueAt ?? "not set"}`,
     `Bid score: ${matchScore?.score ?? "unavailable"}`,
     `Shipment state: ${context.shipment?.state ?? "not created"}`
   );
+  if (latestTenderResponse?.message) evidence.push(`Tender message: ${latestTenderResponse.message}`);
   if (context.shipment?.trackingNumber) evidence.push(`Tracking number: ${context.shipment.trackingNumber}`);
   if (matchScore?.carrierDecisionSummary) evidence.push(matchScore.carrierDecisionSummary);
 

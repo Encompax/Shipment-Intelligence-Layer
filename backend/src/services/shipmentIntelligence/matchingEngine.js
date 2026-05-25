@@ -384,7 +384,7 @@ function buildGovernanceSignalFromMatch(context, score) {
     };
 }
 function buildDispatchReadiness(context) {
-    var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q, _r, _s, _t, _u, _v, _w, _x, _y, _z, _0, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11;
+    var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q, _r, _s, _t, _u, _v, _w, _x, _y, _z, _0, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17, _18, _19, _20, _21;
     const matchScore = context.bid
         ? scoreBidMatch({
             load: context.load,
@@ -402,14 +402,39 @@ function buildDispatchReadiness(context) {
     const safetyStatus = normalizeStatus((_g = context.carrier) === null || _g === void 0 ? void 0 : _g.safetyStatus);
     const creditStatus = normalizeStatus((_h = context.carrier) === null || _h === void 0 ? void 0 : _h.creditStatus);
     const insuranceStatus = normalizeStatus((_j = context.carrier) === null || _j === void 0 ? void 0 : _j.insuranceStatus);
+    const tenderResponses = (_l = (_k = context.bid) === null || _k === void 0 ? void 0 : _k.tenderResponses) !== null && _l !== void 0 ? _l : [];
+    const latestTenderResponse = [...tenderResponses].sort((left, right) => new Date(right.respondedAt).getTime() - new Date(left.respondedAt).getTime())[0];
+    const carrierInvite = (_o = (_m = context.posting) === null || _m === void 0 ? void 0 : _m.inviteCommunications) === null || _o === void 0 ? void 0 : _o.filter((communication) => { var _a; return communication.carrierId === ((_a = context.bid) === null || _a === void 0 ? void 0 : _a.carrierId); }).sort((left, right) => new Date(right.sentAt).getTime() - new Date(left.sentAt).getTime())[0];
+    const tenderDueAt = (_r = (_p = carrierInvite === null || carrierInvite === void 0 ? void 0 : carrierInvite.expiresAt) !== null && _p !== void 0 ? _p : (_q = context.bid) === null || _q === void 0 ? void 0 : _q.expiresAt) !== null && _r !== void 0 ? _r : (_s = context.posting) === null || _s === void 0 ? void 0 : _s.expiresAt;
+    const tenderWindowExpired = Boolean(tenderDueAt && new Date(tenderDueAt).getTime() < Date.now());
     if (!context.bid) {
         blockingReasons.push("No carrier bid is selected for award or dispatch.");
     }
     else if (["REJECTED", "WITHDRAWN", "EXPIRED"].includes(context.bid.status)) {
         blockingReasons.push(`Selected bid is ${context.bid.status}.`);
     }
-    if (((_k = context.bid) === null || _k === void 0 ? void 0 : _k.expiresAt) && new Date(context.bid.expiresAt).getTime() < Date.now()) {
+    if (((_t = context.bid) === null || _t === void 0 ? void 0 : _t.expiresAt) && new Date(context.bid.expiresAt).getTime() < Date.now()) {
         blockingReasons.push("Selected bid response window has expired.");
+    }
+    if (context.bid && !latestTenderResponse) {
+        if (tenderWindowExpired) {
+            blockingReasons.push("Selected carrier has not responded before the tender window expired.");
+        }
+        else {
+            reviewReasons.push("Selected carrier has not accepted, declined, countered, or requested information on the tender.");
+        }
+    }
+    if ((latestTenderResponse === null || latestTenderResponse === void 0 ? void 0 : latestTenderResponse.responseType) === "DECLINE_TENDER") {
+        blockingReasons.push("Selected carrier declined the tender.");
+    }
+    if ((latestTenderResponse === null || latestTenderResponse === void 0 ? void 0 : latestTenderResponse.responseType) === "REQUEST_MORE_INFO") {
+        blockingReasons.push("Selected carrier requested more information before commitment.");
+    }
+    if ((latestTenderResponse === null || latestTenderResponse === void 0 ? void 0 : latestTenderResponse.responseType) === "COUNTER") {
+        reviewReasons.push("Selected carrier has a pending tender counter that requires operator review.");
+    }
+    if ((latestTenderResponse === null || latestTenderResponse === void 0 ? void 0 : latestTenderResponse.responseType) === "QUOTE" && ((_u = context.bid) === null || _u === void 0 ? void 0 : _u.status) !== "AWARDED") {
+        reviewReasons.push("Selected carrier has quoted but has not accepted tender commitment.");
     }
     if (!context.carrier) {
         reviewReasons.push("Carrier profile is missing.");
@@ -437,11 +462,11 @@ function buildDispatchReadiness(context) {
     else if (context.posting.visibility === "INVITED_CARRIERS") {
         if (!context.posting.invitedAt)
             reviewReasons.push("Invite packet has not been timestamped as reviewed.");
-        if (context.bid && !((_l = context.posting.invitedCarrierIds) !== null && _l !== void 0 ? _l : []).includes(context.bid.carrierId)) {
+        if (context.bid && !((_v = context.posting.invitedCarrierIds) !== null && _v !== void 0 ? _v : []).includes(context.bid.carrierId)) {
             blockingReasons.push("Selected carrier is not on the invited carrier list.");
         }
     }
-    if (((_m = context.shipment) === null || _m === void 0 ? void 0 : _m.state) === "EXCEPTION") {
+    if (((_w = context.shipment) === null || _w === void 0 ? void 0 : _w.state) === "EXCEPTION") {
         blockingReasons.push("Shipment is currently in exception state.");
     }
     if (!context.shipment) {
@@ -451,19 +476,21 @@ function buildDispatchReadiness(context) {
         reviewReasons.push("Dispatched shipment does not have a tracking number.");
     }
     if (matchScore === null || matchScore === void 0 ? void 0 : matchScore.governanceSignalRequired) {
-        reviewReasons.push(...((_o = matchScore.governanceReasons) !== null && _o !== void 0 ? _o : ["Bid score requires governed review."]));
+        reviewReasons.push(...((_x = matchScore.governanceReasons) !== null && _x !== void 0 ? _x : ["Bid score requires governed review."]));
     }
-    if (((_p = matchScore === null || matchScore === void 0 ? void 0 : matchScore.score) !== null && _p !== void 0 ? _p : 0) < 68 && context.bid) {
-        reviewReasons.push(`Dispatch score is below award threshold: ${(_q = matchScore === null || matchScore === void 0 ? void 0 : matchScore.score) !== null && _q !== void 0 ? _q : 0}.`);
+    if (((_y = matchScore === null || matchScore === void 0 ? void 0 : matchScore.score) !== null && _y !== void 0 ? _y : 0) < 68 && context.bid) {
+        reviewReasons.push(`Dispatch score is below award threshold: ${(_z = matchScore === null || matchScore === void 0 ? void 0 : matchScore.score) !== null && _z !== void 0 ? _z : 0}.`);
     }
-    evidence.push(`Load status: ${context.load.status}`, `Posting visibility: ${postingVisibility}`, `Carrier: ${carrierName}`, `Bid status: ${(_s = (_r = context.bid) === null || _r === void 0 ? void 0 : _r.status) !== null && _s !== void 0 ? _s : "not selected"}`, `Bid score: ${(_t = matchScore === null || matchScore === void 0 ? void 0 : matchScore.score) !== null && _t !== void 0 ? _t : "unavailable"}`, `Shipment state: ${(_v = (_u = context.shipment) === null || _u === void 0 ? void 0 : _u.state) !== null && _v !== void 0 ? _v : "not created"}`);
-    if ((_w = context.shipment) === null || _w === void 0 ? void 0 : _w.trackingNumber)
+    evidence.push(`Load status: ${context.load.status}`, `Posting visibility: ${postingVisibility}`, `Carrier: ${carrierName}`, `Bid status: ${(_1 = (_0 = context.bid) === null || _0 === void 0 ? void 0 : _0.status) !== null && _1 !== void 0 ? _1 : "not selected"}`, `Tender response: ${(_2 = latestTenderResponse === null || latestTenderResponse === void 0 ? void 0 : latestTenderResponse.responseType) !== null && _2 !== void 0 ? _2 : "none"}`, `Tender due: ${tenderDueAt !== null && tenderDueAt !== void 0 ? tenderDueAt : "not set"}`, `Bid score: ${(_3 = matchScore === null || matchScore === void 0 ? void 0 : matchScore.score) !== null && _3 !== void 0 ? _3 : "unavailable"}`, `Shipment state: ${(_5 = (_4 = context.shipment) === null || _4 === void 0 ? void 0 : _4.state) !== null && _5 !== void 0 ? _5 : "not created"}`);
+    if (latestTenderResponse === null || latestTenderResponse === void 0 ? void 0 : latestTenderResponse.message)
+        evidence.push(`Tender message: ${latestTenderResponse.message}`);
+    if ((_6 = context.shipment) === null || _6 === void 0 ? void 0 : _6.trackingNumber)
         evidence.push(`Tracking number: ${context.shipment.trackingNumber}`);
     if (matchScore === null || matchScore === void 0 ? void 0 : matchScore.carrierDecisionSummary)
         evidence.push(matchScore.carrierDecisionSummary);
     const uniqueBlockingReasons = [...new Set(blockingReasons)];
     const uniqueReviewReasons = [...new Set(reviewReasons)];
-    const baseScore = (_x = matchScore === null || matchScore === void 0 ? void 0 : matchScore.score) !== null && _x !== void 0 ? _x : 45;
+    const baseScore = (_7 = matchScore === null || matchScore === void 0 ? void 0 : matchScore.score) !== null && _7 !== void 0 ? _7 : 45;
     const readinessScore = clamp(baseScore - uniqueBlockingReasons.length * 22 - uniqueReviewReasons.length * 8);
     const status = uniqueBlockingReasons.length > 0 ? "HOLD" : uniqueReviewReasons.length > 0 ? "READY_WITH_REVIEW" : "READY";
     const severity = status === "HOLD" ? "CRITICAL" : uniqueReviewReasons.length > 2 ? "HIGH" : "MEDIUM";
@@ -475,24 +502,24 @@ function buildDispatchReadiness(context) {
             sourceModule: "SHIPMENT_INTELLIGENCE_LAYER",
             severity,
             confidenceScore: round(Math.max(0.62, Math.min(0.94, (100 - readinessScore) / 100))),
-            description: `${carrierName} dispatch readiness for ${(_y = context.load.customerName) !== null && _y !== void 0 ? _y : context.load.customerId} is ${status.replace(/_/g, " ").toLowerCase()}.`,
+            description: `${carrierName} dispatch readiness for ${(_8 = context.load.customerName) !== null && _8 !== void 0 ? _8 : context.load.customerId} is ${status.replace(/_/g, " ").toLowerCase()}.`,
             businessDomains: ["TRANSPORTATION", "FREIGHT_BROKERAGE", "SHIPMENT_VISIBILITY", "RISK"],
             affectedEntities: {
                 loads: [context.load.loadId],
-                carriers: ((_z = context.bid) === null || _z === void 0 ? void 0 : _z.carrierId) ? [context.bid.carrierId] : [],
-                shipments: ((_0 = context.shipment) === null || _0 === void 0 ? void 0 : _0.shipmentId) ? [context.shipment.shipmentId] : [],
+                carriers: ((_9 = context.bid) === null || _9 === void 0 ? void 0 : _9.carrierId) ? [context.bid.carrierId] : [],
+                shipments: ((_10 = context.shipment) === null || _10 === void 0 ? void 0 : _10.shipmentId) ? [context.shipment.shipmentId] : [],
                 lanes: context.lane ? [context.lane.laneId] : [],
                 customers: [context.load.customerId],
             },
             metrics: {
                 readiness_score: Math.round(readinessScore),
-                match_score: (_1 = matchScore === null || matchScore === void 0 ? void 0 : matchScore.score) !== null && _1 !== void 0 ? _1 : null,
+                match_score: (_11 = matchScore === null || matchScore === void 0 ? void 0 : matchScore.score) !== null && _11 !== void 0 ? _11 : null,
                 blocking_reason_count: uniqueBlockingReasons.length,
                 review_reason_count: uniqueReviewReasons.length,
-                bid_rate: (_3 = (_2 = context.bid) === null || _2 === void 0 ? void 0 : _2.bidRate) !== null && _3 !== void 0 ? _3 : null,
+                bid_rate: (_13 = (_12 = context.bid) === null || _12 === void 0 ? void 0 : _12.bidRate) !== null && _13 !== void 0 ? _13 : null,
                 bid_total_cost: context.bid ? bidTotalCost(context.bid) : null,
-                target_buy_rate: (_4 = context.load.targetBuyRate) !== null && _4 !== void 0 ? _4 : null,
-                target_sell_rate: (_5 = context.load.targetSellRate) !== null && _5 !== void 0 ? _5 : null,
+                target_buy_rate: (_14 = context.load.targetBuyRate) !== null && _14 !== void 0 ? _14 : null,
+                target_sell_rate: (_15 = context.load.targetSellRate) !== null && _15 !== void 0 ? _15 : null,
             },
             tags: ["sil", "dispatch-readiness", "carrier-award", severity.toLowerCase()],
             recommendedActions: [
@@ -503,14 +530,14 @@ function buildDispatchReadiness(context) {
                     description: "Review carrier, posting, bid, and shipment evidence before dispatch commitment.",
                 },
             ],
-            rawPayloadRef: `sil:dispatch-readiness:${context.load.loadId}:${(_7 = (_6 = context.bid) === null || _6 === void 0 ? void 0 : _6.bidId) !== null && _7 !== void 0 ? _7 : "no-bid"}`,
+            rawPayloadRef: `sil:dispatch-readiness:${context.load.loadId}:${(_17 = (_16 = context.bid) === null || _16 === void 0 ? void 0 : _16.bidId) !== null && _17 !== void 0 ? _17 : "no-bid"}`,
         };
     return {
         loadId: context.load.loadId,
-        bidId: (_8 = context.bid) === null || _8 === void 0 ? void 0 : _8.bidId,
-        carrierId: (_9 = context.bid) === null || _9 === void 0 ? void 0 : _9.carrierId,
-        postingId: (_10 = context.posting) === null || _10 === void 0 ? void 0 : _10.postingId,
-        shipmentId: (_11 = context.shipment) === null || _11 === void 0 ? void 0 : _11.shipmentId,
+        bidId: (_18 = context.bid) === null || _18 === void 0 ? void 0 : _18.bidId,
+        carrierId: (_19 = context.bid) === null || _19 === void 0 ? void 0 : _19.carrierId,
+        postingId: (_20 = context.posting) === null || _20 === void 0 ? void 0 : _20.postingId,
+        shipmentId: (_21 = context.shipment) === null || _21 === void 0 ? void 0 : _21.shipmentId,
         status,
         score: Math.round(readinessScore),
         matchScore,
