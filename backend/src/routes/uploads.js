@@ -119,6 +119,77 @@ const readUploadTable = async (uploadId) => {
     }
     return { upload, error: 'Preview supports CSV, XLSX, and XLS files.' };
 };
+const normalizeCell = (value) => (value !== null && value !== void 0 ? value : "").trim();
+const normalizeKeyPart = (value) => String(value !== null && value !== void 0 ? value : "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ");
+const parseMode = (value) => {
+    const normalized = normalizeKeyPart(value);
+    if (normalized === "ltl")
+        return "LTL";
+    if (normalized === "parcel")
+        return "PARCEL";
+    if (normalized === "intermodal")
+        return "INTERMODAL";
+    if (normalized === "air")
+        return "AIR";
+    if (normalized === "ocean")
+        return "OCEAN";
+    return "FTL";
+};
+const parseEquipmentType = (value) => {
+    const normalized = normalizeKeyPart(value).replace(/[\s-]+/g, "_");
+    if (normalized === "REEFER" || normalized === "REFRIGERATED")
+        return "REEFER";
+    if (normalized === "FLATBED")
+        return "FLATBED";
+    if (normalized === "BOX_TRUCK")
+        return "BOX_TRUCK";
+    if (normalized === "SPRINTER")
+        return "SPRINTER";
+    if (normalized === "CONTAINER")
+        return "CONTAINER";
+    if (normalized === "PARCEL")
+        return "PARCEL";
+    return "DRY_VAN";
+};
+const buildLoadImportDraft = (row, mapping) => {
+    const customerName = normalizeCell(row[mapping.customerName]) || 'Imported Customer';
+    return {
+        customerId: (normalizeCell(row[mapping.customerId]) || customerName)
+            .toLowerCase()
+            .replace(/[^a-z0-9]+/g, '-')
+            .replace(/^-|-$/g, '') || 'imported-customer',
+        customerName,
+        origin: {
+            city: normalizeCell(row[mapping.originCity]) || 'Unknown',
+            state: normalizeCell(row[mapping.originState]).toUpperCase() || 'NA',
+        },
+        destination: {
+            city: normalizeCell(row[mapping.destinationCity]) || 'Unknown',
+            state: normalizeCell(row[mapping.destinationState]).toUpperCase() || 'NA',
+        },
+        mode: parseMode(row[mapping.mode]),
+        equipmentType: parseEquipmentType(row[mapping.equipmentType]),
+        targetBuyRate: mapping.targetBuyRate ? Number(row[mapping.targetBuyRate]) || undefined : undefined,
+        targetSellRate: mapping.targetSellRate ? Number(row[mapping.targetSellRate]) || undefined : undefined,
+        source: 'manual',
+    };
+};
+const loadImportKey = (load) => [
+    load.customerId,
+    load.origin.city,
+    load.origin.state,
+    load.destination.city,
+    load.destination.state,
+    load.mode,
+    load.equipmentType,
+    load.targetBuyRate,
+    load.targetSellRate,
+]
+    .map(normalizeKeyPart)
+    .join('|');
 function registerUploadRoutes(app) {
     app.post('/api/ingest/upload', async (req, res) => {
         var _a;
@@ -178,7 +249,7 @@ function registerUploadRoutes(app) {
         });
     });
     app.post('/api/ingest/uploads/:uploadId/import-loads', async (req, res) => {
-        var _a, _b;
+        var _a, _b, _c;
         const result = await readUploadTable(Number(req.params.uploadId));
         if (!result)
             return res.status(404).json({ error: 'Upload not found' });
@@ -190,28 +261,26 @@ function registerUploadRoutes(app) {
         if (missing.length > 0) {
             return res.status(400).json({ error: `Missing required mapping fields: ${missing.join(', ')}` });
         }
+        const allowDuplicates = ((_c = req.body) === null || _c === void 0 ? void 0 : _c.allowDuplicates) === true;
+        const existingKeys = allowDuplicates ? new Set() : new Set((await (0, silPersistenceService_1.listSilLoads)()).map(loadImportKey));
+        const batchKeys = new Set();
         const imported = [];
         const rejected = [];
+        const skipped = [];
         for (const [index, row] of result.parsed.records.entries()) {
             try {
-                const customerName = row[mapping.customerName] || 'Imported Customer';
-                const load = await (0, silPersistenceService_1.createSilLoad)({
-                    customerId: (row[mapping.customerId] || customerName).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'imported-customer',
-                    customerName,
-                    origin: {
-                        city: row[mapping.originCity] || 'Unknown',
-                        state: (row[mapping.originState] || '').toUpperCase() || 'NA',
-                    },
-                    destination: {
-                        city: row[mapping.destinationCity] || 'Unknown',
-                        state: (row[mapping.destinationState] || '').toUpperCase() || 'NA',
-                    },
-                    mode: row[mapping.mode] === 'LTL' ? 'LTL' : 'FTL',
-                    equipmentType: row[mapping.equipmentType] === 'REEFER' ? 'REEFER' : 'DRY_VAN',
-                    targetBuyRate: mapping.targetBuyRate ? Number(row[mapping.targetBuyRate]) || undefined : undefined,
-                    targetSellRate: mapping.targetSellRate ? Number(row[mapping.targetSellRate]) || undefined : undefined,
-                    source: 'manual',
-                });
+                const draft = buildLoadImportDraft(row, mapping);
+                const key = loadImportKey(draft);
+                if (!allowDuplicates && existingKeys.has(key)) {
+                    skipped.push({ row: index + 2, reason: 'Matching SIL load already exists.', key });
+                    continue;
+                }
+                if (!allowDuplicates && batchKeys.has(key)) {
+                    skipped.push({ row: index + 2, reason: 'Duplicate row in this upload.', key });
+                    continue;
+                }
+                batchKeys.add(key);
+                const load = await (0, silPersistenceService_1.createSilLoad)(draft);
                 imported.push(load.load);
             }
             catch (error) {
@@ -224,8 +293,10 @@ function registerUploadRoutes(app) {
             sheetName: result.parsed.sheetName,
             importedCount: imported.length,
             rejectedCount: rejected.length,
+            skippedCount: skipped.length,
             imported,
             rejected,
+            skipped,
         });
     });
 }

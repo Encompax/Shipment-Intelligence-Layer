@@ -5,8 +5,8 @@ import { config } from '../lib/config';
 import path from 'path';
 import fs from 'fs';
 import * as XLSX from 'xlsx';
-import { createSilLoad } from '../services/shipmentIntelligence/silPersistenceService';
-import { SilLoad } from '../services/shipmentIntelligence/types';
+import { createSilLoad, listSilLoads } from '../services/shipmentIntelligence/silPersistenceService';
+import { EquipmentType, SilLoad, TransportMode } from '../services/shipmentIntelligence/types';
 
 const hashDataSourceId = (value: string) =>
   Math.abs(
@@ -85,6 +85,78 @@ const readUploadTable = async (uploadId: number) => {
   return { upload, error: 'Preview supports CSV, XLSX, and XLS files.' };
 };
 
+type LoadImportDraft = Pick<SilLoad, "customerId" | "customerName" | "origin" | "destination" | "mode" | "equipmentType"> &
+  Pick<Partial<SilLoad>, "targetBuyRate" | "targetSellRate" | "source">;
+
+const normalizeCell = (value: string | undefined) => (value ?? "").trim();
+
+const normalizeKeyPart = (value: string | number | undefined) =>
+  String(value ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ");
+
+const parseMode = (value: string | undefined): TransportMode => {
+  const normalized = normalizeKeyPart(value);
+  if (normalized === "ltl") return "LTL";
+  if (normalized === "parcel") return "PARCEL";
+  if (normalized === "intermodal") return "INTERMODAL";
+  if (normalized === "air") return "AIR";
+  if (normalized === "ocean") return "OCEAN";
+  return "FTL";
+};
+
+const parseEquipmentType = (value: string | undefined): EquipmentType => {
+  const normalized = normalizeKeyPart(value).replace(/[\s-]+/g, "_");
+  if (normalized === "REEFER" || normalized === "REFRIGERATED") return "REEFER";
+  if (normalized === "FLATBED") return "FLATBED";
+  if (normalized === "BOX_TRUCK") return "BOX_TRUCK";
+  if (normalized === "SPRINTER") return "SPRINTER";
+  if (normalized === "CONTAINER") return "CONTAINER";
+  if (normalized === "PARCEL") return "PARCEL";
+  return "DRY_VAN";
+};
+
+const buildLoadImportDraft = (row: Record<string, string>, mapping: Record<string, string>): LoadImportDraft => {
+  const customerName = normalizeCell(row[mapping.customerName]) || 'Imported Customer';
+  return {
+    customerId:
+      (normalizeCell(row[mapping.customerId]) || customerName)
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-|-$/g, '') || 'imported-customer',
+    customerName,
+    origin: {
+      city: normalizeCell(row[mapping.originCity]) || 'Unknown',
+      state: normalizeCell(row[mapping.originState]).toUpperCase() || 'NA',
+    },
+    destination: {
+      city: normalizeCell(row[mapping.destinationCity]) || 'Unknown',
+      state: normalizeCell(row[mapping.destinationState]).toUpperCase() || 'NA',
+    },
+    mode: parseMode(row[mapping.mode]),
+    equipmentType: parseEquipmentType(row[mapping.equipmentType]),
+    targetBuyRate: mapping.targetBuyRate ? Number(row[mapping.targetBuyRate]) || undefined : undefined,
+    targetSellRate: mapping.targetSellRate ? Number(row[mapping.targetSellRate]) || undefined : undefined,
+    source: 'manual',
+  };
+};
+
+const loadImportKey = (load: LoadImportDraft | SilLoad) =>
+  [
+    load.customerId,
+    load.origin.city,
+    load.origin.state,
+    load.destination.city,
+    load.destination.state,
+    load.mode,
+    load.equipmentType,
+    load.targetBuyRate,
+    load.targetSellRate,
+  ]
+    .map(normalizeKeyPart)
+    .join('|');
+
 export function registerUploadRoutes(app: Express) {
  app.post('/api/ingest/upload', async (req: Request, res: Response) => {
    const dataSourceRef = String(req.body.dataSourceId ?? '').trim();
@@ -155,28 +227,26 @@ export function registerUploadRoutes(app: Express) {
      return res.status(400).json({ error: `Missing required mapping fields: ${missing.join(', ')}` });
    }
 
+   const allowDuplicates = req.body?.allowDuplicates === true;
+   const existingKeys = allowDuplicates ? new Set<string>() : new Set((await listSilLoads()).map(loadImportKey));
+   const batchKeys = new Set<string>();
    const imported: SilLoad[] = [];
    const rejected: Array<{ row: number; error: string }> = [];
+   const skipped: Array<{ row: number; reason: string; key: string }> = [];
    for (const [index, row] of result.parsed.records.entries()) {
      try {
-       const customerName = row[mapping.customerName] || 'Imported Customer';
-       const load = await createSilLoad({
-         customerId: (row[mapping.customerId] || customerName).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'imported-customer',
-         customerName,
-         origin: {
-           city: row[mapping.originCity] || 'Unknown',
-           state: (row[mapping.originState] || '').toUpperCase() || 'NA',
-         },
-         destination: {
-           city: row[mapping.destinationCity] || 'Unknown',
-           state: (row[mapping.destinationState] || '').toUpperCase() || 'NA',
-         },
-         mode: row[mapping.mode] === 'LTL' ? 'LTL' : 'FTL',
-         equipmentType: row[mapping.equipmentType] === 'REEFER' ? 'REEFER' : 'DRY_VAN',
-         targetBuyRate: mapping.targetBuyRate ? Number(row[mapping.targetBuyRate]) || undefined : undefined,
-         targetSellRate: mapping.targetSellRate ? Number(row[mapping.targetSellRate]) || undefined : undefined,
-         source: 'manual',
-       });
+       const draft = buildLoadImportDraft(row, mapping);
+       const key = loadImportKey(draft);
+       if (!allowDuplicates && existingKeys.has(key)) {
+         skipped.push({ row: index + 2, reason: 'Matching SIL load already exists.', key });
+         continue;
+       }
+       if (!allowDuplicates && batchKeys.has(key)) {
+         skipped.push({ row: index + 2, reason: 'Duplicate row in this upload.', key });
+         continue;
+       }
+       batchKeys.add(key);
+       const load = await createSilLoad(draft);
        imported.push(load.load);
      } catch (error) {
        rejected.push({ row: index + 2, error: error instanceof Error ? error.message : 'Import failed' });
@@ -189,8 +259,10 @@ export function registerUploadRoutes(app: Express) {
      sheetName: result.parsed.sheetName,
      importedCount: imported.length,
      rejectedCount: rejected.length,
+     skippedCount: skipped.length,
      imported,
      rejected,
+     skipped,
    });
  });
 }

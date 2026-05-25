@@ -137,7 +137,9 @@ export default function DataSourcesPanel() {
     try {
       setStatus("Importing mapped rows into SIL loads...");
       const result = await importUploadLoads(preview.upload.id, { mapping });
-      setStatus(`Imported ${result.importedCount} load(s). ${result.rejectedCount} row(s) need review.`);
+      setStatus(
+        `Imported ${result.importedCount} load(s). Skipped ${result.skippedCount ?? 0} duplicate row(s). ${result.rejectedCount} row(s) need review.`
+      );
     } catch (err) {
       setStatus(err instanceof Error ? err.message : "Load import failed");
     }
