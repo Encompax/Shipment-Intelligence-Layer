@@ -49,22 +49,68 @@ const Dashboard: React.FC = () => {
   const renderContent = () => {
     if (activeTab === "overview") {
       return (
-        <div className="panel-grid">
-          {visiblePanels
-            .filter((p) => p.showInOverview)
-            .map((panel) => {
-              const PanelComponent = panel.component;
-              return (
-                <div key={panel.key} className="panel">
-                  <div className="panel-header">
-                    <h2 className="panel-title">{panel.label}</h2>
-                  </div>
-                  <div className="panel-body">
-                    <PanelComponent />
-                  </div>
-                </div>
-              );
-            })}
+        <div className="overview-command">
+          <section className="transport-hero overview-hero">
+            <div>
+              <p className="transport-eyebrow">Shipment Intelligence Layer</p>
+              <h2>Operations Visibility Hub</h2>
+              <p>
+                Start with transportation execution, connect intake sources, and route governed decisions into Encompax.
+              </p>
+            </div>
+            <div className="transport-parent-brand">
+              <SILLogo size={34} />
+              <div>
+                <span>Workspace</span>
+                <strong>Shipment Operations</strong>
+              </div>
+            </div>
+          </section>
+
+          <section className="overview-route-grid">
+            {[
+              {
+                key: "transportationCommand" as TabKey,
+                label: "Transportation Command",
+                eyebrow: "Run the workflow",
+                body: "Plan loads, post freight, score bids, select carriers, and govern dispatch readiness.",
+              },
+              {
+                key: "datasources" as TabKey,
+                label: "Data Intake",
+                eyebrow: "Connect organization data",
+                body: "Create manual sources, upload CSV or Excel files, and stage live database pipeline connections.",
+              },
+              {
+                key: "productAlignment" as TabKey,
+                label: "Product Alignment",
+                eyebrow: "Suite growth",
+                body: "Select products, control workspace boundaries, invite team members, and prepare governance routing.",
+              },
+              {
+                key: "leanOps" as TabKey,
+                label: "LEAN Operating System",
+                eyebrow: "Templates and standards",
+                body: "Turn operating procedures into reusable decision templates connected to SIL and Encompax.",
+              },
+            ].map((card) => (
+              <button key={card.key} className="overview-route-card" type="button" onClick={() => setActiveTab(card.key)}>
+                <span>{card.eyebrow}</span>
+                <strong>{card.label}</strong>
+                <p>{card.body}</p>
+              </button>
+            ))}
+          </section>
+
+          <section className="overview-module-strip">
+            {visiblePanels
+              .filter((panel) => panel.showInOverview)
+              .map((panel) => (
+                <button key={panel.key} type="button" onClick={() => setActiveTab(panel.key)}>
+                  {panel.label}
+                </button>
+              ))}
+          </section>
         </div>
       );
     }

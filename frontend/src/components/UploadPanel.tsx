@@ -1,57 +1,111 @@
-import React, { useState } from "react";
-import { uploadFile } from "../api/client";
+import React, { useEffect, useState } from "react";
+import { fetchDatasources, uploadFile } from "../api/client";
+
+type DataSource = {
+  id: number;
+  name: string;
+  type: string;
+};
 
 interface Props {
   dataSourceId?: number | null;
 }
 
 const UploadPanel: React.FC<Props> = ({ dataSourceId = null }) => {
+  const [sources, setSources] = useState<DataSource[]>([]);
+  const [selectedSourceId, setSelectedSourceId] = useState<number | null>(dataSourceId);
   const [file, setFile] = useState<File | null>(null);
   const [status, setStatus] = useState<"idle" | "uploading" | "done" | "error">("idle");
+  const [message, setMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    let mounted = true;
+    fetchDatasources()
+      .then((data) => {
+        if (!mounted) return;
+        const nextSources = Array.isArray(data) ? data : [];
+        setSources(nextSources);
+        setSelectedSourceId((current) => current ?? dataSourceId ?? nextSources[0]?.id ?? null);
+      })
+      .catch((err) => {
+        if (mounted) setMessage(err instanceof Error ? err.message : "Unable to load data sources");
+      });
+    return () => {
+      mounted = false;
+    };
+  }, [dataSourceId]);
 
   const handleUpload = async () => {
-    if (!dataSourceId || !file) return;
+    if (!selectedSourceId || !file) return;
     setStatus("uploading");
+    setMessage(null);
     try {
-      await uploadFile(dataSourceId, file);
+      await uploadFile(selectedSourceId, file);
       setStatus("done");
+      setMessage("Upload complete. SIL recorded the ingest job for review.");
       setFile(null);
-    } catch (e) {
-      console.error(e);
+    } catch (err) {
       setStatus("error");
+      setMessage(err instanceof Error ? err.message : "Upload failed");
     }
   };
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-4)" }}>
-      <div className="form-group">
-        <label htmlFor="upload-file">Select File</label>
-        <input
-          id="upload-file"
-          type="file"
-          onChange={(e) => {
-            setFile(e.target.files?.[0] ?? null);
-            setStatus("idle");
-          }}
-        />
-      </div>
+    <div className="data-intake">
+      <section className="transport-panel">
+        <div className="transport-panel-header">
+          <div>
+            <p className="transport-eyebrow">File Intake</p>
+            <h3>Upload Operational Data</h3>
+          </div>
+          <span>{sources.length} source(s)</span>
+        </div>
+        <div className="file-upload-panel">
+          <label>
+            Target Source
+            <select
+              value={selectedSourceId ?? ""}
+              onChange={(event) => setSelectedSourceId(Number(event.target.value))}
+            >
+              <option value="">Select a source</option>
+              {sources.map((source) => (
+                <option key={source.id} value={source.id}>
+                  {source.name} / {source.type}
+                </option>
+              ))}
+            </select>
+          </label>
 
-      <button
-        className="btn btn-primary"
-        disabled={!file || !dataSourceId || status === "uploading"}
-        onClick={handleUpload}
-        style={{ alignSelf: "flex-start" }}
-      >
-        {status === "uploading" ? "Uploading\u2026" : "Upload Document"}
-      </button>
+          <label>
+            CSV, Excel, or Export File
+            <input
+              type="file"
+              accept=".csv,.xlsx,.xls,.json"
+              onChange={(event) => {
+                setFile(event.target.files?.[0] ?? null);
+                setStatus("idle");
+                setMessage(null);
+              }}
+            />
+          </label>
 
-      {status === "done" && <span className="badge badge-success">Upload complete</span>}
-      {status === "error" && <span className="badge badge-error">Upload failed — check console</span>}
-      {!dataSourceId && (
-        <p style={{ margin: 0, fontSize: "var(--font-size-xs)", color: "var(--color-text-muted)" }}>
-          Select a data source to enable uploads.
-        </p>
-      )}
+          <button
+            className="btn btn-primary"
+            disabled={!file || !selectedSourceId || status === "uploading"}
+            onClick={handleUpload}
+            style={{ alignSelf: "flex-start" }}
+          >
+            {status === "uploading" ? "Uploading..." : "Upload File"}
+          </button>
+
+          {status === "done" && <span className="badge badge-success">Upload complete</span>}
+          {status === "error" && <span className="badge badge-error">Upload failed</span>}
+          {message && <p className="ops-note">{message}</p>}
+          {sources.length === 0 && (
+            <p className="ops-note">Create a data source first, then return here to attach files to that source.</p>
+          )}
+        </div>
+      </section>
     </div>
   );
 };

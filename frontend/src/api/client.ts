@@ -358,8 +358,9 @@ export async function createLeanRecord(payload: Record<string, unknown>) {
 
 export async function uploadFile(dataSourceId: number, file: File) {
  const formData = new FormData();
+ formData.append('dataSourceId', String(dataSourceId));
  formData.append('file', file);
- const res = await fetch(`${API_BASE}/uploads?dataSourceId=${dataSourceId}`, {
+ const res = await fetch(`${API_BASE}/ingest/upload`, {
    method: "POST",
    body: formData,
  });

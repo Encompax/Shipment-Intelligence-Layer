@@ -93,28 +93,39 @@ const defaultSelected = productModules
   .filter((product) => product.status === "ACTIVE")
   .map((product) => product.id);
 
+const defaultWorkspace: WorkspaceState = {
+  workspaceId: "workspace-shipment-operations",
+  organization: "Example Organization",
+  workspaceName: "Shipment Operations",
+  ownerEmail: "operator@example.com",
+  status: "TRIAL",
+  selectedProductIds: defaultSelected,
+  governanceMode: "SIGNAL_ONLY",
+  monthlyTokenBudget: 250000,
+  monthlySpendLimitUsd: 25,
+  enabledAgentProviders: ["MANUAL"],
+  modules: productModules.map((product) => ({
+    productId: product.id,
+    status: product.status,
+    enabled: product.status === "ACTIVE",
+    governanceRoute: product.governanceRoute,
+  })),
+  teamMembers: [{ email: "operator@example.com", role: "OWNER", status: "ACTIVE" }],
+};
+
+const normalizeWorkspace = (workspace?: Partial<WorkspaceState>): WorkspaceState => ({
+  ...defaultWorkspace,
+  ...(workspace ?? {}),
+  selectedProductIds: workspace?.selectedProductIds?.length ? workspace.selectedProductIds : defaultSelected,
+  enabledAgentProviders: workspace?.enabledAgentProviders?.length ? workspace.enabledAgentProviders : ["MANUAL"],
+  modules: workspace?.modules?.length ? workspace.modules : defaultWorkspace.modules,
+  teamMembers: workspace?.teamMembers?.length ? workspace.teamMembers : defaultWorkspace.teamMembers,
+});
+
 const ProductAlignmentPanel: React.FC = () => {
   const [selectedProductIds, setSelectedProductIds] = useState<string[]>(defaultSelected);
   const [focusedProductId, setFocusedProductId] = useState("sil");
-  const [workspace, setWorkspace] = useState<WorkspaceState>({
-    workspaceId: "workspace-shipment-operations",
-    organization: "Example Organization",
-    workspaceName: "Shipment Operations",
-    ownerEmail: "operator@example.com",
-    status: "TRIAL",
-    selectedProductIds: defaultSelected,
-    governanceMode: "SIGNAL_ONLY",
-    monthlyTokenBudget: 250000,
-    monthlySpendLimitUsd: 25,
-    enabledAgentProviders: ["MANUAL"],
-    modules: productModules.map((product) => ({
-      productId: product.id,
-      status: product.status,
-      enabled: product.status === "ACTIVE",
-      governanceRoute: product.governanceRoute,
-    })),
-    teamMembers: [{ email: "operator@example.com", role: "OWNER", status: "ACTIVE" }],
-  });
+  const [workspace, setWorkspace] = useState<WorkspaceState>(defaultWorkspace);
   const [saveStatus, setSaveStatus] = useState<string | null>(null);
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteRole, setInviteRole] = useState<"ADMIN" | "OPERATOR" | "VIEWER">("OPERATOR");
@@ -124,8 +135,9 @@ const ProductAlignmentPanel: React.FC = () => {
     fetchSilWorkspace()
       .then((payload) => {
         if (!mounted || !payload.workspace) return;
-        setWorkspace(payload.workspace);
-        setSelectedProductIds(payload.workspace.selectedProductIds ?? defaultSelected);
+        const normalized = normalizeWorkspace(payload.workspace);
+        setWorkspace(normalized);
+        setSelectedProductIds(normalized.selectedProductIds);
       })
       .catch(() => {
         if (mounted) setSaveStatus("Workspace API unavailable; using local defaults.");
@@ -173,8 +185,9 @@ const ProductAlignmentPanel: React.FC = () => {
         selectedProductIds,
         modules: moduleState,
       });
-      setWorkspace(result.workspace);
-      setSelectedProductIds(result.workspace.selectedProductIds);
+      const normalized = normalizeWorkspace(result.workspace);
+      setWorkspace(normalized);
+      setSelectedProductIds(normalized.selectedProductIds);
       setSaveStatus("Workspace product selection saved.");
     } catch (err) {
       setSaveStatus(err instanceof Error ? err.message : "Workspace save failed");
