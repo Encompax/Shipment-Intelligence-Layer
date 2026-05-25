@@ -7,6 +7,7 @@ import {
   createTransportationCarrier,
   createTransportationLoad,
   decideLoadBoardBid,
+  fetchAppointmentCalendar,
   fetchCarrierEligibilityRecommendations,
   fetchCarrierQuotes,
   fetchDispatchReadiness,
@@ -25,6 +26,7 @@ import {
   transitionLoad,
   updateLoadBoardBidCommercials,
   updateLoadBoardPostingVisibility,
+  updateShipmentStopAppointment,
   updateTransportationCarrier,
   updateTransportationShipmentProgress,
 } from "../api/client";
@@ -130,8 +132,10 @@ type ShipmentStop = {
   sequence: number;
   type: string;
   location: { city: string; state: string; facilityName?: string };
+  dockDoor?: string;
   appointmentStart?: string;
   appointmentEnd?: string;
+  appointmentStatus?: string;
   arrivedAt?: string;
   loadedUnloadedAt?: string;
   departedAt?: string;
@@ -183,6 +187,24 @@ type WorkflowEvent = {
   evidence: string[];
 };
 
+type AppointmentCalendarItem = {
+  shipmentId: string;
+  loadId?: string;
+  carrierName?: string;
+  shipmentState: string;
+  stopId: string;
+  sequence: number;
+  type: string;
+  facilityName?: string;
+  city: string;
+  state: string;
+  dockDoor?: string;
+  appointmentStart?: string;
+  appointmentEnd?: string;
+  appointmentStatus: string;
+  stopStatus: string;
+};
+
 type Signal = {
   signalType: string;
   severity: string;
@@ -205,6 +227,8 @@ const money = (value?: number) =>
     : "--";
 
 const shortLoadId = (loadId: string) => loadId.replace("load-", "");
+const toDateTimeInput = (value?: string) => (value ? value.slice(0, 16) : "");
+const fromDateTimeInput = (value?: string) => (value ? new Date(value).toISOString() : undefined);
 
 async function loadTransportationData() {
   const [
@@ -259,6 +283,8 @@ const TransportationCommandPanel: React.FC = () => {
   const [marketAnalysis, setMarketAnalysis] = useState<MarketAnalysis | null>(null);
   const [dispatchReadiness, setDispatchReadiness] = useState<DispatchReadiness | null>(null);
   const [workflowEvents, setWorkflowEvents] = useState<WorkflowEvent[]>([]);
+  const [appointmentCalendar, setAppointmentCalendar] = useState<AppointmentCalendarItem[]>([]);
+  const [appointmentDrafts, setAppointmentDrafts] = useState<Record<string, { start: string; end: string; dockDoor: string }>>({});
   const [selectedLoadId, setSelectedLoadId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [actionStatus, setActionStatus] = useState<string | null>(null);
@@ -306,6 +332,8 @@ const TransportationCommandPanel: React.FC = () => {
     setLanes(results.lanes);
     setSignals(results.signals);
     setSelectedLoadId(nextSelectedLoadId);
+    const calendarResult = await fetchAppointmentCalendar();
+    setAppointmentCalendar(calendarResult.appointments ?? []);
   };
 
   useEffect(() => {
@@ -327,6 +355,8 @@ const TransportationCommandPanel: React.FC = () => {
         setLanes(results.lanes);
         setSignals(results.signals);
         setSelectedLoadId((results.loads[0]?.loadId as string | undefined) ?? null);
+        const calendarResult = await fetchAppointmentCalendar();
+        setAppointmentCalendar(calendarResult.appointments ?? []);
       } catch (err) {
         if (!alive) return;
         setError(err instanceof Error ? err.message : "Failed to load transportation command data");
@@ -363,6 +393,11 @@ const TransportationCommandPanel: React.FC = () => {
   const selectedShipment = useMemo(
     () => shipments.find((shipment) => shipment.loadId === selectedLoad?.loadId) ?? null,
     [shipments, selectedLoad?.loadId]
+  );
+
+  const selectedAppointments = useMemo(
+    () => appointmentCalendar.filter((appointment) => appointment.loadId === selectedLoad?.loadId),
+    [appointmentCalendar, selectedLoad?.loadId]
   );
 
   useEffect(() => {
@@ -726,6 +761,42 @@ const TransportationCommandPanel: React.FC = () => {
       );
     } catch (err) {
       setActionStatus(err instanceof Error ? err.message : "Shipment progress update failed");
+    }
+  }
+
+  async function handleAppointmentSave(stop: ShipmentStop) {
+    if (!selectedShipment) return;
+    const draft = appointmentDrafts[stop.stopId] ?? {};
+    const appointmentStart = fromDateTimeInput(draft.start || toDateTimeInput(stop.appointmentStart));
+    const appointmentEnd = fromDateTimeInput(draft.end || toDateTimeInput(stop.appointmentEnd));
+    if (!appointmentStart || !appointmentEnd) {
+      setActionStatus("Appointment start and end are required.");
+      return;
+    }
+
+    try {
+      setActionStatus("Saving appointment...");
+      const result = await updateShipmentStopAppointment(selectedShipment.shipmentId, stop.stopId, {
+        appointmentStart,
+        appointmentEnd,
+        dockDoor: draft.dockDoor || stop.dockDoor,
+        appointmentStatus: stop.appointmentStart ? "RESCHEDULED" : "CONFIRMED",
+        actor: "operator",
+        evidence: [
+          "appointment scheduled from Transportation Command",
+          `Stop: ${stop.sequence} ${stop.type}`,
+          `Window: ${appointmentStart} to ${appointmentEnd}`,
+        ],
+      });
+      setShipments((current) =>
+        current.map((shipment) => (shipment.shipmentId === selectedShipment.shipmentId ? result.shipment : shipment))
+      );
+      setWorkflowEvents((current) => [result.event, ...current]);
+      const calendarResult = await fetchAppointmentCalendar();
+      setAppointmentCalendar(calendarResult.appointments ?? []);
+      setActionStatus("Appointment saved and workflow event recorded.");
+    } catch (err) {
+      setActionStatus(err instanceof Error ? err.message : "Appointment update failed");
     }
   }
 
@@ -1280,9 +1351,65 @@ const TransportationCommandPanel: React.FC = () => {
                                 {stop.location.facilityName ? `${stop.location.facilityName}, ` : ""}
                                 {stop.location.city}, {stop.location.state}
                               </span>
-                              <small>{stop.status}</small>
+                              <small>
+                                {stop.status} / {stop.appointmentStatus ?? "APPOINTMENT_OPEN"}
+                              </small>
+                              <small>
+                                {stop.appointmentStart ? new Date(stop.appointmentStart).toLocaleString() : "No appointment"}{" "}
+                                {stop.dockDoor ? `/ Dock ${stop.dockDoor}` : ""}
+                              </small>
+                              <div className="appointment-grid">
+                                <input
+                                  type="datetime-local"
+                                  aria-label={`${stop.type} appointment start`}
+                                  value={appointmentDrafts[stop.stopId]?.start ?? toDateTimeInput(stop.appointmentStart)}
+                                  onChange={(event) =>
+                                    setAppointmentDrafts((current) => ({
+                                      ...current,
+                                      [stop.stopId]: {
+                                        start: event.target.value,
+                                        end: current[stop.stopId]?.end ?? toDateTimeInput(stop.appointmentEnd),
+                                        dockDoor: current[stop.stopId]?.dockDoor ?? stop.dockDoor ?? "",
+                                      },
+                                    }))
+                                  }
+                                />
+                                <input
+                                  type="datetime-local"
+                                  aria-label={`${stop.type} appointment end`}
+                                  value={appointmentDrafts[stop.stopId]?.end ?? toDateTimeInput(stop.appointmentEnd)}
+                                  onChange={(event) =>
+                                    setAppointmentDrafts((current) => ({
+                                      ...current,
+                                      [stop.stopId]: {
+                                        start: current[stop.stopId]?.start ?? toDateTimeInput(stop.appointmentStart),
+                                        end: event.target.value,
+                                        dockDoor: current[stop.stopId]?.dockDoor ?? stop.dockDoor ?? "",
+                                      },
+                                    }))
+                                  }
+                                />
+                                <input
+                                  aria-label={`${stop.type} dock door`}
+                                  placeholder="Dock"
+                                  value={appointmentDrafts[stop.stopId]?.dockDoor ?? stop.dockDoor ?? ""}
+                                  onChange={(event) =>
+                                    setAppointmentDrafts((current) => ({
+                                      ...current,
+                                      [stop.stopId]: {
+                                        start: current[stop.stopId]?.start ?? toDateTimeInput(stop.appointmentStart),
+                                        end: current[stop.stopId]?.end ?? toDateTimeInput(stop.appointmentEnd),
+                                        dockDoor: event.target.value,
+                                      },
+                                    }))
+                                  }
+                                />
+                              </div>
                             </div>
                             <div className="transport-row-actions">
+                              <button className="btn btn-secondary btn-xs" type="button" onClick={() => handleAppointmentSave(stop)}>
+                                Schedule
+                              </button>
                               <button
                                 className="btn btn-secondary btn-xs"
                                 type="button"
@@ -1323,6 +1450,38 @@ const TransportationCommandPanel: React.FC = () => {
                   ) : (
                     <p className="ops-note">Award a carrier or create a shipment to begin execution tracking.</p>
                   )}
+                </div>
+
+                <div className="ops-card appointment-calendar-card">
+                  <div className="ops-card-header">
+                    <span>Dock Calendar</span>
+                    <strong>{selectedAppointments.length}</strong>
+                  </div>
+                  <div className="appointment-calendar-list">
+                    {selectedAppointments.map((appointment) => (
+                      <div key={`${appointment.shipmentId}-${appointment.stopId}`} className="appointment-calendar-row">
+                        <div>
+                          <strong>
+                            {appointment.sequence}. {appointment.type}
+                          </strong>
+                          <span>
+                            {appointment.facilityName ? `${appointment.facilityName}, ` : ""}
+                            {appointment.city}, {appointment.state}
+                          </span>
+                        </div>
+                        <div>
+                          <strong>{appointment.appointmentStatus}</strong>
+                          <span>
+                            {appointment.appointmentStart
+                              ? new Date(appointment.appointmentStart).toLocaleString()
+                              : "Unscheduled"}
+                          </span>
+                          <small>{appointment.dockDoor ? `Dock ${appointment.dockDoor}` : "Dock pending"}</small>
+                        </div>
+                      </div>
+                    ))}
+                    {selectedAppointments.length === 0 && <p className="ops-note">No dock appointments found for this load.</p>}
+                  </div>
                 </div>
               </div>
             </>

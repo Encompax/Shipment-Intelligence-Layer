@@ -436,6 +436,110 @@ export async function listSilShipments(filters?: { workspaceId?: string }) {
   return records.map((record) => withWorkspace(fromRecord<SilShipment>(record))).filter((record) => matchesWorkspace(record, filters?.workspaceId));
 }
 
+export async function listSilAppointmentCalendar(filters?: { workspaceId?: string; from?: string; to?: string }) {
+  const shipments = await listSilShipments({ workspaceId: filters?.workspaceId });
+  const fromTime = filters?.from ? new Date(filters.from).getTime() : null;
+  const toTime = filters?.to ? new Date(filters.to).getTime() : null;
+
+  return shipments
+    .flatMap((shipment) =>
+      shipment.stops.map((stop) => ({
+        workspaceId: shipment.workspaceId,
+        shipmentId: shipment.shipmentId,
+        loadId: shipment.loadId,
+        carrierId: shipment.carrierId,
+        carrierName: shipment.carrierName,
+        shipmentState: shipment.state,
+        stopId: stop.stopId,
+        sequence: stop.sequence,
+        type: stop.type,
+        facilityName: stop.location.facilityName,
+        city: stop.location.city,
+        state: stop.location.state,
+        dockDoor: stop.dockDoor,
+        appointmentStart: stop.appointmentStart,
+        appointmentEnd: stop.appointmentEnd,
+        appointmentStatus: stop.appointmentStatus ?? (stop.appointmentStart ? "CONFIRMED" : "REQUESTED"),
+        stopStatus: stop.status,
+      }))
+    )
+    .filter((appointment) => {
+      if (!appointment.appointmentStart && !appointment.appointmentEnd) return true;
+      const start = appointment.appointmentStart ? new Date(appointment.appointmentStart).getTime() : null;
+      const end = appointment.appointmentEnd ? new Date(appointment.appointmentEnd).getTime() : start;
+      if (fromTime && end && end < fromTime) return false;
+      if (toTime && start && start > toTime) return false;
+      return true;
+    })
+    .sort((a, b) => String(a.appointmentStart ?? "").localeCompare(String(b.appointmentStart ?? "")));
+}
+
+export async function updateSilStopAppointment(input: {
+  shipmentId: string;
+  stopId: string;
+  workspaceId?: string;
+  appointmentStart?: string;
+  appointmentEnd?: string;
+  dockDoor?: string;
+  appointmentStatus?: SilShipment["stops"][number]["appointmentStatus"];
+  actor?: string;
+  evidence?: string[];
+}) {
+  await seedSilPersistence();
+  const record = await prisma.silShipmentRecord.findUnique({ where: { shipmentId: input.shipmentId } });
+  if (!record) return null;
+
+  const current = withWorkspace(fromRecord<SilShipment>(record));
+  if (!matchesWorkspace(current, input.workspaceId)) return null;
+  const stop = current.stops.find((item) => item.stopId === input.stopId);
+  if (!stop) return null;
+
+  const nextStatus = input.appointmentStatus ?? (stop.appointmentStart ? "RESCHEDULED" : "CONFIRMED");
+  const updatedStops = current.stops.map((item) =>
+    item.stopId === input.stopId
+      ? {
+          ...item,
+          appointmentStart: input.appointmentStart ?? item.appointmentStart,
+          appointmentEnd: input.appointmentEnd ?? item.appointmentEnd,
+          dockDoor: input.dockDoor ?? item.dockDoor,
+          appointmentStatus: nextStatus,
+        }
+      : item
+  );
+  const updatedShipment = withWorkspace({ ...current, stops: updatedStops });
+
+  await prisma.silShipmentRecord.update({
+    where: { shipmentId: input.shipmentId },
+    data: {
+      state: updatedShipment.state,
+      data: json(updatedShipment),
+    },
+  });
+
+  const updatedStop = updatedStops.find((item) => item.stopId === input.stopId)!;
+  const event = await persistSilWorkflowEvent({
+    eventId: makeId("sil_evt_appointment_scheduled"),
+    eventType: "APPOINTMENT_SCHEDULED",
+    occurredAt: new Date().toISOString(),
+    actor: input.actor ?? "operator",
+    source: "USER",
+    workspaceId: updatedShipment.workspaceId,
+    loadId: updatedShipment.loadId,
+    shipmentId: updatedShipment.shipmentId,
+    nextState: nextStatus,
+    shipmentState: updatedShipment.state,
+    summary: `${updatedStop.type} appointment ${nextStatus.toLowerCase()} for ${updatedShipment.shipmentId}.`,
+    evidence: input.evidence ?? [
+      `Stop: ${updatedStop.sequence} ${updatedStop.type}`,
+      `Facility: ${updatedStop.location.facilityName ?? `${updatedStop.location.city}, ${updatedStop.location.state}`}`,
+      `Window: ${updatedStop.appointmentStart ?? "unset"} to ${updatedStop.appointmentEnd ?? "unset"}`,
+      `Dock: ${updatedStop.dockDoor ?? "not assigned"}`,
+    ],
+  });
+
+  return { shipment: updatedShipment, stop: updatedStop, event };
+}
+
 function buildShipmentExecutionSignal(input: {
   shipment: SilShipment;
   occurredAt: string;

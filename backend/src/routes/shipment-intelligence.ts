@@ -33,6 +33,7 @@ import {
   createSilLoad,
   createSilPosting,
   getSilWorkspace,
+  listSilAppointmentCalendar,
   listSilLeanRecords,
   listPersistedWorkflowEvents,
   listSilBids,
@@ -52,6 +53,7 @@ import {
   updateSilLoadStatus,
   updateSilPostingVisibility,
   updateSilShipmentProgress,
+  updateSilStopAppointment,
   upsertSilCarrier,
   upsertSilWorkspace,
 } from "../services/shipmentIntelligence/silPersistenceService";
@@ -249,6 +251,31 @@ export function registerShipmentIntelligenceRoutes(app: Express) {
   router.get("/shipments", async (req: Request, res: Response) => {
     const shipments = await listSilShipments({ workspaceId: requestWorkspaceId(req) });
     res.json({ count: shipments.length, shipments });
+  });
+
+  router.get("/appointments/calendar", async (req: Request, res: Response) => {
+    const appointments = await listSilAppointmentCalendar({
+      workspaceId: requestWorkspaceId(req),
+      from: req.query.from as string | undefined,
+      to: req.query.to as string | undefined,
+    });
+    res.json({ count: appointments.length, appointments });
+  });
+
+  router.patch("/shipments/:shipmentId/stops/:stopId/appointment", async (req: Request, res: Response) => {
+    const result = await updateSilStopAppointment({
+      shipmentId: req.params.shipmentId,
+      stopId: req.params.stopId,
+      workspaceId: requestWorkspaceId(req),
+      appointmentStart: req.body?.appointmentStart,
+      appointmentEnd: req.body?.appointmentEnd,
+      dockDoor: req.body?.dockDoor,
+      appointmentStatus: req.body?.appointmentStatus,
+      actor: req.body?.actor,
+      evidence: Array.isArray(req.body?.evidence) ? req.body.evidence : undefined,
+    });
+    if (!result) return res.status(404).json({ error: "Shipment stop not found" });
+    res.json(result);
   });
 
   router.patch("/shipments/:shipmentId/progress", async (req: Request, res: Response) => {

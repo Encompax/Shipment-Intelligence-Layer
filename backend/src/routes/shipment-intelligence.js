@@ -177,6 +177,31 @@ function registerShipmentIntelligenceRoutes(app) {
         const shipments = await (0, silPersistenceService_1.listSilShipments)({ workspaceId: requestWorkspaceId(req) });
         res.json({ count: shipments.length, shipments });
     });
+    router.get("/appointments/calendar", async (req, res) => {
+        const appointments = await (0, silPersistenceService_1.listSilAppointmentCalendar)({
+            workspaceId: requestWorkspaceId(req),
+            from: req.query.from,
+            to: req.query.to,
+        });
+        res.json({ count: appointments.length, appointments });
+    });
+    router.patch("/shipments/:shipmentId/stops/:stopId/appointment", async (req, res) => {
+        var _a, _b, _c, _d, _e, _f;
+        const result = await (0, silPersistenceService_1.updateSilStopAppointment)({
+            shipmentId: req.params.shipmentId,
+            stopId: req.params.stopId,
+            workspaceId: requestWorkspaceId(req),
+            appointmentStart: (_a = req.body) === null || _a === void 0 ? void 0 : _a.appointmentStart,
+            appointmentEnd: (_b = req.body) === null || _b === void 0 ? void 0 : _b.appointmentEnd,
+            dockDoor: (_c = req.body) === null || _c === void 0 ? void 0 : _c.dockDoor,
+            appointmentStatus: (_d = req.body) === null || _d === void 0 ? void 0 : _d.appointmentStatus,
+            actor: (_e = req.body) === null || _e === void 0 ? void 0 : _e.actor,
+            evidence: Array.isArray((_f = req.body) === null || _f === void 0 ? void 0 : _f.evidence) ? req.body.evidence : undefined,
+        });
+        if (!result)
+            return res.status(404).json({ error: "Shipment stop not found" });
+        res.json(result);
+    });
     router.patch("/shipments/:shipmentId/progress", async (req, res) => {
         var _a, _b, _c, _d, _e, _f, _g, _h, _j;
         const workspaceId = requestWorkspaceId(req);

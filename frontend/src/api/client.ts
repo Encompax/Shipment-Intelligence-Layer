@@ -140,6 +140,30 @@ export async function fetchTransportationShipments() {
   return fetchShipmentIntelligence("/shipments");
 }
 
+export async function fetchAppointmentCalendar(filters?: { from?: string; to?: string }) {
+  const params = new URLSearchParams();
+  if (filters?.from) params.set("from", filters.from);
+  if (filters?.to) params.set("to", filters.to);
+  const query = params.toString() ? `?${params}` : "";
+  return fetchShipmentIntelligence(`/appointments/calendar${query}`);
+}
+
+export async function updateShipmentStopAppointment(shipmentId: string, stopId: string, payload: Record<string, unknown>) {
+  const res = await fetch(
+    `${SHIPMENT_INTELLIGENCE_BASE}/shipments/${encodeURIComponent(shipmentId)}/stops/${encodeURIComponent(stopId)}/appointment`,
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    }
+  );
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    throw new Error(body?.error ?? `Appointment update error: ${res.status}`);
+  }
+  return res.json();
+}
+
 export async function updateTransportationShipmentProgress(shipmentId: string, payload: Record<string, unknown>) {
   const res = await fetch(`${SHIPMENT_INTELLIGENCE_BASE}/shipments/${encodeURIComponent(shipmentId)}/progress`, {
     method: "PATCH",

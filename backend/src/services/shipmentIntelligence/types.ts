@@ -149,8 +149,10 @@ export type SilStop = {
   sequence: number;
   type: "PICKUP" | "DELIVERY" | "TERMINAL" | "CROSSDOCK";
   location: LocationRef;
+  dockDoor?: string;
   appointmentStart?: string;
   appointmentEnd?: string;
+  appointmentStatus?: "REQUESTED" | "CONFIRMED" | "RESCHEDULED" | "MISSED" | "COMPLETED";
   arrivedAt?: string;
   loadedUnloadedAt?: string;
   departedAt?: string;
@@ -330,6 +332,7 @@ export type SilWorkflowEventType =
   | "BID_COUNTERED"
   | "CARRIER_AWARDED"
   | "SHIPMENT_STATUS_CHANGED"
+  | "APPOINTMENT_SCHEDULED"
   | "GOVERNANCE_SIGNAL_CREATED"
   | "GOVERNANCE_DECISION_RECORDED"
   | "CARRIER_PROVIDER_QUOTE_REQUESTED"
