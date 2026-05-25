@@ -1,4 +1,37 @@
 "use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
@@ -8,6 +41,7 @@ const prisma_1 = require("../lib/prisma");
 const config_1 = require("../lib/config");
 const path_1 = __importDefault(require("path"));
 const fs_1 = __importDefault(require("fs"));
+const XLSX = __importStar(require("xlsx"));
 const silPersistenceService_1 = require("../services/shipmentIntelligence/silPersistenceService");
 const hashDataSourceId = (value) => Math.abs(value.split('').reduce((hash, char) => {
     return (hash * 31 + char.charCodeAt(0)) | 0;
@@ -56,16 +90,34 @@ const parseCsv = (content) => {
     }, {}));
     return { headers, records };
 };
-const readUploadCsv = async (uploadId) => {
+const parseWorkbook = (filePath) => {
+    const workbook = XLSX.readFile(filePath, { cellDates: false });
+    const sheetName = workbook.SheetNames[0];
+    const sheet = sheetName ? workbook.Sheets[sheetName] : null;
+    if (!sheet)
+        return { headers: [], records: [], sheetName: null };
+    const rows = XLSX.utils.sheet_to_json(sheet, { defval: '', raw: false });
+    const headers = rows.length > 0 ? Object.keys(rows[0]) : [];
+    const records = rows.map((row) => headers.reduce((record, header) => {
+        var _a;
+        record[header] = String((_a = row[header]) !== null && _a !== void 0 ? _a : '').trim();
+        return record;
+    }, {}));
+    return { headers, records, sheetName };
+};
+const readUploadTable = async (uploadId) => {
     const upload = await prisma_1.prisma.upload.findUnique({ where: { id: uploadId }, include: { job: true } });
     if (!upload)
         return null;
     const extension = path_1.default.extname(upload.originalName).toLowerCase();
-    if (extension !== '.csv' && !upload.contentType.toLowerCase().includes('csv')) {
-        return { upload, error: 'Preview currently supports CSV files. Excel files are stored and ready for the XLSX parser stage.' };
+    if (extension === '.csv' || upload.contentType.toLowerCase().includes('csv')) {
+        const content = await fs_1.default.promises.readFile(upload.storedPath, 'utf8');
+        return { upload, parsed: { ...parseCsv(content), sheetName: null }, format: 'CSV' };
     }
-    const content = await fs_1.default.promises.readFile(upload.storedPath, 'utf8');
-    return { upload, parsed: parseCsv(content) };
+    if (['.xlsx', '.xls'].includes(extension) || upload.contentType.toLowerCase().includes('spreadsheet')) {
+        return { upload, parsed: parseWorkbook(upload.storedPath), format: 'EXCEL' };
+    }
+    return { upload, error: 'Preview supports CSV, XLSX, and XLS files.' };
 };
 function registerUploadRoutes(app) {
     app.post('/api/ingest/upload', async (req, res) => {
@@ -111,13 +163,15 @@ function registerUploadRoutes(app) {
         res.json({ count: uploads.length, uploads });
     });
     app.get('/api/ingest/uploads/:uploadId/preview', async (req, res) => {
-        const result = await readUploadCsv(Number(req.params.uploadId));
+        const result = await readUploadTable(Number(req.params.uploadId));
         if (!result)
             return res.status(404).json({ error: 'Upload not found' });
         if ('error' in result)
             return res.status(415).json({ error: result.error, upload: result.upload });
         res.json({
             upload: result.upload,
+            format: result.format,
+            sheetName: result.parsed.sheetName,
             headers: result.parsed.headers,
             rows: result.parsed.records.slice(0, 10),
             totalRows: result.parsed.records.length,
@@ -125,7 +179,7 @@ function registerUploadRoutes(app) {
     });
     app.post('/api/ingest/uploads/:uploadId/import-loads', async (req, res) => {
         var _a, _b;
-        const result = await readUploadCsv(Number(req.params.uploadId));
+        const result = await readUploadTable(Number(req.params.uploadId));
         if (!result)
             return res.status(404).json({ error: 'Upload not found' });
         if ('error' in result)
@@ -166,6 +220,8 @@ function registerUploadRoutes(app) {
         }
         res.status(201).json({
             upload: result.upload,
+            format: result.format,
+            sheetName: result.parsed.sheetName,
             importedCount: imported.length,
             rejectedCount: rejected.length,
             imported,

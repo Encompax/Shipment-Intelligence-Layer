@@ -11,6 +11,8 @@ type DataSource = {
 
 type UploadPreview = {
   upload: { id: number; originalName: string };
+  format?: string;
+  sheetName?: string | null;
   headers: string[];
   rows: Record<string, string>[];
   totalRows: number;
@@ -284,15 +286,18 @@ export default function DataSourcesPanel() {
               <button className="btn btn-primary" type="button" disabled={!file || !selectedSourceId} onClick={handleUpload}>
                 Upload File
               </button>
-              <p className="ops-note">CSV files can be previewed and mapped into SIL loads. Excel files are stored for the XLSX parser stage.</p>
+              <p className="ops-note">CSV and Excel files can be previewed, mapped, and imported into SIL loads.</p>
               {preview && (
                 <div className="mapping-workbench">
                   <div className="transport-panel-header compact">
                     <div>
                       <p className="transport-eyebrow">Mapping Preview</p>
                       <h4>{preview.upload.originalName}</h4>
+                      {preview.sheetName && <span>Sheet: {preview.sheetName}</span>}
                     </div>
-                    <span>{preview.totalRows} row(s)</span>
+                    <span>
+                      {preview.format ?? "TABLE"} / {preview.totalRows} row(s)
+                    </span>
                   </div>
                   <div className="manual-field-grid">
                     {[

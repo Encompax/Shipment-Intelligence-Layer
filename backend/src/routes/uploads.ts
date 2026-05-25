@@ -4,6 +4,7 @@ import { prisma } from '../lib/prisma';
 import { config } from '../lib/config';
 import path from 'path';
 import fs from 'fs';
+import * as XLSX from 'xlsx';
 import { createSilLoad } from '../services/shipmentIntelligence/silPersistenceService';
 import { SilLoad } from '../services/shipmentIntelligence/types';
 
@@ -54,15 +55,34 @@ const parseCsv = (content: string) => {
   return { headers, records };
 };
 
-const readUploadCsv = async (uploadId: number) => {
+const parseWorkbook = (filePath: string) => {
+  const workbook = XLSX.readFile(filePath, { cellDates: false });
+  const sheetName = workbook.SheetNames[0];
+  const sheet = sheetName ? workbook.Sheets[sheetName] : null;
+  if (!sheet) return { headers: [], records: [], sheetName: null };
+  const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: '', raw: false });
+  const headers = rows.length > 0 ? Object.keys(rows[0]) : [];
+  const records = rows.map((row) =>
+    headers.reduce<Record<string, string>>((record, header) => {
+      record[header] = String(row[header] ?? '').trim();
+      return record;
+    }, {})
+  );
+  return { headers, records, sheetName };
+};
+
+const readUploadTable = async (uploadId: number) => {
   const upload = await prisma.upload.findUnique({ where: { id: uploadId }, include: { job: true } });
   if (!upload) return null;
   const extension = path.extname(upload.originalName).toLowerCase();
-  if (extension !== '.csv' && !upload.contentType.toLowerCase().includes('csv')) {
-    return { upload, error: 'Preview currently supports CSV files. Excel files are stored and ready for the XLSX parser stage.' };
+  if (extension === '.csv' || upload.contentType.toLowerCase().includes('csv')) {
+    const content = await fs.promises.readFile(upload.storedPath, 'utf8');
+    return { upload, parsed: { ...parseCsv(content), sheetName: null }, format: 'CSV' };
   }
-  const content = await fs.promises.readFile(upload.storedPath, 'utf8');
-  return { upload, parsed: parseCsv(content) };
+  if (['.xlsx', '.xls'].includes(extension) || upload.contentType.toLowerCase().includes('spreadsheet')) {
+    return { upload, parsed: parseWorkbook(upload.storedPath), format: 'EXCEL' };
+  }
+  return { upload, error: 'Preview supports CSV, XLSX, and XLS files.' };
 };
 
 export function registerUploadRoutes(app: Express) {
@@ -109,12 +129,14 @@ export function registerUploadRoutes(app: Express) {
  });
 
  app.get('/api/ingest/uploads/:uploadId/preview', async (req: Request, res: Response) => {
-   const result = await readUploadCsv(Number(req.params.uploadId));
+   const result = await readUploadTable(Number(req.params.uploadId));
    if (!result) return res.status(404).json({ error: 'Upload not found' });
    if ('error' in result) return res.status(415).json({ error: result.error, upload: result.upload });
 
    res.json({
      upload: result.upload,
+     format: result.format,
+     sheetName: result.parsed.sheetName,
      headers: result.parsed.headers,
      rows: result.parsed.records.slice(0, 10),
      totalRows: result.parsed.records.length,
@@ -122,7 +144,7 @@ export function registerUploadRoutes(app: Express) {
  });
 
  app.post('/api/ingest/uploads/:uploadId/import-loads', async (req: Request, res: Response) => {
-   const result = await readUploadCsv(Number(req.params.uploadId));
+   const result = await readUploadTable(Number(req.params.uploadId));
    if (!result) return res.status(404).json({ error: 'Upload not found' });
    if ('error' in result) return res.status(415).json({ error: result.error, upload: result.upload });
 
@@ -163,6 +185,8 @@ export function registerUploadRoutes(app: Express) {
 
    res.status(201).json({
      upload: result.upload,
+     format: result.format,
+     sheetName: result.parsed.sheetName,
      importedCount: imported.length,
      rejectedCount: rejected.length,
      imported,
