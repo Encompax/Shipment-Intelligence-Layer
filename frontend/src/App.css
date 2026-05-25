@@ -696,6 +696,15 @@ td {
   color: var(--color-text-muted);
 }
 
+.mapping-workbench {
+  display: grid;
+  gap: var(--space-4);
+  padding: var(--space-4);
+  border: 1px solid rgba(14, 165, 233, 0.22);
+  border-radius: var(--radius-lg);
+  background: linear-gradient(135deg, rgba(236, 254, 255, 0.7), rgba(255, 255, 255, 0.96));
+}
+
 .transport-hero {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto auto;

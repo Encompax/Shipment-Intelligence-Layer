@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import { fetchDatasources, uploadFile } from "../api/client";
 
 type DataSource = {
-  id: number;
+  id: string;
   name: string;
   type: string;
 };
@@ -13,7 +13,7 @@ interface Props {
 
 const UploadPanel: React.FC<Props> = ({ dataSourceId = null }) => {
   const [sources, setSources] = useState<DataSource[]>([]);
-  const [selectedSourceId, setSelectedSourceId] = useState<number | null>(dataSourceId);
+  const [selectedSourceId, setSelectedSourceId] = useState<string | number | null>(dataSourceId);
   const [file, setFile] = useState<File | null>(null);
   const [status, setStatus] = useState<"idle" | "uploading" | "done" | "error">("idle");
   const [message, setMessage] = useState<string | null>(null);
@@ -65,7 +65,7 @@ const UploadPanel: React.FC<Props> = ({ dataSourceId = null }) => {
             Target Source
             <select
               value={selectedSourceId ?? ""}
-              onChange={(event) => setSelectedSourceId(Number(event.target.value))}
+              onChange={(event) => setSelectedSourceId(event.target.value)}
             >
               <option value="">Select a source</option>
               {sources.map((source) => (

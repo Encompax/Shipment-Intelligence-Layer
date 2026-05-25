@@ -1,12 +1,19 @@
 import { useEffect, useMemo, useState } from "react";
-import { createDatasource, fetchDatasources, uploadFile } from "../api/client";
+import { createDatasource, fetchDatasources, fetchUploadPreview, importUploadLoads, uploadFile } from "../api/client";
 
 type DataSource = {
-  id: number;
+  id: string;
   name: string;
   type: string;
   description?: string | null;
   createdAt?: string;
+};
+
+type UploadPreview = {
+  upload: { id: number; originalName: string };
+  headers: string[];
+  rows: Record<string, string>[];
+  totalRows: number;
 };
 
 type IntakeMode = "manual" | "file" | "pipeline";
@@ -36,8 +43,10 @@ export default function DataSourcesPanel() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeMode, setActiveMode] = useState<IntakeMode>("manual");
-  const [selectedSourceId, setSelectedSourceId] = useState<number | null>(null);
+  const [selectedSourceId, setSelectedSourceId] = useState<string | null>(null);
   const [file, setFile] = useState<File | null>(null);
+  const [preview, setPreview] = useState<UploadPreview | null>(null);
+  const [mapping, setMapping] = useState<Record<string, string>>({});
   const [status, setStatus] = useState<string | null>(null);
   const [form, setForm] = useState({
     name: "Gopuff shipment workbook",
@@ -95,11 +104,40 @@ export default function DataSourcesPanel() {
 
     try {
       setStatus("Uploading file and creating ingest job...");
-      await uploadFile(selectedSourceId, file);
+      const uploadResult = await uploadFile(selectedSourceId, file);
+      const uploadId = uploadResult.uploads?.[0]?.id;
+      if (uploadId) {
+        const previewResult = await fetchUploadPreview(uploadId);
+        setPreview(previewResult);
+        const headers = previewResult.headers ?? [];
+        setMapping({
+          customerName: headers.find((header: string) => /customer|account|shipper/i.test(header)) ?? headers[0] ?? "",
+          originCity: headers.find((header: string) => /origin.*city|pickup.*city|from.*city/i.test(header)) ?? "",
+          originState: headers.find((header: string) => /origin.*state|pickup.*state|from.*state/i.test(header)) ?? "",
+          destinationCity: headers.find((header: string) => /dest.*city|delivery.*city|to.*city/i.test(header)) ?? "",
+          destinationState: headers.find((header: string) => /dest.*state|delivery.*state|to.*state/i.test(header)) ?? "",
+          mode: headers.find((header: string) => /^mode$|transport.*mode/i.test(header)) ?? "",
+          equipmentType: headers.find((header: string) => /equipment|trailer/i.test(header)) ?? "",
+          targetBuyRate: headers.find((header: string) => /buy|cost|carrier.*rate/i.test(header)) ?? "",
+          targetSellRate: headers.find((header: string) => /sell|revenue|customer.*rate/i.test(header)) ?? "",
+        });
+      }
       setFile(null);
-      setStatus("Upload complete. Ingest job recorded for review.");
+      setStatus(uploadId ? "Upload complete. Preview is ready for mapping." : "Upload complete. Ingest job recorded for review.");
     } catch (err) {
       setStatus(err instanceof Error ? err.message : "Upload failed");
+    }
+  }
+
+  async function handleImportLoads() {
+    if (!preview) return;
+
+    try {
+      setStatus("Importing mapped rows into SIL loads...");
+      const result = await importUploadLoads(preview.upload.id, { mapping });
+      setStatus(`Imported ${result.importedCount} load(s). ${result.rejectedCount} row(s) need review.`);
+    } catch (err) {
+      setStatus(err instanceof Error ? err.message : "Load import failed");
     }
   }
 
@@ -223,7 +261,7 @@ export default function DataSourcesPanel() {
                 Target Source
                 <select
                   value={selectedSourceId ?? ""}
-                  onChange={(event) => setSelectedSourceId(Number(event.target.value))}
+                  onChange={(event) => setSelectedSourceId(event.target.value)}
                 >
                   {items.map((source) => (
                     <option key={source.id} value={source.id}>
@@ -246,7 +284,69 @@ export default function DataSourcesPanel() {
               <button className="btn btn-primary" type="button" disabled={!file || !selectedSourceId} onClick={handleUpload}>
                 Upload File
               </button>
-              <p className="ops-note">Supported now: file storage and ingest job audit. Next: column preview and mapping validation.</p>
+              <p className="ops-note">CSV files can be previewed and mapped into SIL loads. Excel files are stored for the XLSX parser stage.</p>
+              {preview && (
+                <div className="mapping-workbench">
+                  <div className="transport-panel-header compact">
+                    <div>
+                      <p className="transport-eyebrow">Mapping Preview</p>
+                      <h4>{preview.upload.originalName}</h4>
+                    </div>
+                    <span>{preview.totalRows} row(s)</span>
+                  </div>
+                  <div className="manual-field-grid">
+                    {[
+                      ["customerName", "Customer"],
+                      ["originCity", "Origin City"],
+                      ["originState", "Origin State"],
+                      ["destinationCity", "Destination City"],
+                      ["destinationState", "Destination State"],
+                      ["mode", "Mode"],
+                      ["equipmentType", "Equipment"],
+                      ["targetBuyRate", "Target Buy"],
+                      ["targetSellRate", "Target Sell"],
+                    ].map(([field, label]) => (
+                      <label key={field}>
+                        {label}
+                        <select
+                          value={mapping[field] ?? ""}
+                          onChange={(event) => setMapping((current) => ({ ...current, [field]: event.target.value }))}
+                        >
+                          <option value="">Not mapped</option>
+                          {preview.headers.map((header) => (
+                            <option key={header} value={header}>
+                              {header}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    ))}
+                  </div>
+                  <div className="transport-table-wrap">
+                    <table className="transport-table">
+                      <thead>
+                        <tr>
+                          {preview.headers.slice(0, 8).map((header) => (
+                            <th key={header}>{header}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {preview.rows.slice(0, 5).map((row, index) => (
+                          <tr key={`${preview.upload.id}-${index}`}>
+                            {preview.headers.slice(0, 8).map((header) => (
+                              <td key={header}>{row[header]}</td>
+                            ))}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <button className="btn btn-primary" type="button" onClick={handleImportLoads}>
+                    Import Mapped Loads
+                  </button>
+                </div>
+              )}
             </div>
           )}
 

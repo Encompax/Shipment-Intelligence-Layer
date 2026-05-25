@@ -356,7 +356,7 @@ export async function createLeanRecord(payload: Record<string, unknown>) {
 
 // ─────────────────────────────────────────────────────────────────────────────
 
-export async function uploadFile(dataSourceId: number, file: File) {
+export async function uploadFile(dataSourceId: number | string, file: File) {
  const formData = new FormData();
  formData.append('dataSourceId', String(dataSourceId));
  formData.append('file', file);
@@ -368,6 +368,28 @@ export async function uploadFile(dataSourceId: number, file: File) {
    throw new Error(`Failed to upload file: ${res.status}`);
  }
  return res.json();
+}
+
+export async function fetchUploadPreview(uploadId: number) {
+  const res = await fetch(`${API_BASE}/ingest/uploads/${encodeURIComponent(String(uploadId))}/preview`);
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    throw new Error(body?.error ?? `Upload preview error: ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function importUploadLoads(uploadId: number, payload: Record<string, unknown>) {
+  const res = await fetch(`${API_BASE}/ingest/uploads/${encodeURIComponent(String(uploadId))}/import-loads`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    throw new Error(body?.error ?? `Upload import error: ${res.status}`);
+  }
+  return res.json();
 }
 
 // ── Shipment Intelligence: Carriers ────────────────────────────────────────
