@@ -8,6 +8,8 @@ exports.createSilLoad = createSilLoad;
 exports.listSilShipments = listSilShipments;
 exports.listSilAppointmentCalendar = listSilAppointmentCalendar;
 exports.updateSilStopAppointment = updateSilStopAppointment;
+exports.listSilShipmentDocuments = listSilShipmentDocuments;
+exports.persistSilShipmentDocument = persistSilShipmentDocument;
 exports.updateSilShipmentProgress = updateSilShipmentProgress;
 exports.listSilCarriers = listSilCarriers;
 exports.upsertSilCarrier = upsertSilCarrier;
@@ -71,6 +73,26 @@ async function ensureSilWorkspaceTable() {
     await prisma_1.prisma.$executeRaw `CREATE INDEX IF NOT EXISTS "SilWorkspaceRecord_organization_idx" ON "SilWorkspaceRecord"("organization")`;
     await prisma_1.prisma.$executeRaw `CREATE INDEX IF NOT EXISTS "SilWorkspaceRecord_status_idx" ON "SilWorkspaceRecord"("status")`;
 }
+async function ensureSilDocumentTable() {
+    await prisma_1.prisma.$executeRaw `
+    CREATE TABLE IF NOT EXISTS "SilDocumentRecord" (
+      "id" TEXT NOT NULL PRIMARY KEY,
+      "documentId" TEXT NOT NULL UNIQUE,
+      "workspaceId" TEXT NOT NULL,
+      "shipmentId" TEXT NOT NULL,
+      "loadId" TEXT,
+      "documentType" TEXT NOT NULL,
+      "status" TEXT NOT NULL DEFAULT 'UPLOADED',
+      "data" TEXT NOT NULL,
+      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "updatedAt" DATETIME NOT NULL
+    )
+  `;
+    await prisma_1.prisma.$executeRaw `CREATE INDEX IF NOT EXISTS "SilDocumentRecord_workspaceId_idx" ON "SilDocumentRecord"("workspaceId")`;
+    await prisma_1.prisma.$executeRaw `CREATE INDEX IF NOT EXISTS "SilDocumentRecord_shipmentId_idx" ON "SilDocumentRecord"("shipmentId")`;
+    await prisma_1.prisma.$executeRaw `CREATE INDEX IF NOT EXISTS "SilDocumentRecord_loadId_idx" ON "SilDocumentRecord"("loadId")`;
+    await prisma_1.prisma.$executeRaw `CREATE INDEX IF NOT EXISTS "SilDocumentRecord_documentType_idx" ON "SilDocumentRecord"("documentType")`;
+}
 const defaultWorkspace = {
     workspaceId: DEFAULT_WORKSPACE_ID,
     organization: "Example Organization",
@@ -122,6 +144,7 @@ async function seedSilPersistence() {
     if (seeded)
         return;
     await ensureSilWorkspaceTable();
+    await ensureSilDocumentTable();
     await Promise.all([
         ...mockData_1.loads.map((load) => prisma_1.prisma.silLoadRecord.upsert({
             where: { loadId: load.loadId },
@@ -457,6 +480,58 @@ async function updateSilStopAppointment(input) {
         ],
     });
     return { shipment: updatedShipment, stop: updatedStop, event };
+}
+async function listSilShipmentDocuments(filters) {
+    var _a, _b, _c, _d;
+    await seedSilPersistence();
+    await ensureSilDocumentTable();
+    const rows = await prisma_1.prisma.$queryRaw `
+    SELECT "data" FROM "SilDocumentRecord"
+    WHERE (${(_a = filters === null || filters === void 0 ? void 0 : filters.shipmentId) !== null && _a !== void 0 ? _a : null} IS NULL OR "shipmentId" = ${(_b = filters === null || filters === void 0 ? void 0 : filters.shipmentId) !== null && _b !== void 0 ? _b : null})
+      AND (${(_c = filters === null || filters === void 0 ? void 0 : filters.loadId) !== null && _c !== void 0 ? _c : null} IS NULL OR "loadId" = ${(_d = filters === null || filters === void 0 ? void 0 : filters.loadId) !== null && _d !== void 0 ? _d : null})
+    ORDER BY "createdAt" DESC
+  `;
+    return rows
+        .map((row) => withWorkspace(fromRecord(row)))
+        .filter((document) => matchesWorkspace(document, filters === null || filters === void 0 ? void 0 : filters.workspaceId));
+}
+async function persistSilShipmentDocument(input) {
+    var _a, _b, _c, _d, _e;
+    await seedSilPersistence();
+    await ensureSilDocumentTable();
+    const document = withWorkspace({
+        ...input,
+        documentId: (_a = input.documentId) !== null && _a !== void 0 ? _a : makeId("sil_doc"),
+        uploadedAt: (_b = input.uploadedAt) !== null && _b !== void 0 ? _b : new Date().toISOString(),
+        status: (_c = input.status) !== null && _c !== void 0 ? _c : "UPLOADED",
+    });
+    await prisma_1.prisma.$executeRaw `
+    INSERT INTO "SilDocumentRecord" ("id", "documentId", "workspaceId", "shipmentId", "loadId", "documentType", "status", "data", "updatedAt")
+    VALUES (${makeId("sil_document_record")}, ${document.documentId}, ${(_d = document.workspaceId) !== null && _d !== void 0 ? _d : DEFAULT_WORKSPACE_ID}, ${document.shipmentId}, ${(_e = document.loadId) !== null && _e !== void 0 ? _e : null}, ${document.documentType}, ${document.status}, ${json(document)}, ${new Date()})
+    ON CONFLICT("documentId") DO UPDATE SET
+      "status" = excluded."status",
+      "data" = excluded."data",
+      "updatedAt" = excluded."updatedAt"
+  `;
+    const event = await persistSilWorkflowEvent({
+        eventId: makeId("sil_evt_document_uploaded"),
+        eventType: "SHIPMENT_DOCUMENT_UPLOADED",
+        occurredAt: document.uploadedAt,
+        actor: document.uploadedBy,
+        source: "USER",
+        workspaceId: document.workspaceId,
+        loadId: document.loadId,
+        shipmentId: document.shipmentId,
+        carrierId: document.carrierId,
+        summary: `${document.documentType} uploaded for ${document.shipmentId}.`,
+        evidence: [
+            `Document: ${document.originalName}`,
+            `Type: ${document.documentType}`,
+            `Size: ${document.sizeBytes} bytes`,
+            document.notes ? `Notes: ${document.notes}` : "No notes provided",
+        ],
+    });
+    return { document, event };
 }
 function buildShipmentExecutionSignal(input) {
     var _a, _b, _c, _d;

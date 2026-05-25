@@ -201,6 +201,32 @@ export type SilShipment = {
   source: "starship" | "karrio" | "manual" | "tms";
 };
 
+export type SilDocumentType =
+  | "POD"
+  | "BOL"
+  | "RATE_CONFIRMATION"
+  | "LUMPER_RECEIPT"
+  | "DETENTION_EVIDENCE"
+  | "CUSTOMER_APPROVAL"
+  | "OTHER";
+
+export type SilShipmentDocument = {
+  workspaceId?: string;
+  documentId: string;
+  shipmentId: string;
+  loadId?: string;
+  carrierId?: string;
+  documentType: SilDocumentType;
+  originalName: string;
+  storedPath: string;
+  contentType: string;
+  sizeBytes: number;
+  uploadedAt: string;
+  uploadedBy: string;
+  status: "UPLOADED" | "VERIFIED" | "REJECTED";
+  notes?: string;
+};
+
 export type SilCarrierProfile = {
   workspaceId?: string;
   carrierId: string;
@@ -338,6 +364,7 @@ export type SilWorkflowEventType =
   | "CARRIER_PROVIDER_QUOTE_REQUESTED"
   | "CARRIER_PROVIDER_TRACKING_REQUESTED"
   | "SHIPMENT_PROGRESS_UPDATED"
+  | "SHIPMENT_DOCUMENT_UPLOADED"
   | "DISPATCH_READINESS_CHECKED"
   | "CARRIER_PROFILE_UPDATED"
   | "LEAN_RECORD_CREATED"

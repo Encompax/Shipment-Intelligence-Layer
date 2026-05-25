@@ -21,6 +21,7 @@ import {
   SilLoadPosting,
   SilMarketRateObservation,
   SilShipment,
+  SilShipmentDocument,
   SilWorkflowEvent,
   ShipmentState,
 } from "./types";
@@ -68,6 +69,27 @@ async function ensureSilWorkspaceTable() {
   `;
   await prisma.$executeRaw`CREATE INDEX IF NOT EXISTS "SilWorkspaceRecord_organization_idx" ON "SilWorkspaceRecord"("organization")`;
   await prisma.$executeRaw`CREATE INDEX IF NOT EXISTS "SilWorkspaceRecord_status_idx" ON "SilWorkspaceRecord"("status")`;
+}
+
+async function ensureSilDocumentTable() {
+  await prisma.$executeRaw`
+    CREATE TABLE IF NOT EXISTS "SilDocumentRecord" (
+      "id" TEXT NOT NULL PRIMARY KEY,
+      "documentId" TEXT NOT NULL UNIQUE,
+      "workspaceId" TEXT NOT NULL,
+      "shipmentId" TEXT NOT NULL,
+      "loadId" TEXT,
+      "documentType" TEXT NOT NULL,
+      "status" TEXT NOT NULL DEFAULT 'UPLOADED',
+      "data" TEXT NOT NULL,
+      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "updatedAt" DATETIME NOT NULL
+    )
+  `;
+  await prisma.$executeRaw`CREATE INDEX IF NOT EXISTS "SilDocumentRecord_workspaceId_idx" ON "SilDocumentRecord"("workspaceId")`;
+  await prisma.$executeRaw`CREATE INDEX IF NOT EXISTS "SilDocumentRecord_shipmentId_idx" ON "SilDocumentRecord"("shipmentId")`;
+  await prisma.$executeRaw`CREATE INDEX IF NOT EXISTS "SilDocumentRecord_loadId_idx" ON "SilDocumentRecord"("loadId")`;
+  await prisma.$executeRaw`CREATE INDEX IF NOT EXISTS "SilDocumentRecord_documentType_idx" ON "SilDocumentRecord"("documentType")`;
 }
 
 export type SilLeanRecordPayload = {
@@ -162,6 +184,7 @@ const defaultWorkspace: SilWorkspacePayload = {
 export async function seedSilPersistence() {
   if (seeded) return;
   await ensureSilWorkspaceTable();
+  await ensureSilDocumentTable();
 
   await Promise.all([
     ...loads.map((load) =>
@@ -538,6 +561,67 @@ export async function updateSilStopAppointment(input: {
   });
 
   return { shipment: updatedShipment, stop: updatedStop, event };
+}
+
+export async function listSilShipmentDocuments(filters?: { workspaceId?: string; shipmentId?: string; loadId?: string }) {
+  await seedSilPersistence();
+  await ensureSilDocumentTable();
+  const rows = await prisma.$queryRaw<Array<{ data: string }>>`
+    SELECT "data" FROM "SilDocumentRecord"
+    WHERE (${filters?.shipmentId ?? null} IS NULL OR "shipmentId" = ${filters?.shipmentId ?? null})
+      AND (${filters?.loadId ?? null} IS NULL OR "loadId" = ${filters?.loadId ?? null})
+    ORDER BY "createdAt" DESC
+  `;
+  return rows
+    .map((row) => withWorkspace(fromRecord<SilShipmentDocument>(row)))
+    .filter((document) => matchesWorkspace(document, filters?.workspaceId));
+}
+
+export async function persistSilShipmentDocument(input: Omit<SilShipmentDocument, "documentId" | "uploadedAt" | "status"> & {
+  documentId?: string;
+  uploadedAt?: string;
+  status?: SilShipmentDocument["status"];
+}) {
+  await seedSilPersistence();
+  await ensureSilDocumentTable();
+  const document: SilShipmentDocument = withWorkspace({
+    ...input,
+    documentId: input.documentId ?? makeId("sil_doc"),
+    uploadedAt: input.uploadedAt ?? new Date().toISOString(),
+    status: input.status ?? "UPLOADED",
+  });
+
+  await prisma.$executeRaw`
+    INSERT INTO "SilDocumentRecord" ("id", "documentId", "workspaceId", "shipmentId", "loadId", "documentType", "status", "data", "updatedAt")
+    VALUES (${makeId("sil_document_record")}, ${document.documentId}, ${document.workspaceId ?? DEFAULT_WORKSPACE_ID}, ${
+      document.shipmentId
+    }, ${document.loadId ?? null}, ${document.documentType}, ${document.status}, ${json(document)}, ${new Date()})
+    ON CONFLICT("documentId") DO UPDATE SET
+      "status" = excluded."status",
+      "data" = excluded."data",
+      "updatedAt" = excluded."updatedAt"
+  `;
+
+  const event = await persistSilWorkflowEvent({
+    eventId: makeId("sil_evt_document_uploaded"),
+    eventType: "SHIPMENT_DOCUMENT_UPLOADED",
+    occurredAt: document.uploadedAt,
+    actor: document.uploadedBy,
+    source: "USER",
+    workspaceId: document.workspaceId,
+    loadId: document.loadId,
+    shipmentId: document.shipmentId,
+    carrierId: document.carrierId,
+    summary: `${document.documentType} uploaded for ${document.shipmentId}.`,
+    evidence: [
+      `Document: ${document.originalName}`,
+      `Type: ${document.documentType}`,
+      `Size: ${document.sizeBytes} bytes`,
+      document.notes ? `Notes: ${document.notes}` : "No notes provided",
+    ],
+  });
+
+  return { document, event };
 }
 
 function buildShipmentExecutionSignal(input: {

@@ -1449,6 +1449,53 @@ td {
   font-size: var(--font-size-xs);
 }
 
+.document-upload-grid {
+  display: grid;
+  grid-template-columns: minmax(120px, 0.55fr) minmax(160px, 1fr) minmax(150px, 1fr) auto;
+  gap: var(--space-2);
+  align-items: center;
+  margin-bottom: var(--space-3);
+}
+
+.document-upload-grid select,
+.document-upload-grid input {
+  min-width: 0;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.82);
+  color: var(--color-text-primary);
+  font-size: var(--font-size-xs);
+  padding: 8px 9px;
+}
+
+.document-list {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.document-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(150px, 0.7fr);
+  gap: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: rgba(255, 255, 255, 0.72);
+  padding: var(--space-3);
+}
+
+.document-row div {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.document-row span {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+  overflow-wrap: anywhere;
+}
+
 .workflow-event-list {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));

@@ -164,6 +164,31 @@ export async function updateShipmentStopAppointment(shipmentId: string, stopId: 
   return res.json();
 }
 
+export async function fetchShipmentDocuments(shipmentId: string) {
+  return fetchShipmentIntelligence(`/shipments/${encodeURIComponent(shipmentId)}/documents`);
+}
+
+export async function uploadShipmentDocument(
+  shipmentId: string,
+  file: File,
+  payload: { documentType: string; notes?: string; uploadedBy?: string }
+) {
+  const formData = new FormData();
+  formData.append("file", file);
+  formData.append("documentType", payload.documentType);
+  if (payload.notes) formData.append("notes", payload.notes);
+  if (payload.uploadedBy) formData.append("uploadedBy", payload.uploadedBy);
+  const res = await fetch(`${SHIPMENT_INTELLIGENCE_BASE}/shipments/${encodeURIComponent(shipmentId)}/documents`, {
+    method: "POST",
+    body: formData,
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    throw new Error(body?.error ?? `Shipment document upload error: ${res.status}`);
+  }
+  return res.json();
+}
+
 export async function updateTransportationShipmentProgress(shipmentId: string, payload: Record<string, unknown>) {
   const res = await fetch(`${SHIPMENT_INTELLIGENCE_BASE}/shipments/${encodeURIComponent(shipmentId)}/progress`, {
     method: "PATCH",

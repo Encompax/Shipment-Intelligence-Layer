@@ -1,4 +1,8 @@
 import { Express, Request, Response, Router } from "express";
+import * as fileUpload from "express-fileupload";
+import fs from "fs";
+import path from "path";
+import { config } from "../lib/config";
 import {
   buildDispatchReadiness,
   buildCarrierEligibilityRecommendations,
@@ -23,6 +27,7 @@ import {
   BidState,
   BrokerageLoadState,
   SilCarrierProvider,
+  SilDocumentType,
   SilGovernanceSignalDraft,
   SilSeverity,
   SilWorkflowEvent,
@@ -34,6 +39,7 @@ import {
   createSilPosting,
   getSilWorkspace,
   listSilAppointmentCalendar,
+  listSilShipmentDocuments,
   listSilLeanRecords,
   listPersistedWorkflowEvents,
   listSilBids,
@@ -46,6 +52,7 @@ import {
   listSilPostings,
   listSilShipments,
   persistSilGovernanceSignal,
+  persistSilShipmentDocument,
   persistSilWorkflowEvent,
   seedSilPersistence,
   updateSilBidCommercials,
@@ -276,6 +283,54 @@ export function registerShipmentIntelligenceRoutes(app: Express) {
     });
     if (!result) return res.status(404).json({ error: "Shipment stop not found" });
     res.json(result);
+  });
+
+  router.get("/shipments/:shipmentId/documents", async (req: Request, res: Response) => {
+    const documents = await listSilShipmentDocuments({
+      workspaceId: requestWorkspaceId(req),
+      shipmentId: req.params.shipmentId,
+    });
+    const podPacket = documents.filter((document) =>
+      ["POD", "BOL", "LUMPER_RECEIPT", "DETENTION_EVIDENCE"].includes(document.documentType)
+    );
+    res.json({
+      count: documents.length,
+      podPacketCount: podPacket.length,
+      podReady: documents.some((document) => document.documentType === "POD" && document.status !== "REJECTED"),
+      documents,
+    });
+  });
+
+  router.post("/shipments/:shipmentId/documents", async (req: Request, res: Response) => {
+    const workspaceId = requestWorkspaceId(req);
+    const shipments = await listSilShipments({ workspaceId });
+    const shipment = shipments.find((item) => item.shipmentId === req.params.shipmentId);
+    if (!shipment) return res.status(404).json({ error: "Shipment not found" });
+    if (!req.files || !("file" in req.files)) return res.status(400).json({ error: "file is required" });
+
+    const file = req.files.file as fileUpload.UploadedFile;
+    const safeName = path.basename(file.name).replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 200);
+    const documentType = String(req.body?.documentType ?? "POD").toUpperCase() as SilDocumentType;
+    const uploadDir = path.join(process.cwd(), config.uploadDir, "shipment-documents", shipment.shipmentId);
+    if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
+    const storedPath = path.join(uploadDir, `${Date.now()}_${safeName}`);
+    await file.mv(storedPath);
+
+    const result = await persistSilShipmentDocument({
+      workspaceId: shipment.workspaceId,
+      shipmentId: shipment.shipmentId,
+      loadId: shipment.loadId,
+      carrierId: shipment.carrierId,
+      documentType,
+      originalName: file.name,
+      storedPath,
+      contentType: file.mimetype,
+      sizeBytes: file.size,
+      uploadedBy: req.body?.uploadedBy ?? "operator",
+      notes: req.body?.notes,
+    });
+
+    res.status(201).json(result);
   });
 
   router.patch("/shipments/:shipmentId/progress", async (req: Request, res: Response) => {

@@ -1,7 +1,13 @@
 "use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.registerShipmentIntelligenceRoutes = registerShipmentIntelligenceRoutes;
 const express_1 = require("express");
+const fs_1 = __importDefault(require("fs"));
+const path_1 = __importDefault(require("path"));
+const config_1 = require("../lib/config");
 const matchingEngine_1 = require("../services/shipmentIntelligence/matchingEngine");
 const loadLifecycleService_1 = require("../services/shipmentIntelligence/loadLifecycleService");
 const carrierProviderAdapter_1 = require("../services/shipmentIntelligence/carrierProviderAdapter");
@@ -201,6 +207,51 @@ function registerShipmentIntelligenceRoutes(app) {
         if (!result)
             return res.status(404).json({ error: "Shipment stop not found" });
         res.json(result);
+    });
+    router.get("/shipments/:shipmentId/documents", async (req, res) => {
+        const documents = await (0, silPersistenceService_1.listSilShipmentDocuments)({
+            workspaceId: requestWorkspaceId(req),
+            shipmentId: req.params.shipmentId,
+        });
+        const podPacket = documents.filter((document) => ["POD", "BOL", "LUMPER_RECEIPT", "DETENTION_EVIDENCE"].includes(document.documentType));
+        res.json({
+            count: documents.length,
+            podPacketCount: podPacket.length,
+            podReady: documents.some((document) => document.documentType === "POD" && document.status !== "REJECTED"),
+            documents,
+        });
+    });
+    router.post("/shipments/:shipmentId/documents", async (req, res) => {
+        var _a, _b, _c, _d, _e;
+        const workspaceId = requestWorkspaceId(req);
+        const shipments = await (0, silPersistenceService_1.listSilShipments)({ workspaceId });
+        const shipment = shipments.find((item) => item.shipmentId === req.params.shipmentId);
+        if (!shipment)
+            return res.status(404).json({ error: "Shipment not found" });
+        if (!req.files || !("file" in req.files))
+            return res.status(400).json({ error: "file is required" });
+        const file = req.files.file;
+        const safeName = path_1.default.basename(file.name).replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 200);
+        const documentType = String((_b = (_a = req.body) === null || _a === void 0 ? void 0 : _a.documentType) !== null && _b !== void 0 ? _b : "POD").toUpperCase();
+        const uploadDir = path_1.default.join(process.cwd(), config_1.config.uploadDir, "shipment-documents", shipment.shipmentId);
+        if (!fs_1.default.existsSync(uploadDir))
+            fs_1.default.mkdirSync(uploadDir, { recursive: true });
+        const storedPath = path_1.default.join(uploadDir, `${Date.now()}_${safeName}`);
+        await file.mv(storedPath);
+        const result = await (0, silPersistenceService_1.persistSilShipmentDocument)({
+            workspaceId: shipment.workspaceId,
+            shipmentId: shipment.shipmentId,
+            loadId: shipment.loadId,
+            carrierId: shipment.carrierId,
+            documentType,
+            originalName: file.name,
+            storedPath,
+            contentType: file.mimetype,
+            sizeBytes: file.size,
+            uploadedBy: (_d = (_c = req.body) === null || _c === void 0 ? void 0 : _c.uploadedBy) !== null && _d !== void 0 ? _d : "operator",
+            notes: (_e = req.body) === null || _e === void 0 ? void 0 : _e.notes,
+        });
+        res.status(201).json(result);
     });
     router.patch("/shipments/:shipmentId/progress", async (req, res) => {
         var _a, _b, _c, _d, _e, _f, _g, _h, _j;

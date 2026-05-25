@@ -16,6 +16,7 @@ import {
   fetchLoadTransitions,
   fetchMarketRates,
   fetchMarketRateAnalysis,
+  fetchShipmentDocuments,
   fetchSilGovernanceSignals,
   fetchTransportationCarriers,
   fetchTransportationLanes,
@@ -29,6 +30,7 @@ import {
   updateShipmentStopAppointment,
   updateTransportationCarrier,
   updateTransportationShipmentProgress,
+  uploadShipmentDocument,
 } from "../api/client";
 import EncompaxMark from "./EncompaxMark";
 
@@ -205,6 +207,20 @@ type AppointmentCalendarItem = {
   stopStatus: string;
 };
 
+type ShipmentDocument = {
+  documentId: string;
+  shipmentId: string;
+  loadId?: string;
+  documentType: string;
+  originalName: string;
+  contentType: string;
+  sizeBytes: number;
+  uploadedAt: string;
+  uploadedBy: string;
+  status: string;
+  notes?: string;
+};
+
 type Signal = {
   signalType: string;
   severity: string;
@@ -285,6 +301,11 @@ const TransportationCommandPanel: React.FC = () => {
   const [workflowEvents, setWorkflowEvents] = useState<WorkflowEvent[]>([]);
   const [appointmentCalendar, setAppointmentCalendar] = useState<AppointmentCalendarItem[]>([]);
   const [appointmentDrafts, setAppointmentDrafts] = useState<Record<string, { start: string; end: string; dockDoor: string }>>({});
+  const [shipmentDocuments, setShipmentDocuments] = useState<ShipmentDocument[]>([]);
+  const [podReady, setPodReady] = useState(false);
+  const [documentFile, setDocumentFile] = useState<File | null>(null);
+  const [documentType, setDocumentType] = useState("POD");
+  const [documentNotes, setDocumentNotes] = useState("");
   const [selectedLoadId, setSelectedLoadId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [actionStatus, setActionStatus] = useState<string | null>(null);
@@ -435,6 +456,33 @@ const TransportationCommandPanel: React.FC = () => {
       alive = false;
     };
   }, [selectedLoad?.loadId, selectedBid?.bidId]);
+
+  useEffect(() => {
+    let alive = true;
+
+    async function loadDocuments() {
+      if (!selectedShipment?.shipmentId) {
+        setShipmentDocuments([]);
+        setPodReady(false);
+        return;
+      }
+      try {
+        const result = await fetchShipmentDocuments(selectedShipment.shipmentId);
+        if (!alive) return;
+        setShipmentDocuments(result.documents ?? []);
+        setPodReady(Boolean(result.podReady));
+      } catch {
+        if (!alive) return;
+        setShipmentDocuments([]);
+        setPodReady(false);
+      }
+    }
+
+    loadDocuments();
+    return () => {
+      alive = false;
+    };
+  }, [selectedShipment?.shipmentId]);
 
   async function handleTransition(nextState: string) {
     if (!selectedLoad) return;
@@ -797,6 +845,28 @@ const TransportationCommandPanel: React.FC = () => {
       setActionStatus("Appointment saved and workflow event recorded.");
     } catch (err) {
       setActionStatus(err instanceof Error ? err.message : "Appointment update failed");
+    }
+  }
+
+  async function handleDocumentUpload() {
+    if (!selectedShipment || !documentFile) return;
+
+    try {
+      setActionStatus("Uploading shipment document...");
+      const result = await uploadShipmentDocument(selectedShipment.shipmentId, documentFile, {
+        documentType,
+        notes: documentNotes,
+        uploadedBy: "operator",
+      });
+      const documentsResult = await fetchShipmentDocuments(selectedShipment.shipmentId);
+      setShipmentDocuments(documentsResult.documents ?? []);
+      setPodReady(Boolean(documentsResult.podReady));
+      if (result.event) setWorkflowEvents((current) => [result.event, ...current]);
+      setDocumentFile(null);
+      setDocumentNotes("");
+      setActionStatus(`${documentType} uploaded and attached to shipment evidence packet.`);
+    } catch (err) {
+      setActionStatus(err instanceof Error ? err.message : "Shipment document upload failed");
     }
   }
 
@@ -1482,6 +1552,58 @@ const TransportationCommandPanel: React.FC = () => {
                     ))}
                     {selectedAppointments.length === 0 && <p className="ops-note">No dock appointments found for this load.</p>}
                   </div>
+                </div>
+
+                <div className="ops-card document-packet-card">
+                  <div className="ops-card-header">
+                    <span>POD Packet</span>
+                    <strong>{podReady ? "Ready" : "Open"}</strong>
+                  </div>
+                  {selectedShipment ? (
+                    <>
+                      <div className="document-upload-grid">
+                        <select value={documentType} onChange={(event) => setDocumentType(event.target.value)}>
+                          <option value="POD">POD</option>
+                          <option value="BOL">BOL</option>
+                          <option value="RATE_CONFIRMATION">Rate Confirmation</option>
+                          <option value="LUMPER_RECEIPT">Lumper Receipt</option>
+                          <option value="DETENTION_EVIDENCE">Detention Evidence</option>
+                          <option value="CUSTOMER_APPROVAL">Customer Approval</option>
+                          <option value="OTHER">Other</option>
+                        </select>
+                        <input
+                          type="file"
+                          accept=".pdf,.png,.jpg,.jpeg,.csv,.xlsx,.xls,.doc,.docx"
+                          onChange={(event) => setDocumentFile(event.target.files?.[0] ?? null)}
+                        />
+                        <input
+                          placeholder="Notes"
+                          value={documentNotes}
+                          onChange={(event) => setDocumentNotes(event.target.value)}
+                        />
+                        <button className="btn btn-primary btn-sm" type="button" disabled={!documentFile} onClick={handleDocumentUpload}>
+                          Attach
+                        </button>
+                      </div>
+                      <div className="document-list">
+                        {shipmentDocuments.map((document) => (
+                          <div key={document.documentId} className="document-row">
+                            <div>
+                              <strong>{document.documentType}</strong>
+                              <span>{document.originalName}</span>
+                            </div>
+                            <div>
+                              <strong>{document.status}</strong>
+                              <span>{new Date(document.uploadedAt).toLocaleString()}</span>
+                            </div>
+                          </div>
+                        ))}
+                        {shipmentDocuments.length === 0 && <p className="ops-note">No shipment documents attached yet.</p>}
+                      </div>
+                    </>
+                  ) : (
+                    <p className="ops-note">Shipment documents become available after shipment creation.</p>
+                  )}
                 </div>
               </div>
             </>
