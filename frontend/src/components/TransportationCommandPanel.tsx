@@ -45,6 +45,11 @@ type Load = {
   status: string;
   targetSellRate?: number;
   targetBuyRate?: number;
+  marginTarget?: number;
+  fuelSurcharge?: number;
+  accessorialEstimate?: number;
+  lumperEstimate?: number;
+  detentionRatePerHour?: number;
 };
 
 type Bid = {
@@ -52,6 +57,11 @@ type Bid = {
   loadId: string;
   carrierId: string;
   bidRate: number;
+  fuelSurcharge?: number;
+  accessorialTotal?: number;
+  lumperFee?: number;
+  detentionEstimate?: number;
+  totalCost?: number;
   status: string;
   expiresAt?: string;
   counterOfferRate?: number;
@@ -321,6 +331,11 @@ const TransportationCommandPanel: React.FC = () => {
     destinationState: "GA",
     targetSellRate: "2950",
     targetBuyRate: "2450",
+    marginTarget: "500",
+    fuelSurcharge: "0",
+    accessorialEstimate: "0",
+    lumperEstimate: "0",
+    detentionRatePerHour: "75",
   });
   const [postingRate, setPostingRate] = useState("2450");
   const [postingVisibility, setPostingVisibility] = useState("INVITED_CARRIERS");
@@ -328,6 +343,10 @@ const TransportationCommandPanel: React.FC = () => {
     carrierId: "carrier-riverbend",
     bidRate: "2650",
     counterOfferRate: "2450",
+    fuelSurcharge: "0",
+    accessorialTotal: "0",
+    lumperFee: "0",
+    detentionEstimate: "0",
   });
   const [carrierForm, setCarrierForm] = useState({
     carrierName: "New Carrier",
@@ -522,6 +541,11 @@ const TransportationCommandPanel: React.FC = () => {
         equipmentType: "DRY_VAN",
         targetSellRate: Number(loadForm.targetSellRate),
         targetBuyRate: Number(loadForm.targetBuyRate),
+        marginTarget: Number(loadForm.marginTarget),
+        fuelSurcharge: Number(loadForm.fuelSurcharge),
+        accessorialEstimate: Number(loadForm.accessorialEstimate),
+        lumperEstimate: Number(loadForm.lumperEstimate),
+        detentionRatePerHour: Number(loadForm.detentionRatePerHour),
       };
       const result = await createTransportationLoad(payload);
       await refreshTransportationData(result.load.loadId);
@@ -562,6 +586,10 @@ const TransportationCommandPanel: React.FC = () => {
         loadId: selectedLoad.loadId,
         carrierId: bidForm.carrierId,
         bidRate: Number(bidForm.bidRate),
+        fuelSurcharge: Number(bidForm.fuelSurcharge),
+        accessorialTotal: Number(bidForm.accessorialTotal),
+        lumperFee: Number(bidForm.lumperFee),
+        detentionEstimate: Number(bidForm.detentionEstimate),
         expiresAt: new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString(),
       });
       await refreshTransportationData(selectedLoad.loadId);
@@ -653,7 +681,16 @@ const TransportationCommandPanel: React.FC = () => {
 
   async function handleBidCommercialUpdate(
     bid: Bid,
-    patch: { counterOfferRate?: number; counterOfferStatus?: string; status?: string; expiresAt?: string }
+    patch: {
+      counterOfferRate?: number;
+      counterOfferStatus?: string;
+      status?: string;
+      expiresAt?: string;
+      fuelSurcharge?: number;
+      accessorialTotal?: number;
+      lumperFee?: number;
+      detentionEstimate?: number;
+    }
   ) {
     try {
       setActionStatus("Updating bid controls...");
@@ -983,6 +1020,54 @@ const TransportationCommandPanel: React.FC = () => {
                   onChange={(event) => setLoadForm((current) => ({ ...current, targetSellRate: event.target.value }))}
                 />
               </label>
+              <label>
+                Buy
+                <input
+                  value={loadForm.targetBuyRate}
+                  inputMode="numeric"
+                  onChange={(event) => setLoadForm((current) => ({ ...current, targetBuyRate: event.target.value }))}
+                />
+              </label>
+              <label>
+                Margin
+                <input
+                  value={loadForm.marginTarget}
+                  inputMode="numeric"
+                  onChange={(event) => setLoadForm((current) => ({ ...current, marginTarget: event.target.value }))}
+                />
+              </label>
+              <label>
+                Fuel
+                <input
+                  value={loadForm.fuelSurcharge}
+                  inputMode="numeric"
+                  onChange={(event) => setLoadForm((current) => ({ ...current, fuelSurcharge: event.target.value }))}
+                />
+              </label>
+              <label>
+                Accessorial
+                <input
+                  value={loadForm.accessorialEstimate}
+                  inputMode="numeric"
+                  onChange={(event) => setLoadForm((current) => ({ ...current, accessorialEstimate: event.target.value }))}
+                />
+              </label>
+              <label>
+                Lumper
+                <input
+                  value={loadForm.lumperEstimate}
+                  inputMode="numeric"
+                  onChange={(event) => setLoadForm((current) => ({ ...current, lumperEstimate: event.target.value }))}
+                />
+              </label>
+              <label>
+                Detention / hr
+                <input
+                  value={loadForm.detentionRatePerHour}
+                  inputMode="numeric"
+                  onChange={(event) => setLoadForm((current) => ({ ...current, detentionRatePerHour: event.target.value }))}
+                />
+              </label>
             </div>
           </form>
           <div className="transport-load-list">
@@ -1036,6 +1121,16 @@ const TransportationCommandPanel: React.FC = () => {
                   <strong>{money(selectedLoad.targetBuyRate)}</strong>
                 </div>
                 <div>
+                  <span>Margin Target</span>
+                  <strong>{money(selectedLoad.marginTarget)}</strong>
+                </div>
+                <div>
+                  <span>Recoverables</span>
+                  <strong>
+                    {money((selectedLoad.fuelSurcharge ?? 0) + (selectedLoad.accessorialEstimate ?? 0) + (selectedLoad.lumperEstimate ?? 0))}
+                  </strong>
+                </div>
+                <div>
                   <span>Posting</span>
                   <strong>{selectedPosting ? `${selectedPosting.status} / ${selectedPosting.visibility ?? "INVITED"}` : "Not posted"}</strong>
                 </div>
@@ -1083,6 +1178,38 @@ const TransportationCommandPanel: React.FC = () => {
                       value={bidForm.bidRate}
                       inputMode="numeric"
                       onChange={(event) => setBidForm((current) => ({ ...current, bidRate: event.target.value }))}
+                    />
+                  </label>
+                  <label>
+                    Fuel
+                    <input
+                      value={bidForm.fuelSurcharge}
+                      inputMode="numeric"
+                      onChange={(event) => setBidForm((current) => ({ ...current, fuelSurcharge: event.target.value }))}
+                    />
+                  </label>
+                  <label>
+                    Accessorial
+                    <input
+                      value={bidForm.accessorialTotal}
+                      inputMode="numeric"
+                      onChange={(event) => setBidForm((current) => ({ ...current, accessorialTotal: event.target.value }))}
+                    />
+                  </label>
+                  <label>
+                    Lumper
+                    <input
+                      value={bidForm.lumperFee}
+                      inputMode="numeric"
+                      onChange={(event) => setBidForm((current) => ({ ...current, lumperFee: event.target.value }))}
+                    />
+                  </label>
+                  <label>
+                    Detention
+                    <input
+                      value={bidForm.detentionEstimate}
+                      inputMode="numeric"
+                      onChange={(event) => setBidForm((current) => ({ ...current, detentionEstimate: event.target.value }))}
                     />
                   </label>
                   <label>
@@ -1160,6 +1287,7 @@ const TransportationCommandPanel: React.FC = () => {
                     <tr>
                       <th>Carrier</th>
                       <th>Bid</th>
+                      <th>Total</th>
                       <th>Counter</th>
                       <th>Score</th>
                       <th>Trust</th>
@@ -1173,6 +1301,7 @@ const TransportationCommandPanel: React.FC = () => {
                       <tr key={bid.bidId}>
                         <td>{bid.carrierId.replace("carrier-", "")}</td>
                         <td>{money(bid.bidRate)}</td>
+                        <td>{money(bid.totalCost ?? bid.bidRate + (bid.fuelSurcharge ?? 0) + (bid.accessorialTotal ?? 0) + (bid.lumperFee ?? 0) + (bid.detentionEstimate ?? 0))}</td>
                         <td>
                           {bid.counterOfferRate ? money(bid.counterOfferRate) : bid.counterOfferStatus ?? "--"}
                         </td>
@@ -1189,6 +1318,10 @@ const TransportationCommandPanel: React.FC = () => {
                                 handleBidCommercialUpdate(bid, {
                                   counterOfferRate: Number(bidForm.counterOfferRate),
                                   counterOfferStatus: "PENDING",
+                                  fuelSurcharge: Number(bidForm.fuelSurcharge),
+                                  accessorialTotal: Number(bidForm.accessorialTotal),
+                                  lumperFee: Number(bidForm.lumperFee),
+                                  detentionEstimate: Number(bidForm.detentionEstimate),
                                 })
                               }
                             >

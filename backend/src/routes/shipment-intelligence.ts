@@ -591,6 +591,10 @@ export function registerShipmentIntelligenceRoutes(app: Express) {
       counterOfferRate:
         req.body?.counterOfferRate === undefined ? undefined : Number(req.body.counterOfferRate),
       counterOfferStatus: req.body?.counterOfferStatus,
+      fuelSurcharge: req.body?.fuelSurcharge === undefined ? undefined : Number(req.body.fuelSurcharge),
+      accessorialTotal: req.body?.accessorialTotal === undefined ? undefined : Number(req.body.accessorialTotal),
+      lumperFee: req.body?.lumperFee === undefined ? undefined : Number(req.body.lumperFee),
+      detentionEstimate: req.body?.detentionEstimate === undefined ? undefined : Number(req.body.detentionEstimate),
       expiresAt: req.body?.expiresAt,
       message: req.body?.message,
       status: req.body?.status,

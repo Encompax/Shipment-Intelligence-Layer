@@ -8,6 +8,14 @@ exports.buildDispatchReadiness = buildDispatchReadiness;
 const clamp = (value, min = 0, max = 100) => Math.min(max, Math.max(min, value));
 const round = (value) => Math.round(value * 100) / 100;
 const normalizeStatus = (value) => value === null || value === void 0 ? void 0 : value.trim().toUpperCase();
+function bidTotalCost(bid) {
+    var _a, _b, _c, _d, _e;
+    return ((_a = bid.totalCost) !== null && _a !== void 0 ? _a : bid.bidRate +
+        ((_b = bid.fuelSurcharge) !== null && _b !== void 0 ? _b : 0) +
+        ((_c = bid.accessorialTotal) !== null && _c !== void 0 ? _c : 0) +
+        ((_d = bid.lumperFee) !== null && _d !== void 0 ? _d : 0) +
+        ((_e = bid.detentionEstimate) !== null && _e !== void 0 ? _e : 0));
+}
 function scoreBand(score) {
     if (score >= 86)
         return "EXCELLENT";
@@ -37,7 +45,7 @@ function rateFit(load, bid, lane) {
     const median = (_b = (_a = lane === null || lane === void 0 ? void 0 : lane.marketRateMedian) !== null && _a !== void 0 ? _a : load.targetBuyRate) !== null && _b !== void 0 ? _b : bid.bidRate;
     if (!median)
         return 60;
-    const variance = (bid.bidRate - median) / median;
+    const variance = (bidTotalCost(bid) - median) / median;
     if (variance <= -0.08)
         return 94;
     if (variance <= 0.02)
@@ -49,11 +57,12 @@ function rateFit(load, bid, lane) {
     return 35;
 }
 function marginFit(load, bid) {
-    var _a;
+    var _a, _b, _c, _d;
     if (!load.targetSellRate)
         return 60;
-    const margin = load.targetSellRate - bid.bidRate;
-    const target = (_a = load.marginTarget) !== null && _a !== void 0 ? _a : load.targetSellRate * 0.12;
+    const customerCharges = ((_a = load.fuelSurcharge) !== null && _a !== void 0 ? _a : 0) + ((_b = load.accessorialEstimate) !== null && _b !== void 0 ? _b : 0) + ((_c = load.lumperEstimate) !== null && _c !== void 0 ? _c : 0);
+    const margin = load.targetSellRate + customerCharges - bidTotalCost(bid);
+    const target = (_d = load.marginTarget) !== null && _d !== void 0 ? _d : load.targetSellRate * 0.12;
     if (margin >= target)
         return 90;
     if (margin > target * 0.65)
@@ -117,7 +126,7 @@ function timingFit(load, bid) {
     return 30;
 }
 function buildRiskFlags(context, factors) {
-    var _a;
+    var _a, _b, _c, _d, _e, _f;
     const flags = [];
     const { carrier, load, bid, lane } = context;
     const safetyStatus = normalizeStatus(carrier === null || carrier === void 0 ? void 0 : carrier.safetyStatus);
@@ -151,8 +160,12 @@ function buildRiskFlags(context, factors) {
         flags.push("margin below target");
     if (!lane)
         flags.push("lane history missing");
-    if (load.targetSellRate && bid.bidRate > load.targetSellRate)
-        flags.push("bid exceeds sell rate");
+    if (load.targetSellRate && bidTotalCost(bid) > load.targetSellRate + ((_b = load.fuelSurcharge) !== null && _b !== void 0 ? _b : 0) + ((_c = load.accessorialEstimate) !== null && _c !== void 0 ? _c : 0)) {
+        flags.push("bid total exceeds commercial recovery");
+    }
+    if (((_d = bid.accessorialTotal) !== null && _d !== void 0 ? _d : 0) + ((_e = bid.lumperFee) !== null && _e !== void 0 ? _e : 0) + ((_f = bid.detentionEstimate) !== null && _f !== void 0 ? _f : 0) > 0) {
+        flags.push("bid includes accessorial charges");
+    }
     if (bid.status === "EXPIRED")
         flags.push("bid expired");
     if (bid.expiresAt && new Date(bid.expiresAt).getTime() < Date.now())
@@ -306,19 +319,26 @@ function buildCarrierEligibilityRecommendations(input) {
         .sort((left, right) => right.eligibilityScore - left.eligibilityScore);
 }
 function buildGovernanceSignalFromMatch(context, score) {
-    var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q, _r, _s, _t, _u, _v, _w, _x;
-    const projectedMargin = typeof context.load.targetSellRate === "number" ? context.load.targetSellRate - context.bid.bidRate : null;
-    const severity = severityFromScore(score.score, (_a = score.riskFlags) !== null && _a !== void 0 ? _a : []);
+    var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q, _r, _s, _t, _u, _v, _w, _x, _y, _z, _0, _1, _2, _3, _4, _5, _6, _7;
+    const totalCost = bidTotalCost(context.bid);
+    const projectedMargin = typeof context.load.targetSellRate === "number"
+        ? context.load.targetSellRate +
+            ((_a = context.load.fuelSurcharge) !== null && _a !== void 0 ? _a : 0) +
+            ((_b = context.load.accessorialEstimate) !== null && _b !== void 0 ? _b : 0) +
+            ((_c = context.load.lumperEstimate) !== null && _c !== void 0 ? _c : 0) -
+            totalCost
+        : null;
+    const severity = severityFromScore(score.score, (_d = score.riskFlags) !== null && _d !== void 0 ? _d : []);
     return {
-        signalType: ((_b = score.riskFlags) === null || _b === void 0 ? void 0 : _b.some((flag) => flag.includes("credit") || flag.includes("safety") || flag.includes("blocked")))
+        signalType: ((_e = score.riskFlags) === null || _e === void 0 ? void 0 : _e.some((flag) => flag.includes("credit") || flag.includes("safety") || flag.includes("blocked")))
             ? "CARRIER_CREDIT_RISK"
-            : ((_c = score.riskFlags) === null || _c === void 0 ? void 0 : _c.some((flag) => flag.includes("margin") || flag.includes("rate")))
+            : ((_f = score.riskFlags) === null || _f === void 0 ? void 0 : _f.some((flag) => flag.includes("margin") || flag.includes("rate")))
                 ? "BROKER_MARGIN_RISK"
                 : "LOAD_BOARD_BID_OPPORTUNITY",
         sourceModule: "SHIPMENT_INTELLIGENCE_LAYER",
         severity,
         confidenceScore: round(Math.max(0.55, Math.min(0.95, score.score / 100))),
-        description: `${(_e = (_d = context.carrier) === null || _d === void 0 ? void 0 : _d.carrierName) !== null && _e !== void 0 ? _e : context.bid.carrierId} bid requires governed review for ${(_f = context.load.customerName) !== null && _f !== void 0 ? _f : context.load.customerId}.`,
+        description: `${(_h = (_g = context.carrier) === null || _g === void 0 ? void 0 : _g.carrierName) !== null && _h !== void 0 ? _h : context.bid.carrierId} bid requires governed review for ${(_j = context.load.customerName) !== null && _j !== void 0 ? _j : context.load.customerId}.`,
         businessDomains: ["TRANSPORTATION", "FREIGHT_BROKERAGE", "RISK", "CUSTOMER_SERVICE"],
         affectedEntities: {
             loads: [context.load.loadId],
@@ -329,23 +349,28 @@ function buildGovernanceSignalFromMatch(context, score) {
         metrics: {
             match_score: score.score,
             bid_rate: context.bid.bidRate,
-            target_sell_rate: (_g = context.load.targetSellRate) !== null && _g !== void 0 ? _g : null,
-            target_buy_rate: (_h = context.load.targetBuyRate) !== null && _h !== void 0 ? _h : null,
+            bid_total_cost: totalCost,
+            fuel_surcharge: (_l = (_k = context.bid.fuelSurcharge) !== null && _k !== void 0 ? _k : context.load.fuelSurcharge) !== null && _l !== void 0 ? _l : null,
+            accessorial_total: (_o = (_m = context.bid.accessorialTotal) !== null && _m !== void 0 ? _m : context.load.accessorialEstimate) !== null && _o !== void 0 ? _o : null,
+            lumper_fee: (_q = (_p = context.bid.lumperFee) !== null && _p !== void 0 ? _p : context.load.lumperEstimate) !== null && _q !== void 0 ? _q : null,
+            detention_estimate: (_r = context.bid.detentionEstimate) !== null && _r !== void 0 ? _r : null,
+            target_sell_rate: (_s = context.load.targetSellRate) !== null && _s !== void 0 ? _s : null,
+            target_buy_rate: (_t = context.load.targetBuyRate) !== null && _t !== void 0 ? _t : null,
             projected_margin: projectedMargin,
-            market_median_rate: (_k = (_j = context.lane) === null || _j === void 0 ? void 0 : _j.marketRateMedian) !== null && _k !== void 0 ? _k : null,
-            carrier_falloff_rate: (_m = (_l = context.carrier) === null || _l === void 0 ? void 0 : _l.falloffRate) !== null && _m !== void 0 ? _m : null,
-            carrier_on_time_rate: (_p = (_o = context.carrier) === null || _o === void 0 ? void 0 : _o.onTimeRate) !== null && _p !== void 0 ? _p : null,
-            carrier_trust_score: (_r = (_q = score.factors) === null || _q === void 0 ? void 0 : _q.carrierTrust) !== null && _r !== void 0 ? _r : null,
-            carrier_reliability_score: (_t = (_s = score.factors) === null || _s === void 0 ? void 0 : _s.carrierReliability) !== null && _t !== void 0 ? _t : null,
-            governance_reason_count: (_v = (_u = score.governanceReasons) === null || _u === void 0 ? void 0 : _u.length) !== null && _v !== void 0 ? _v : 0,
+            market_median_rate: (_v = (_u = context.lane) === null || _u === void 0 ? void 0 : _u.marketRateMedian) !== null && _v !== void 0 ? _v : null,
+            carrier_falloff_rate: (_x = (_w = context.carrier) === null || _w === void 0 ? void 0 : _w.falloffRate) !== null && _x !== void 0 ? _x : null,
+            carrier_on_time_rate: (_z = (_y = context.carrier) === null || _y === void 0 ? void 0 : _y.onTimeRate) !== null && _z !== void 0 ? _z : null,
+            carrier_trust_score: (_1 = (_0 = score.factors) === null || _0 === void 0 ? void 0 : _0.carrierTrust) !== null && _1 !== void 0 ? _1 : null,
+            carrier_reliability_score: (_3 = (_2 = score.factors) === null || _2 === void 0 ? void 0 : _2.carrierReliability) !== null && _3 !== void 0 ? _3 : null,
+            governance_reason_count: (_5 = (_4 = score.governanceReasons) === null || _4 === void 0 ? void 0 : _4.length) !== null && _5 !== void 0 ? _5 : 0,
         },
         tags: [
             "sil",
             "brokerage",
             "load-board",
             "matching-engine",
-            ...(((_w = score.governanceReasons) !== null && _w !== void 0 ? _w : []).some((reason) => reason.includes("blocked")) ? ["carrier-blocked"] : []),
-            ...(((_x = score.governanceReasons) !== null && _x !== void 0 ? _x : []).some((reason) => reason.includes("review")) ? ["carrier-review"] : []),
+            ...(((_6 = score.governanceReasons) !== null && _6 !== void 0 ? _6 : []).some((reason) => reason.includes("blocked")) ? ["carrier-blocked"] : []),
+            ...(((_7 = score.governanceReasons) !== null && _7 !== void 0 ? _7 : []).some((reason) => reason.includes("review")) ? ["carrier-review"] : []),
         ],
         recommendedActions: [
             {
@@ -465,6 +490,7 @@ function buildDispatchReadiness(context) {
                 blocking_reason_count: uniqueBlockingReasons.length,
                 review_reason_count: uniqueReviewReasons.length,
                 bid_rate: (_3 = (_2 = context.bid) === null || _2 === void 0 ? void 0 : _2.bidRate) !== null && _3 !== void 0 ? _3 : null,
+                bid_total_cost: context.bid ? bidTotalCost(context.bid) : null,
                 target_buy_rate: (_4 = context.load.targetBuyRate) !== null && _4 !== void 0 ? _4 : null,
                 target_sell_rate: (_5 = context.load.targetSellRate) !== null && _5 !== void 0 ? _5 : null,
             },

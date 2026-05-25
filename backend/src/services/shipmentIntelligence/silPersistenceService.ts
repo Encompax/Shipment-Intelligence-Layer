@@ -424,6 +424,10 @@ export async function createSilLoad(input: Partial<SilLoad> & Pick<SilLoad, "cus
     targetSellRate: input.targetSellRate,
     targetBuyRate: input.targetBuyRate,
     marginTarget: input.marginTarget,
+    fuelSurcharge: input.fuelSurcharge,
+    accessorialEstimate: input.accessorialEstimate,
+    lumperEstimate: input.lumperEstimate,
+    detentionRatePerHour: input.detentionRatePerHour,
     source: input.source ?? "manual",
   };
 
@@ -982,6 +986,17 @@ export async function createSilBid(input: Partial<SilBid> & Pick<SilBid, "loadId
     carrierId: input.carrierId,
     bidRate: input.bidRate,
     currency: "USD",
+    fuelSurcharge: input.fuelSurcharge,
+    accessorialTotal: input.accessorialTotal,
+    lumperFee: input.lumperFee,
+    detentionEstimate: input.detentionEstimate,
+    totalCost:
+      input.totalCost ??
+      input.bidRate +
+        (input.fuelSurcharge ?? 0) +
+        (input.accessorialTotal ?? 0) +
+        (input.lumperFee ?? 0) +
+        (input.detentionEstimate ?? 0),
     estimatedPickupCommitment: input.estimatedPickupCommitment,
     estimatedDeliveryCommitment: input.estimatedDeliveryCommitment,
     expiresAt: input.expiresAt,
@@ -1025,7 +1040,10 @@ export async function createSilBid(input: Partial<SilBid> & Pick<SilBid, "loadId
 
 export async function updateSilBidCommercials(
   bidId: string,
-  input: Pick<Partial<SilBid>, "counterOfferRate" | "counterOfferStatus" | "expiresAt" | "message" | "status"> & {
+  input: Pick<
+    Partial<SilBid>,
+    "counterOfferRate" | "counterOfferStatus" | "expiresAt" | "message" | "status" | "fuelSurcharge" | "accessorialTotal" | "lumperFee" | "detentionEstimate"
+  > & {
     actor?: string;
     evidence?: string[];
   }
@@ -1038,10 +1056,20 @@ export async function updateSilBidCommercials(
     ...bid,
     counterOfferRate: input.counterOfferRate ?? bid.counterOfferRate,
     counterOfferStatus: input.counterOfferStatus ?? bid.counterOfferStatus ?? "NONE",
+    fuelSurcharge: input.fuelSurcharge ?? bid.fuelSurcharge,
+    accessorialTotal: input.accessorialTotal ?? bid.accessorialTotal,
+    lumperFee: input.lumperFee ?? bid.lumperFee,
+    detentionEstimate: input.detentionEstimate ?? bid.detentionEstimate,
     expiresAt: input.expiresAt ?? bid.expiresAt,
     message: input.message ?? bid.message,
     status: input.status ?? bid.status,
   });
+  updatedBid.totalCost =
+    updatedBid.bidRate +
+    (updatedBid.fuelSurcharge ?? 0) +
+    (updatedBid.accessorialTotal ?? 0) +
+    (updatedBid.lumperFee ?? 0) +
+    (updatedBid.detentionEstimate ?? 0);
 
   await prisma.silBidRecord.update({
     where: { bidId },
@@ -1067,7 +1095,12 @@ export async function updateSilBidCommercials(
         : `Bid commercial controls updated for ${updatedBid.bidId}.`,
     evidence: input.evidence ?? [
       `Bid rate: ${updatedBid.bidRate}`,
+      `Total cost: ${updatedBid.totalCost}`,
       `Counteroffer: ${updatedBid.counterOfferRate ?? "none"}`,
+      `Accessorials: ${updatedBid.accessorialTotal ?? 0}`,
+      `Fuel: ${updatedBid.fuelSurcharge ?? 0}`,
+      `Lumper: ${updatedBid.lumperFee ?? 0}`,
+      `Detention estimate: ${updatedBid.detentionEstimate ?? 0}`,
       `Expires at: ${updatedBid.expiresAt ?? "not set"}`,
     ],
   });

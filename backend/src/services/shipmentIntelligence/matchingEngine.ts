@@ -42,6 +42,17 @@ const round = (value: number) => Math.round(value * 100) / 100;
 
 const normalizeStatus = (value?: string) => value?.trim().toUpperCase();
 
+function bidTotalCost(bid: SilBid) {
+  return (
+    bid.totalCost ??
+    bid.bidRate +
+      (bid.fuelSurcharge ?? 0) +
+      (bid.accessorialTotal ?? 0) +
+      (bid.lumperFee ?? 0) +
+      (bid.detentionEstimate ?? 0)
+  );
+}
+
 function scoreBand(score: number): SilMatchScore["scoreBand"] {
   if (score >= 86) return "EXCELLENT";
   if (score >= 70) return "HIGH";
@@ -70,7 +81,7 @@ function rateFit(load: SilLoad, bid: SilBid, lane?: SilLaneProfile) {
   const median = lane?.marketRateMedian ?? load.targetBuyRate ?? bid.bidRate;
   if (!median) return 60;
 
-  const variance = (bid.bidRate - median) / median;
+  const variance = (bidTotalCost(bid) - median) / median;
   if (variance <= -0.08) return 94;
   if (variance <= 0.02) return 86;
   if (variance <= 0.08) return 72;
@@ -80,7 +91,8 @@ function rateFit(load: SilLoad, bid: SilBid, lane?: SilLaneProfile) {
 
 function marginFit(load: SilLoad, bid: SilBid) {
   if (!load.targetSellRate) return 60;
-  const margin = load.targetSellRate - bid.bidRate;
+  const customerCharges = (load.fuelSurcharge ?? 0) + (load.accessorialEstimate ?? 0) + (load.lumperEstimate ?? 0);
+  const margin = load.targetSellRate + customerCharges - bidTotalCost(bid);
   const target = load.marginTarget ?? load.targetSellRate * 0.12;
   if (margin >= target) return 90;
   if (margin > target * 0.65) return 75;
@@ -149,7 +161,12 @@ function buildRiskFlags(context: MatchContext, factors: SilMatchScore["factors"]
   if (factors && factors.rateFit < 60) flags.push("bid rate above lane tolerance");
   if (factors && factors.marginFit < 60) flags.push("margin below target");
   if (!lane) flags.push("lane history missing");
-  if (load.targetSellRate && bid.bidRate > load.targetSellRate) flags.push("bid exceeds sell rate");
+  if (load.targetSellRate && bidTotalCost(bid) > load.targetSellRate + (load.fuelSurcharge ?? 0) + (load.accessorialEstimate ?? 0)) {
+    flags.push("bid total exceeds commercial recovery");
+  }
+  if ((bid.accessorialTotal ?? 0) + (bid.lumperFee ?? 0) + (bid.detentionEstimate ?? 0) > 0) {
+    flags.push("bid includes accessorial charges");
+  }
   if (bid.status === "EXPIRED") flags.push("bid expired");
   if (bid.expiresAt && new Date(bid.expiresAt).getTime() < Date.now()) flags.push("bid response window expired");
   if (bid.counterOfferStatus === "PENDING") flags.push("counteroffer pending carrier response");
@@ -319,8 +336,15 @@ export function buildCarrierEligibilityRecommendations(input: {
 }
 
 export function buildGovernanceSignalFromMatch(context: MatchContext, score: SilMatchScore): SilGovernanceSignalDraft {
+  const totalCost = bidTotalCost(context.bid);
   const projectedMargin =
-    typeof context.load.targetSellRate === "number" ? context.load.targetSellRate - context.bid.bidRate : null;
+    typeof context.load.targetSellRate === "number"
+      ? context.load.targetSellRate +
+          (context.load.fuelSurcharge ?? 0) +
+          (context.load.accessorialEstimate ?? 0) +
+          (context.load.lumperEstimate ?? 0) -
+          totalCost
+      : null;
   const severity = severityFromScore(score.score, score.riskFlags ?? []);
 
   return {
@@ -344,6 +368,11 @@ export function buildGovernanceSignalFromMatch(context: MatchContext, score: Sil
     metrics: {
       match_score: score.score,
       bid_rate: context.bid.bidRate,
+      bid_total_cost: totalCost,
+      fuel_surcharge: context.bid.fuelSurcharge ?? context.load.fuelSurcharge ?? null,
+      accessorial_total: context.bid.accessorialTotal ?? context.load.accessorialEstimate ?? null,
+      lumper_fee: context.bid.lumperFee ?? context.load.lumperEstimate ?? null,
+      detention_estimate: context.bid.detentionEstimate ?? null,
       target_sell_rate: context.load.targetSellRate ?? null,
       target_buy_rate: context.load.targetBuyRate ?? null,
       projected_margin: projectedMargin,
@@ -487,6 +516,7 @@ export function buildDispatchReadiness(context: DispatchReadinessContext): SilDi
             blocking_reason_count: uniqueBlockingReasons.length,
             review_reason_count: uniqueReviewReasons.length,
             bid_rate: context.bid?.bidRate ?? null,
+            bid_total_cost: context.bid ? bidTotalCost(context.bid) : null,
             target_buy_rate: context.load.targetBuyRate ?? null,
             target_sell_rate: context.load.targetSellRate ?? null,
           },

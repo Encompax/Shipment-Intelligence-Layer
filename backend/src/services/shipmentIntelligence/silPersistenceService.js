@@ -356,6 +356,10 @@ async function createSilLoad(input) {
         targetSellRate: input.targetSellRate,
         targetBuyRate: input.targetBuyRate,
         marginTarget: input.marginTarget,
+        fuelSurcharge: input.fuelSurcharge,
+        accessorialEstimate: input.accessorialEstimate,
+        lumperEstimate: input.lumperEstimate,
+        detentionRatePerHour: input.detentionRatePerHour,
         source: (_d = input.source) !== null && _d !== void 0 ? _d : "manual",
     };
     await prisma_1.prisma.silLoadRecord.create({
@@ -813,7 +817,7 @@ async function listSilBids(filters) {
     return records.map((record) => withWorkspace(fromRecord(record))).filter((record) => matchesWorkspace(record, filters === null || filters === void 0 ? void 0 : filters.workspaceId));
 }
 async function createSilBid(input) {
-    var _a, _b, _c, _d, _e, _f, _g;
+    var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m;
     await seedSilPersistence();
     const load = await getSilLoad(input.loadId);
     const workspaceId = (_b = (_a = input.workspaceId) !== null && _a !== void 0 ? _a : load === null || load === void 0 ? void 0 : load.workspaceId) !== null && _b !== void 0 ? _b : DEFAULT_WORKSPACE_ID;
@@ -848,14 +852,23 @@ async function createSilBid(input) {
         carrierId: input.carrierId,
         bidRate: input.bidRate,
         currency: "USD",
+        fuelSurcharge: input.fuelSurcharge,
+        accessorialTotal: input.accessorialTotal,
+        lumperFee: input.lumperFee,
+        detentionEstimate: input.detentionEstimate,
+        totalCost: (_e = input.totalCost) !== null && _e !== void 0 ? _e : input.bidRate +
+            ((_f = input.fuelSurcharge) !== null && _f !== void 0 ? _f : 0) +
+            ((_g = input.accessorialTotal) !== null && _g !== void 0 ? _g : 0) +
+            ((_h = input.lumperFee) !== null && _h !== void 0 ? _h : 0) +
+            ((_j = input.detentionEstimate) !== null && _j !== void 0 ? _j : 0),
         estimatedPickupCommitment: input.estimatedPickupCommitment,
         estimatedDeliveryCommitment: input.estimatedDeliveryCommitment,
         expiresAt: input.expiresAt,
         counterOfferRate: input.counterOfferRate,
-        counterOfferStatus: (_e = input.counterOfferStatus) !== null && _e !== void 0 ? _e : "NONE",
+        counterOfferStatus: (_k = input.counterOfferStatus) !== null && _k !== void 0 ? _k : "NONE",
         message: input.message,
-        status: (_f = input.status) !== null && _f !== void 0 ? _f : "RECEIVED",
-        receivedAt: (_g = input.receivedAt) !== null && _g !== void 0 ? _g : new Date().toISOString(),
+        status: (_l = input.status) !== null && _l !== void 0 ? _l : "RECEIVED",
+        receivedAt: (_m = input.receivedAt) !== null && _m !== void 0 ? _m : new Date().toISOString(),
         score: input.score,
     };
     await prisma_1.prisma.silBidRecord.create({
@@ -886,7 +899,7 @@ async function createSilBid(input) {
     return { bid, event };
 }
 async function updateSilBidCommercials(bidId, input) {
-    var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k;
+    var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q, _r, _s, _t, _u, _v, _w, _x;
     await seedSilPersistence();
     const record = await prisma_1.prisma.silBidRecord.findUnique({ where: { bidId } });
     if (!record)
@@ -896,10 +909,20 @@ async function updateSilBidCommercials(bidId, input) {
         ...bid,
         counterOfferRate: (_a = input.counterOfferRate) !== null && _a !== void 0 ? _a : bid.counterOfferRate,
         counterOfferStatus: (_c = (_b = input.counterOfferStatus) !== null && _b !== void 0 ? _b : bid.counterOfferStatus) !== null && _c !== void 0 ? _c : "NONE",
-        expiresAt: (_d = input.expiresAt) !== null && _d !== void 0 ? _d : bid.expiresAt,
-        message: (_e = input.message) !== null && _e !== void 0 ? _e : bid.message,
-        status: (_f = input.status) !== null && _f !== void 0 ? _f : bid.status,
+        fuelSurcharge: (_d = input.fuelSurcharge) !== null && _d !== void 0 ? _d : bid.fuelSurcharge,
+        accessorialTotal: (_e = input.accessorialTotal) !== null && _e !== void 0 ? _e : bid.accessorialTotal,
+        lumperFee: (_f = input.lumperFee) !== null && _f !== void 0 ? _f : bid.lumperFee,
+        detentionEstimate: (_g = input.detentionEstimate) !== null && _g !== void 0 ? _g : bid.detentionEstimate,
+        expiresAt: (_h = input.expiresAt) !== null && _h !== void 0 ? _h : bid.expiresAt,
+        message: (_j = input.message) !== null && _j !== void 0 ? _j : bid.message,
+        status: (_k = input.status) !== null && _k !== void 0 ? _k : bid.status,
     });
+    updatedBid.totalCost =
+        updatedBid.bidRate +
+            ((_l = updatedBid.fuelSurcharge) !== null && _l !== void 0 ? _l : 0) +
+            ((_m = updatedBid.accessorialTotal) !== null && _m !== void 0 ? _m : 0) +
+            ((_o = updatedBid.lumperFee) !== null && _o !== void 0 ? _o : 0) +
+            ((_p = updatedBid.detentionEstimate) !== null && _p !== void 0 ? _p : 0);
     await prisma_1.prisma.silBidRecord.update({
         where: { bidId },
         data: { status: updatedBid.status, data: json(updatedBid) },
@@ -909,7 +932,7 @@ async function updateSilBidCommercials(bidId, input) {
         eventId: makeId(`sil_evt_${eventType.toLowerCase()}`),
         eventType,
         occurredAt: new Date().toISOString(),
-        actor: (_g = input.actor) !== null && _g !== void 0 ? _g : "operator",
+        actor: (_q = input.actor) !== null && _q !== void 0 ? _q : "operator",
         source: "USER",
         workspaceId: updatedBid.workspaceId,
         loadId: updatedBid.loadId,
@@ -920,10 +943,15 @@ async function updateSilBidCommercials(bidId, input) {
         summary: eventType === "BID_COUNTERED"
             ? `Counteroffer recorded for ${updatedBid.bidId}.`
             : `Bid commercial controls updated for ${updatedBid.bidId}.`,
-        evidence: (_h = input.evidence) !== null && _h !== void 0 ? _h : [
+        evidence: (_r = input.evidence) !== null && _r !== void 0 ? _r : [
             `Bid rate: ${updatedBid.bidRate}`,
-            `Counteroffer: ${(_j = updatedBid.counterOfferRate) !== null && _j !== void 0 ? _j : "none"}`,
-            `Expires at: ${(_k = updatedBid.expiresAt) !== null && _k !== void 0 ? _k : "not set"}`,
+            `Total cost: ${updatedBid.totalCost}`,
+            `Counteroffer: ${(_s = updatedBid.counterOfferRate) !== null && _s !== void 0 ? _s : "none"}`,
+            `Accessorials: ${(_t = updatedBid.accessorialTotal) !== null && _t !== void 0 ? _t : 0}`,
+            `Fuel: ${(_u = updatedBid.fuelSurcharge) !== null && _u !== void 0 ? _u : 0}`,
+            `Lumper: ${(_v = updatedBid.lumperFee) !== null && _v !== void 0 ? _v : 0}`,
+            `Detention estimate: ${(_w = updatedBid.detentionEstimate) !== null && _w !== void 0 ? _w : 0}`,
+            `Expires at: ${(_x = updatedBid.expiresAt) !== null && _x !== void 0 ? _x : "not set"}`,
         ],
     });
     return { bid: updatedBid, event };

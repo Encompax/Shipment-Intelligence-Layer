@@ -11,6 +11,12 @@ import { recordWorkflowEvent } from "./workflowEventService";
 
 const round = (value: number) => Math.round(value * 100) / 100;
 
+const bidTotalCost = (bid?: SilBid) =>
+  bid
+    ? bid.totalCost ??
+      bid.bidRate + (bid.fuelSurcharge ?? 0) + (bid.accessorialTotal ?? 0) + (bid.lumperFee ?? 0) + (bid.detentionEstimate ?? 0)
+    : undefined;
+
 function pressureLevel(rateVariancePercent: number, projectedMargin?: number | null): SilSeverity {
   if (projectedMargin !== undefined && projectedMargin !== null && projectedMargin < 0) return "CRITICAL";
   if (rateVariancePercent >= 18) return "CRITICAL";
@@ -47,6 +53,15 @@ function buildLaneSignal(input: {
     },
     metrics: {
       bid_rate: input.analysis.bidRate ?? null,
+      bid_total_cost:
+        input.bid?.totalCost ??
+        (input.bid
+          ? input.bid.bidRate +
+            (input.bid.fuelSurcharge ?? 0) +
+            (input.bid.accessorialTotal ?? 0) +
+            (input.bid.lumperFee ?? 0) +
+            (input.bid.detentionEstimate ?? 0)
+          : null),
       market_median_rate: input.analysis.marketMedianRate ?? null,
       target_buy_rate: input.analysis.targetBuyRate ?? null,
       target_sell_rate: input.analysis.targetSellRate ?? null,
@@ -75,10 +90,12 @@ export function analyzeMarketRate(input: {
   const medianFromObservation = input.observations?.find((item) => item.laneId === input.lane?.laneId)?.medianRate;
   const marketMedianRate = input.lane?.marketRateMedian ?? medianFromObservation;
   const bidRate = input.bid?.bidRate;
+  const totalCost = bidTotalCost(input.bid);
   const targetBuyRate = input.load.targetBuyRate;
   const targetSellRate = input.load.targetSellRate;
-  const projectedMargin = bidRate !== undefined && targetSellRate !== undefined ? targetSellRate - bidRate : undefined;
-  const rateBasis = bidRate ?? targetBuyRate;
+  const customerCharges = (input.load.fuelSurcharge ?? 0) + (input.load.accessorialEstimate ?? 0) + (input.load.lumperEstimate ?? 0);
+  const projectedMargin = totalCost !== undefined && targetSellRate !== undefined ? targetSellRate + customerCharges - totalCost : undefined;
+  const rateBasis = totalCost ?? targetBuyRate;
   const rateVariancePercent =
     rateBasis !== undefined && marketMedianRate
       ? round(((rateBasis - marketMedianRate) / marketMedianRate) * 100)
@@ -110,7 +127,11 @@ export function analyzeMarketRate(input: {
     rateVariancePercent,
     marginVariance,
     pressureLevel: pressure,
-    evidence,
+    evidence: [
+      ...evidence,
+      totalCost !== undefined ? `Bid total cost with accessorials: ${totalCost}` : "Bid total cost unavailable",
+      customerCharges > 0 ? `Customer recoverable charges: ${customerCharges}` : "No customer recoverable charges configured",
+    ],
   };
 
   analysis.governanceSignal = buildLaneSignal({

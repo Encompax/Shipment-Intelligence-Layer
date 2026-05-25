@@ -180,6 +180,10 @@ export type SilLoad = {
   targetSellRate?: number;
   targetBuyRate?: number;
   marginTarget?: number;
+  fuelSurcharge?: number;
+  accessorialEstimate?: number;
+  lumperEstimate?: number;
+  detentionRatePerHour?: number;
   source: "manual" | "tms" | "load_board" | "karrio" | "starship";
 };
 
@@ -284,6 +288,11 @@ export type SilBid = {
   carrierId: string;
   bidRate: number;
   currency: "USD";
+  fuelSurcharge?: number;
+  accessorialTotal?: number;
+  lumperFee?: number;
+  detentionEstimate?: number;
+  totalCost?: number;
   estimatedPickupCommitment?: string;
   estimatedDeliveryCommitment?: string;
   expiresAt?: string;
