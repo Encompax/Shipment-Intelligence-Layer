@@ -455,6 +455,48 @@ const TransportationCommandPanel: React.FC = () => {
     .flatMap((bid) => (bid.tenderResponses ?? []).map((response) => ({ ...response, bidId: bid.bidId, carrierId: bid.carrierId })))
     .sort((left, right) => new Date(right.respondedAt).getTime() - new Date(left.respondedAt).getTime())[0];
   const postingExpired = Boolean(selectedPosting?.expiresAt && new Date(selectedPosting.expiresAt).getTime() < Date.now());
+  const carrierTenderRows = useMemo(() => {
+    const carrierIds = new Set<string>();
+    carrierEligibility.forEach((carrier) => carrierIds.add(carrier.carrierId));
+    selectedPosting?.invitedCarrierIds?.forEach((carrierId) => carrierIds.add(carrierId));
+    selectedPosting?.inviteCommunications?.forEach((communication) => carrierIds.add(communication.carrierId));
+    selectedBids.forEach((bid) => carrierIds.add(bid.carrierId));
+
+    return Array.from(carrierIds).map((carrierId) => {
+      const carrier = carriers.find((item) => item.carrierId === carrierId);
+      const eligibility = carrierEligibility.find((item) => item.carrierId === carrierId);
+      const invite = [...(selectedPosting?.inviteCommunications ?? [])]
+        .filter((communication) => communication.carrierId === carrierId)
+        .sort((left, right) => new Date(right.sentAt).getTime() - new Date(left.sentAt).getTime())[0];
+      const bid = selectedBids.find((item) => item.carrierId === carrierId);
+      const response = [...(bid?.tenderResponses ?? [])].sort(
+        (left, right) => new Date(right.respondedAt).getTime() - new Date(left.respondedAt).getTime()
+      )[0];
+      const dueAt = invite?.expiresAt ?? bid?.expiresAt ?? selectedPosting?.expiresAt;
+      const dueExpired = Boolean(dueAt && new Date(dueAt).getTime() < Date.now());
+      const responseState = response
+        ? response.responseType.replaceAll("_", " ")
+        : invite
+          ? dueExpired
+            ? "RESPONSE OVERDUE"
+            : invite.status
+          : selectedPosting?.invitedCarrierIds?.includes(carrierId)
+            ? "INVITED"
+            : "NOT INVITED";
+
+      return {
+        carrierId,
+        carrierName: carrier?.carrierName ?? eligibility?.carrierName ?? carrierId.replace("carrier-", ""),
+        invite,
+        bid,
+        response,
+        dueAt,
+        responseState,
+        dueExpired,
+        eligibility,
+      };
+    });
+  }, [carrierEligibility, carriers, selectedBids, selectedPosting]);
   const selectedBidReadinessIsHold =
     Boolean(dispatchReadiness && selectedBid?.bidId === dispatchReadiness.bidId && dispatchReadiness.status === "HOLD");
 
@@ -1445,6 +1487,41 @@ const TransportationCommandPanel: React.FC = () => {
                     ))
                   )}
                   {tenderResponseCount === 0 && <p className="ops-note">Tender responses will appear here as carriers accept, decline, counter, or request more information.</p>}
+                </div>
+              </div>
+
+              <div className="carrier-tender-board">
+                <div className="transport-panel-header compact">
+                  <div>
+                    <p className="transport-eyebrow">Carrier Tender Board</p>
+                    <h4>Invite status by carrier</h4>
+                  </div>
+                  <span>{carrierTenderRows.filter((row) => row.dueExpired && !row.response).length} overdue</span>
+                </div>
+                <div className="carrier-tender-list">
+                  {carrierTenderRows.map((row) => (
+                    <article key={row.carrierId} className={row.dueExpired && !row.response ? "attention" : ""}>
+                      <div>
+                        <strong>{row.carrierName}</strong>
+                        <span>{row.responseState}</span>
+                      </div>
+                      <div className="transport-card-meta">
+                        <span>{row.eligibility?.inviteRecommendation?.replaceAll("_", " ") ?? "Eligibility not scored"}</span>
+                        {row.bid && <span>{money(row.bid.totalCost ?? row.bid.bidRate)}</span>}
+                        {row.eligibility?.governanceReviewRequired && <span>Review</span>}
+                      </div>
+                      <small>
+                        Invite: {shortDateTime(row.invite?.sentAt)} / Due: {shortDateTime(row.dueAt)}
+                      </small>
+                      {row.response && (
+                        <small>
+                          Response: {shortDateTime(row.response.respondedAt)}
+                          {row.response.rate ? ` / ${money(row.response.rate)}` : ""}
+                        </small>
+                      )}
+                    </article>
+                  ))}
+                  {carrierTenderRows.length === 0 && <p className="ops-note">Select invite carriers or record bids to build the tender board.</p>}
                 </div>
               </div>
 

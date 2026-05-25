@@ -1159,6 +1159,63 @@ td {
   font-size: var(--font-size-sm);
 }
 
+.carrier-tender-board {
+  display: grid;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+  padding: var(--space-4);
+  border: 1px solid rgba(14, 165, 233, 0.18);
+  border-radius: var(--radius-lg);
+  background: var(--color-bg-surface);
+}
+
+.carrier-tender-board > .transport-panel-header > span {
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-full);
+  background: rgba(217, 119, 6, 0.1);
+  color: #92400e;
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+}
+
+.carrier-tender-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: var(--space-3);
+}
+
+.carrier-tender-list article {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: rgba(255, 255, 255, 0.78);
+}
+
+.carrier-tender-list article.attention {
+  border-color: rgba(217, 119, 6, 0.36);
+  background: rgba(255, 251, 235, 0.76);
+}
+
+.carrier-tender-list article > div:first-child {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.carrier-tender-list article > div:first-child span {
+  color: #0f766e;
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+}
+
+.carrier-tender-list small {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+}
+
 .transport-row-actions {
   display: flex;
   flex-wrap: wrap;
