@@ -24,6 +24,8 @@ import {
   fetchTransportationOverview,
   fetchTransportationShipments,
   fetchWorkflowEvents,
+  recordLoadBoardTenderResponse,
+  sendLoadBoardPostingInvites,
   transitionLoad,
   updateLoadBoardBidCommercials,
   updateLoadBoardPostingVisibility,
@@ -83,6 +85,14 @@ type Bid = {
     evidence: string[];
     governanceSignalRequired: boolean;
   };
+  tenderResponses?: {
+    responseId: string;
+    responseType: string;
+    status: string;
+    rate?: number;
+    message?: string;
+    respondedAt: string;
+  }[];
 };
 
 type Posting = {
@@ -95,6 +105,14 @@ type Posting = {
   invitedCarrierIds?: string[];
   bidCount: number;
   bestBidRate?: number;
+  inviteCommunications?: {
+    communicationId: string;
+    carrierId: string;
+    channel: string;
+    status: string;
+    sentAt: string;
+    message: string;
+  }[];
 };
 
 type Lane = {
@@ -760,6 +778,56 @@ const TransportationCommandPanel: React.FC = () => {
     }
   }
 
+  async function handleSendCarrierInvites() {
+    if (!selectedPosting) return;
+
+    try {
+      setActionStatus("Sending carrier invite communications...");
+      const carrierIds = selectedPosting.invitedCarrierIds?.length
+        ? selectedPosting.invitedCarrierIds
+        : carrierEligibility
+            .filter((carrier) => ["INVITE", "INVITE_WITH_REVIEW"].includes(carrier.inviteRecommendation))
+            .map((carrier) => carrier.carrierId);
+      const result = await sendLoadBoardPostingInvites(selectedPosting.postingId, {
+        carrierIds,
+        channel: "PORTAL",
+        actor: "operator",
+        message: `Please review load ${selectedPosting.loadId} and respond with quote or tender status.`,
+      });
+      setPostings((current) =>
+        current.map((posting) => (posting.postingId === selectedPosting.postingId ? result.posting : posting))
+      );
+      setWorkflowEvents((current) => [result.event, ...current]);
+      setActionStatus(`${result.communications.length} invite communication(s) sent.`);
+    } catch (err) {
+      setActionStatus(err instanceof Error ? err.message : "Carrier invite send failed");
+    }
+  }
+
+  async function handleTenderResponse(bid: Bid, responseType: string) {
+    try {
+      setActionStatus(`Recording ${responseType.replaceAll("_", " ").toLowerCase()}...`);
+      const rate =
+        responseType === "COUNTER"
+          ? Number(bidForm.counterOfferRate || bid.counterOfferRate || bid.totalCost || bid.bidRate)
+          : undefined;
+      const result = await recordLoadBoardTenderResponse(bid.bidId, {
+        responseType,
+        rate,
+        actor: "operator",
+        message:
+          responseType === "REQUEST_MORE_INFO"
+            ? "Carrier requested more context before commitment."
+            : `Carrier tender response recorded as ${responseType}.`,
+      });
+      setBids((current) => current.map((item) => (item.bidId === bid.bidId ? result.bid : item)));
+      setWorkflowEvents((current) => [result.event, ...current]);
+      setActionStatus("Tender response recorded.");
+    } catch (err) {
+      setActionStatus(err instanceof Error ? err.message : "Tender response failed");
+    }
+  }
+
   async function handleDispatchReadinessReview() {
     if (!selectedLoad) return;
 
@@ -1243,6 +1311,9 @@ const TransportationCommandPanel: React.FC = () => {
                     <button className="btn btn-secondary btn-xs" type="button" onClick={() => handlePostingInviteUpdate("private")}>
                       Make Private
                     </button>
+                    <button className="btn btn-primary btn-xs" type="button" onClick={handleSendCarrierInvites}>
+                      Send Invites
+                    </button>
                   </div>
                 </div>
               )}
@@ -1261,6 +1332,13 @@ const TransportationCommandPanel: React.FC = () => {
                   </div>
                 </div>
                 {invitePacketSummary && <p className="ops-note">Latest packet: {invitePacketSummary}</p>}
+                {selectedPosting?.inviteCommunications?.length ? (
+                  <p className="ops-note">
+                    Latest invite: {selectedPosting.inviteCommunications.at(-1)?.status} via{" "}
+                    {selectedPosting.inviteCommunications.at(-1)?.channel} to{" "}
+                    {selectedPosting.inviteCommunications.at(-1)?.carrierId.replace("carrier-", "")}
+                  </p>
+                ) : null}
                 <div className="carrier-eligibility-list">
                   {carrierEligibility.slice(0, 4).map((carrier) => (
                     <article key={carrier.carrierId} className="carrier-eligibility-card">
@@ -1347,6 +1425,27 @@ const TransportationCommandPanel: React.FC = () => {
                               Shortlist
                             </button>
                             <button
+                              className="btn btn-secondary btn-xs"
+                              type="button"
+                              onClick={() => handleTenderResponse(bid, "ACCEPT_TENDER")}
+                            >
+                              Accept
+                            </button>
+                            <button
+                              className="btn btn-secondary btn-xs"
+                              type="button"
+                              onClick={() => handleTenderResponse(bid, "DECLINE_TENDER")}
+                            >
+                              Decline
+                            </button>
+                            <button
+                              className="btn btn-secondary btn-xs"
+                              type="button"
+                              onClick={() => handleTenderResponse(bid, "REQUEST_MORE_INFO")}
+                            >
+                              Info
+                            </button>
+                            <button
                               className="btn btn-primary btn-xs"
                               type="button"
                               onClick={() => handleBidDecision(bid.bidId, "AWARDED")}
@@ -1372,7 +1471,7 @@ const TransportationCommandPanel: React.FC = () => {
                     ))}
                     {selectedBids.length === 0 && (
                       <tr>
-                        <td colSpan={8}>No bids recorded for this load.</td>
+                        <td colSpan={9}>No bids recorded for this load.</td>
                       </tr>
                     )}
                   </tbody>
@@ -1411,6 +1510,16 @@ const TransportationCommandPanel: React.FC = () => {
                       <span key={reason}>{reason}</span>
                     ))}
                   </div>
+                  {selectedBid.tenderResponses?.length ? (
+                    <div className="governance-reason-list">
+                      {selectedBid.tenderResponses.slice(-3).map((response) => (
+                        <span key={response.responseId}>
+                          {response.responseType.replaceAll("_", " ")} / {response.status}
+                          {response.rate ? ` / ${money(response.rate)}` : ""}
+                        </span>
+                      ))}
+                    </div>
+                  ) : null}
                 </div>
               )}
 

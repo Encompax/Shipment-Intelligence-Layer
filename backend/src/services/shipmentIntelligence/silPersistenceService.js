@@ -17,9 +17,11 @@ exports.listSilLanes = listSilLanes;
 exports.listSilPostings = listSilPostings;
 exports.createSilPosting = createSilPosting;
 exports.updateSilPostingVisibility = updateSilPostingVisibility;
+exports.sendSilCarrierInvites = sendSilCarrierInvites;
 exports.listSilBids = listSilBids;
 exports.createSilBid = createSilBid;
 exports.updateSilBidCommercials = updateSilBidCommercials;
+exports.recordSilTenderResponse = recordSilTenderResponse;
 exports.updateSilBidStatus = updateSilBidStatus;
 exports.listSilMarketRates = listSilMarketRates;
 exports.listSilGovernanceSignals = listSilGovernanceSignals;
@@ -811,6 +813,62 @@ async function updateSilPostingVisibility(postingId, input) {
     });
     return { posting: updatedPosting, event };
 }
+async function sendSilCarrierInvites(postingId, input) {
+    var _a, _b, _c, _d;
+    await seedSilPersistence();
+    const record = await prisma_1.prisma.silLoadPostingRecord.findUnique({ where: { postingId } });
+    if (!record)
+        return null;
+    const posting = withWorkspace(fromRecord(record));
+    const carrierIds = Array.from(new Set(((_a = input.carrierIds) === null || _a === void 0 ? void 0 : _a.length) ? input.carrierIds : (_b = posting.invitedCarrierIds) !== null && _b !== void 0 ? _b : []));
+    const sentAt = new Date().toISOString();
+    const communications = carrierIds.map((carrierId) => {
+        var _a, _b, _c, _d;
+        return ({
+            communicationId: makeId("sil_invite"),
+            postingId: posting.postingId,
+            loadId: posting.loadId,
+            carrierId,
+            channel: (_a = input.channel) !== null && _a !== void 0 ? _a : "PORTAL",
+            status: "SENT",
+            sentAt,
+            expiresAt: (_b = input.expiresAt) !== null && _b !== void 0 ? _b : posting.expiresAt,
+            message: (_c = input.message) !== null && _c !== void 0 ? _c : `Load ${posting.loadId} is available for carrier response.`,
+            evidence: [
+                `Carrier invited: ${carrierId}`,
+                `Channel: ${(_d = input.channel) !== null && _d !== void 0 ? _d : "PORTAL"}`,
+                `Posting visibility: ${posting.visibility}`,
+            ],
+        });
+    });
+    const updatedPosting = withWorkspace({
+        ...posting,
+        invitedCarrierIds: carrierIds,
+        invitedAt: sentAt,
+        inviteCommunications: [...((_c = posting.inviteCommunications) !== null && _c !== void 0 ? _c : []), ...communications],
+    });
+    await prisma_1.prisma.silLoadPostingRecord.update({
+        where: { postingId },
+        data: {
+            status: updatedPosting.status,
+            board: updatedPosting.board,
+            data: json(updatedPosting),
+        },
+    });
+    const event = await persistSilWorkflowEvent({
+        eventId: makeId("sil_evt_carrier_invite_sent"),
+        eventType: "CARRIER_INVITE_SENT",
+        occurredAt: sentAt,
+        actor: (_d = input.actor) !== null && _d !== void 0 ? _d : "operator",
+        source: "USER",
+        workspaceId: updatedPosting.workspaceId,
+        loadId: updatedPosting.loadId,
+        nextState: updatedPosting.status,
+        summary: `${communications.length} carrier invite communication(s) sent for ${updatedPosting.loadId}.`,
+        evidence: communications.flatMap((communication) => communication.evidence),
+    });
+    return { posting: updatedPosting, communications, event };
+}
 async function listSilBids(filters) {
     await seedSilPersistence();
     const records = await prisma_1.prisma.silBidRecord.findMany({ orderBy: { updatedAt: "desc" } });
@@ -955,6 +1013,67 @@ async function updateSilBidCommercials(bidId, input) {
         ],
     });
     return { bid: updatedBid, event };
+}
+async function recordSilTenderResponse(bidId, input) {
+    var _a, _b, _c, _d, _e, _f, _g, _h, _j;
+    await seedSilPersistence();
+    const record = await prisma_1.prisma.silBidRecord.findUnique({ where: { bidId } });
+    if (!record)
+        return null;
+    const bid = withWorkspace(fromRecord(record));
+    const respondedAt = (_a = input.respondedAt) !== null && _a !== void 0 ? _a : new Date().toISOString();
+    const response = {
+        responseId: (_b = input.responseId) !== null && _b !== void 0 ? _b : makeId("sil_tender_response"),
+        bidId,
+        carrierId: (_c = input.carrierId) !== null && _c !== void 0 ? _c : bid.carrierId,
+        responseType: input.responseType,
+        status: (_d = input.status) !== null && _d !== void 0 ? _d : (input.responseType === "DECLINE_TENDER" ? "REJECTED" : "RECEIVED"),
+        rate: input.rate,
+        message: input.message,
+        respondedAt,
+        evidence: (_e = input.evidence) !== null && _e !== void 0 ? _e : [
+            `Tender response: ${input.responseType}`,
+            `Carrier: ${(_f = input.carrierId) !== null && _f !== void 0 ? _f : bid.carrierId}`,
+            input.rate === undefined ? "Rate unchanged" : `Response rate: ${input.rate}`,
+        ],
+    };
+    const nextStatus = input.responseType === "ACCEPT_TENDER"
+        ? "AWARDED"
+        : input.responseType === "DECLINE_TENDER"
+            ? "WITHDRAWN"
+            : input.responseType === "COUNTER"
+                ? "RECEIVED"
+                : bid.status;
+    const updatedBid = withWorkspace({
+        ...bid,
+        status: nextStatus,
+        counterOfferRate: input.responseType === "COUNTER" ? (_g = input.rate) !== null && _g !== void 0 ? _g : bid.counterOfferRate : bid.counterOfferRate,
+        counterOfferStatus: input.responseType === "COUNTER" ? "PENDING" : bid.counterOfferStatus,
+        tenderResponses: [...((_h = bid.tenderResponses) !== null && _h !== void 0 ? _h : []), response],
+    });
+    await prisma_1.prisma.silBidRecord.update({
+        where: { bidId },
+        data: {
+            status: updatedBid.status,
+            data: json(updatedBid),
+        },
+    });
+    const event = await persistSilWorkflowEvent({
+        eventId: makeId("sil_evt_tender_response_recorded"),
+        eventType: "TENDER_RESPONSE_RECORDED",
+        occurredAt: respondedAt,
+        actor: (_j = input.actor) !== null && _j !== void 0 ? _j : "carrier",
+        source: input.actor ? "USER" : "CARRIER_PROVIDER",
+        workspaceId: updatedBid.workspaceId,
+        loadId: updatedBid.loadId,
+        bidId: updatedBid.bidId,
+        carrierId: updatedBid.carrierId,
+        previousState: bid.status,
+        nextState: updatedBid.status,
+        summary: `${response.responseType.replace(/_/g, " ")} recorded for ${updatedBid.bidId}.`,
+        evidence: response.evidence,
+    });
+    return { bid: updatedBid, response, event };
 }
 async function updateSilBidStatus(bidId, status) {
     await seedSilPersistence();

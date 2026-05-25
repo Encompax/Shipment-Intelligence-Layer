@@ -14,6 +14,7 @@ import {
   BidState,
   BrokerageLoadState,
   SilBid,
+  SilCarrierInviteCommunication,
   SilCarrierProfile,
   SilGovernanceSignalDraft,
   SilLaneProfile,
@@ -22,6 +23,7 @@ import {
   SilMarketRateObservation,
   SilShipment,
   SilShipmentDocument,
+  SilTenderResponse,
   SilWorkflowEvent,
   ShipmentState,
 } from "./types";
@@ -944,6 +946,72 @@ export async function updateSilPostingVisibility(
   return { posting: updatedPosting, event };
 }
 
+export async function sendSilCarrierInvites(
+  postingId: string,
+  input: {
+    carrierIds?: string[];
+    channel?: SilCarrierInviteCommunication["channel"];
+    message?: string;
+    expiresAt?: string;
+    actor?: string;
+  }
+) {
+  await seedSilPersistence();
+  const record = await prisma.silLoadPostingRecord.findUnique({ where: { postingId } });
+  if (!record) return null;
+
+  const posting = withWorkspace(fromRecord<SilLoadPosting>(record));
+  const carrierIds = Array.from(new Set(input.carrierIds?.length ? input.carrierIds : posting.invitedCarrierIds ?? []));
+  const sentAt = new Date().toISOString();
+  const communications: SilCarrierInviteCommunication[] = carrierIds.map((carrierId) => ({
+    communicationId: makeId("sil_invite"),
+    postingId: posting.postingId,
+    loadId: posting.loadId,
+    carrierId,
+    channel: input.channel ?? "PORTAL",
+    status: "SENT",
+    sentAt,
+    expiresAt: input.expiresAt ?? posting.expiresAt,
+    message: input.message ?? `Load ${posting.loadId} is available for carrier response.`,
+    evidence: [
+      `Carrier invited: ${carrierId}`,
+      `Channel: ${input.channel ?? "PORTAL"}`,
+      `Posting visibility: ${posting.visibility}`,
+    ],
+  }));
+
+  const updatedPosting = withWorkspace({
+    ...posting,
+    invitedCarrierIds: carrierIds,
+    invitedAt: sentAt,
+    inviteCommunications: [...(posting.inviteCommunications ?? []), ...communications],
+  });
+
+  await prisma.silLoadPostingRecord.update({
+    where: { postingId },
+    data: {
+      status: updatedPosting.status,
+      board: updatedPosting.board,
+      data: json(updatedPosting),
+    },
+  });
+
+  const event = await persistSilWorkflowEvent({
+    eventId: makeId("sil_evt_carrier_invite_sent"),
+    eventType: "CARRIER_INVITE_SENT",
+    occurredAt: sentAt,
+    actor: input.actor ?? "operator",
+    source: "USER",
+    workspaceId: updatedPosting.workspaceId,
+    loadId: updatedPosting.loadId,
+    nextState: updatedPosting.status,
+    summary: `${communications.length} carrier invite communication(s) sent for ${updatedPosting.loadId}.`,
+    evidence: communications.flatMap((communication) => communication.evidence),
+  });
+
+  return { posting: updatedPosting, communications, event };
+}
+
 export async function listSilBids(filters?: { workspaceId?: string }) {
   await seedSilPersistence();
   const records = await prisma.silBidRecord.findMany({ orderBy: { updatedAt: "desc" } });
@@ -1106,6 +1174,78 @@ export async function updateSilBidCommercials(
   });
 
   return { bid: updatedBid, event };
+}
+
+export async function recordSilTenderResponse(
+  bidId: string,
+  input: Partial<SilTenderResponse> & Pick<SilTenderResponse, "responseType"> & {
+    actor?: string;
+  }
+) {
+  await seedSilPersistence();
+  const record = await prisma.silBidRecord.findUnique({ where: { bidId } });
+  if (!record) return null;
+
+  const bid = withWorkspace(fromRecord<SilBid>(record));
+  const respondedAt = input.respondedAt ?? new Date().toISOString();
+  const response: SilTenderResponse = {
+    responseId: input.responseId ?? makeId("sil_tender_response"),
+    bidId,
+    carrierId: input.carrierId ?? bid.carrierId,
+    responseType: input.responseType,
+    status: input.status ?? (input.responseType === "DECLINE_TENDER" ? "REJECTED" : "RECEIVED"),
+    rate: input.rate,
+    message: input.message,
+    respondedAt,
+    evidence: input.evidence ?? [
+      `Tender response: ${input.responseType}`,
+      `Carrier: ${input.carrierId ?? bid.carrierId}`,
+      input.rate === undefined ? "Rate unchanged" : `Response rate: ${input.rate}`,
+    ],
+  };
+
+  const nextStatus: BidState =
+    input.responseType === "ACCEPT_TENDER"
+      ? "AWARDED"
+      : input.responseType === "DECLINE_TENDER"
+        ? "WITHDRAWN"
+        : input.responseType === "COUNTER"
+          ? "RECEIVED"
+          : bid.status;
+
+  const updatedBid = withWorkspace({
+    ...bid,
+    status: nextStatus,
+    counterOfferRate: input.responseType === "COUNTER" ? input.rate ?? bid.counterOfferRate : bid.counterOfferRate,
+    counterOfferStatus: input.responseType === "COUNTER" ? "PENDING" : bid.counterOfferStatus,
+    tenderResponses: [...(bid.tenderResponses ?? []), response],
+  });
+
+  await prisma.silBidRecord.update({
+    where: { bidId },
+    data: {
+      status: updatedBid.status,
+      data: json(updatedBid),
+    },
+  });
+
+  const event = await persistSilWorkflowEvent({
+    eventId: makeId("sil_evt_tender_response_recorded"),
+    eventType: "TENDER_RESPONSE_RECORDED",
+    occurredAt: respondedAt,
+    actor: input.actor ?? "carrier",
+    source: input.actor ? "USER" : "CARRIER_PROVIDER",
+    workspaceId: updatedBid.workspaceId,
+    loadId: updatedBid.loadId,
+    bidId: updatedBid.bidId,
+    carrierId: updatedBid.carrierId,
+    previousState: bid.status,
+    nextState: updatedBid.status,
+    summary: `${response.responseType.replace(/_/g, " ")} recorded for ${updatedBid.bidId}.`,
+    evidence: response.evidence,
+  });
+
+  return { bid: updatedBid, response, event };
 }
 
 export async function updateSilBidStatus(bidId: string, status: BidState) {

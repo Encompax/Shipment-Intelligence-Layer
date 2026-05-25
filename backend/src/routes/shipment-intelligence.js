@@ -394,6 +394,23 @@ function registerShipmentIntelligenceRoutes(app) {
             return res.status(404).json({ error: "Posting not found" });
         res.json(result);
     });
+    router.post("/load-board/postings/:postingId/invites", async (req, res) => {
+        var _a, _b, _c, _d, _e;
+        const workspaceId = requestWorkspaceId(req);
+        const posting = (await (0, silPersistenceService_1.listSilPostings)({ workspaceId })).find((item) => item.postingId === req.params.postingId);
+        if (!posting)
+            return res.status(404).json({ error: "Posting not found" });
+        const result = await (0, silPersistenceService_1.sendSilCarrierInvites)(req.params.postingId, {
+            carrierIds: Array.isArray((_a = req.body) === null || _a === void 0 ? void 0 : _a.carrierIds) ? req.body.carrierIds : undefined,
+            channel: (_b = req.body) === null || _b === void 0 ? void 0 : _b.channel,
+            message: (_c = req.body) === null || _c === void 0 ? void 0 : _c.message,
+            expiresAt: (_d = req.body) === null || _d === void 0 ? void 0 : _d.expiresAt,
+            actor: (_e = req.body) === null || _e === void 0 ? void 0 : _e.actor,
+        });
+        if (!result)
+            return res.status(404).json({ error: "Posting not found" });
+        res.json(result);
+    });
     router.get("/load-board/bids", async (req, res) => {
         const workspaceId = requestWorkspaceId(req);
         const [bids, loads, carriers, postings, lanes, shipments] = await Promise.all([
@@ -503,6 +520,28 @@ function registerShipmentIntelligenceRoutes(app) {
             status: (_j = req.body) === null || _j === void 0 ? void 0 : _j.status,
             actor: (_k = req.body) === null || _k === void 0 ? void 0 : _k.actor,
             evidence: (_l = req.body) === null || _l === void 0 ? void 0 : _l.evidence,
+        });
+        if (!result)
+            return res.status(404).json({ error: "Bid not found" });
+        res.json(result);
+    });
+    router.post("/load-board/bids/:bidId/tender-response", async (req, res) => {
+        var _a, _b, _c, _d, _e, _f;
+        const responseType = (_a = req.body) === null || _a === void 0 ? void 0 : _a.responseType;
+        if (!["QUOTE", "ACCEPT_TENDER", "DECLINE_TENDER", "COUNTER", "REQUEST_MORE_INFO"].includes(responseType)) {
+            return res.status(400).json({ error: "responseType must be QUOTE, ACCEPT_TENDER, DECLINE_TENDER, COUNTER, or REQUEST_MORE_INFO" });
+        }
+        const workspaceId = requestWorkspaceId(req);
+        const bid = (await (0, silPersistenceService_1.listSilBids)({ workspaceId })).find((item) => item.bidId === req.params.bidId);
+        if (!bid)
+            return res.status(404).json({ error: "Bid not found" });
+        const result = await (0, silPersistenceService_1.recordSilTenderResponse)(req.params.bidId, {
+            responseType,
+            status: (_b = req.body) === null || _b === void 0 ? void 0 : _b.status,
+            rate: ((_c = req.body) === null || _c === void 0 ? void 0 : _c.rate) === undefined ? undefined : Number(req.body.rate),
+            message: (_d = req.body) === null || _d === void 0 ? void 0 : _d.message,
+            evidence: Array.isArray((_e = req.body) === null || _e === void 0 ? void 0 : _e.evidence) ? req.body.evidence : undefined,
+            actor: (_f = req.body) === null || _f === void 0 ? void 0 : _f.actor,
         });
         if (!result)
             return res.status(404).json({ error: "Bid not found" });

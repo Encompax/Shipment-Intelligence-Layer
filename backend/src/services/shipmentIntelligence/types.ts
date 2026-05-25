@@ -278,6 +278,20 @@ export type SilLoadPosting = {
   bidCount: number;
   bestBidRate?: number;
   bestCarrierId?: string;
+  inviteCommunications?: SilCarrierInviteCommunication[];
+};
+
+export type SilCarrierInviteCommunication = {
+  communicationId: string;
+  postingId: string;
+  loadId: string;
+  carrierId: string;
+  channel: "EMAIL" | "PORTAL" | "EDI" | "PHONE" | "API";
+  status: "QUEUED" | "SENT" | "ACKNOWLEDGED" | "DECLINED" | "EXPIRED";
+  sentAt: string;
+  expiresAt?: string;
+  message: string;
+  evidence: string[];
 };
 
 export type SilBid = {
@@ -302,6 +316,19 @@ export type SilBid = {
   status: BidState;
   receivedAt: string;
   score?: SilMatchScore;
+  tenderResponses?: SilTenderResponse[];
+};
+
+export type SilTenderResponse = {
+  responseId: string;
+  bidId: string;
+  carrierId: string;
+  responseType: "QUOTE" | "ACCEPT_TENDER" | "DECLINE_TENDER" | "COUNTER" | "REQUEST_MORE_INFO";
+  status: "RECEIVED" | "ACCEPTED" | "REJECTED" | "PENDING_REVIEW";
+  rate?: number;
+  message?: string;
+  respondedAt: string;
+  evidence: string[];
 };
 
 export type SilMatchScore = {
@@ -362,9 +389,11 @@ export type SilWorkflowEventType =
   | "LOAD_CREATED"
   | "LOAD_STATUS_CHANGED"
   | "LOAD_POSTED"
+  | "CARRIER_INVITE_SENT"
   | "BID_RECEIVED"
   | "BID_REVIEWED"
   | "BID_COUNTERED"
+  | "TENDER_RESPONSE_RECORDED"
   | "CARRIER_AWARDED"
   | "SHIPMENT_STATUS_CHANGED"
   | "APPOINTMENT_SCHEDULED"

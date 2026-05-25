@@ -262,6 +262,18 @@ export async function updateLoadBoardPostingVisibility(postingId: string, payloa
   return res.json();
 }
 
+export async function sendLoadBoardPostingInvites(postingId: string, payload: Record<string, unknown>) {
+  const res = await fetch(`${SHIPMENT_INTELLIGENCE_BASE}/load-board/postings/${encodeURIComponent(postingId)}/invites`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    throw new Error(`Posting invite error: ${res.status}`);
+  }
+  return res.json();
+}
+
 export async function fetchLoadBoardBids() {
   return fetchShipmentIntelligence("/load-board/bids");
 }
@@ -286,6 +298,19 @@ export async function updateLoadBoardBidCommercials(bidId: string, payload: Reco
   });
   if (!res.ok) {
     throw new Error(`Bid commercials update error: ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function recordLoadBoardTenderResponse(bidId: string, payload: Record<string, unknown>) {
+  const res = await fetch(`${SHIPMENT_INTELLIGENCE_BASE}/load-board/bids/${encodeURIComponent(bidId)}/tender-response`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    throw new Error(body?.error ?? `Tender response error: ${res.status}`);
   }
   return res.json();
 }
