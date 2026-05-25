@@ -1100,14 +1100,26 @@ async function recordSilTenderResponse(bidId, input) {
         ? "AWARDED"
         : input.responseType === "DECLINE_TENDER"
             ? "WITHDRAWN"
-            : input.responseType === "COUNTER"
-                ? "RECEIVED"
-                : bid.status;
+            : input.responseType === "COUNTER_REJECTED"
+                ? "REJECTED"
+                : input.responseType === "COUNTER_ACCEPTED" || input.responseType === "INFO_PROVIDED"
+                    ? "SHORTLISTED"
+                    : input.responseType === "COUNTER"
+                        ? "RECEIVED"
+                        : bid.status;
     const updatedBid = withWorkspace({
         ...bid,
         status: nextStatus,
-        counterOfferRate: input.responseType === "COUNTER" ? (_g = input.rate) !== null && _g !== void 0 ? _g : bid.counterOfferRate : bid.counterOfferRate,
-        counterOfferStatus: input.responseType === "COUNTER" ? "PENDING" : bid.counterOfferStatus,
+        counterOfferRate: input.responseType === "COUNTER" || input.responseType === "COUNTER_ACCEPTED"
+            ? (_g = input.rate) !== null && _g !== void 0 ? _g : bid.counterOfferRate
+            : bid.counterOfferRate,
+        counterOfferStatus: input.responseType === "COUNTER"
+            ? "PENDING"
+            : input.responseType === "COUNTER_ACCEPTED"
+                ? "ACCEPTED"
+                : input.responseType === "COUNTER_REJECTED"
+                    ? "REJECTED"
+                    : bid.counterOfferStatus,
         tenderResponses: [...((_h = bid.tenderResponses) !== null && _h !== void 0 ? _h : []), response],
     });
     await prisma_1.prisma.silBidRecord.update({

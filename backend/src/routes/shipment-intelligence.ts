@@ -639,8 +639,8 @@ export function registerShipmentIntelligenceRoutes(app: Express) {
 
   router.post("/load-board/bids/:bidId/tender-response", async (req: Request, res: Response) => {
     const responseType = req.body?.responseType;
-    if (!["QUOTE", "ACCEPT_TENDER", "DECLINE_TENDER", "COUNTER", "REQUEST_MORE_INFO"].includes(responseType)) {
-      return res.status(400).json({ error: "responseType must be QUOTE, ACCEPT_TENDER, DECLINE_TENDER, COUNTER, or REQUEST_MORE_INFO" });
+    if (!["QUOTE", "ACCEPT_TENDER", "DECLINE_TENDER", "COUNTER", "REQUEST_MORE_INFO", "INFO_PROVIDED", "COUNTER_ACCEPTED", "COUNTER_REJECTED"].includes(responseType)) {
+      return res.status(400).json({ error: "responseType must be QUOTE, ACCEPT_TENDER, DECLINE_TENDER, COUNTER, REQUEST_MORE_INFO, INFO_PROVIDED, COUNTER_ACCEPTED, or COUNTER_REJECTED" });
     }
 
     const workspaceId = requestWorkspaceId(req);

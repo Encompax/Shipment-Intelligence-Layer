@@ -458,6 +458,15 @@ export function buildDispatchReadiness(context: DispatchReadinessContext): SilDi
   if (latestTenderResponse?.responseType === "COUNTER") {
     reviewReasons.push("Selected carrier has a pending tender counter that requires operator review.");
   }
+  if (latestTenderResponse?.responseType === "INFO_PROVIDED") {
+    reviewReasons.push("Requested carrier information has been provided and should be confirmed before award.");
+  }
+  if (latestTenderResponse?.responseType === "COUNTER_ACCEPTED") {
+    reviewReasons.push("Carrier counter has been accepted; confirm commercial terms before dispatch.");
+  }
+  if (latestTenderResponse?.responseType === "COUNTER_REJECTED") {
+    blockingReasons.push("Selected carrier counter was rejected.");
+  }
   if (latestTenderResponse?.responseType === "QUOTE" && context.bid?.status !== "AWARDED") {
     reviewReasons.push("Selected carrier has quoted but has not accepted tender commitment.");
   }

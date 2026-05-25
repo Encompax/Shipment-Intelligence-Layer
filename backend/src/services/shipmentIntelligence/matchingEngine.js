@@ -433,6 +433,15 @@ function buildDispatchReadiness(context) {
     if ((latestTenderResponse === null || latestTenderResponse === void 0 ? void 0 : latestTenderResponse.responseType) === "COUNTER") {
         reviewReasons.push("Selected carrier has a pending tender counter that requires operator review.");
     }
+    if ((latestTenderResponse === null || latestTenderResponse === void 0 ? void 0 : latestTenderResponse.responseType) === "INFO_PROVIDED") {
+        reviewReasons.push("Requested carrier information has been provided and should be confirmed before award.");
+    }
+    if ((latestTenderResponse === null || latestTenderResponse === void 0 ? void 0 : latestTenderResponse.responseType) === "COUNTER_ACCEPTED") {
+        reviewReasons.push("Carrier counter has been accepted; confirm commercial terms before dispatch.");
+    }
+    if ((latestTenderResponse === null || latestTenderResponse === void 0 ? void 0 : latestTenderResponse.responseType) === "COUNTER_REJECTED") {
+        blockingReasons.push("Selected carrier counter was rejected.");
+    }
     if ((latestTenderResponse === null || latestTenderResponse === void 0 ? void 0 : latestTenderResponse.responseType) === "QUOTE" && ((_u = context.bid) === null || _u === void 0 ? void 0 : _u.status) !== "AWARDED") {
         reviewReasons.push("Selected carrier has quoted but has not accepted tender commitment.");
     }

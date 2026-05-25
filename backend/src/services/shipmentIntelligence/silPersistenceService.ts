@@ -1276,6 +1276,10 @@ export async function recordSilTenderResponse(
       ? "AWARDED"
       : input.responseType === "DECLINE_TENDER"
         ? "WITHDRAWN"
+        : input.responseType === "COUNTER_REJECTED"
+          ? "REJECTED"
+          : input.responseType === "COUNTER_ACCEPTED" || input.responseType === "INFO_PROVIDED"
+            ? "SHORTLISTED"
         : input.responseType === "COUNTER"
           ? "RECEIVED"
           : bid.status;
@@ -1283,8 +1287,18 @@ export async function recordSilTenderResponse(
   const updatedBid = withWorkspace({
     ...bid,
     status: nextStatus,
-    counterOfferRate: input.responseType === "COUNTER" ? input.rate ?? bid.counterOfferRate : bid.counterOfferRate,
-    counterOfferStatus: input.responseType === "COUNTER" ? "PENDING" : bid.counterOfferStatus,
+    counterOfferRate:
+      input.responseType === "COUNTER" || input.responseType === "COUNTER_ACCEPTED"
+        ? input.rate ?? bid.counterOfferRate
+        : bid.counterOfferRate,
+    counterOfferStatus:
+      input.responseType === "COUNTER"
+        ? "PENDING"
+        : input.responseType === "COUNTER_ACCEPTED"
+          ? "ACCEPTED"
+          : input.responseType === "COUNTER_REJECTED"
+            ? "REJECTED"
+            : bid.counterOfferStatus,
     tenderResponses: [...(bid.tenderResponses ?? []), response],
   });
 

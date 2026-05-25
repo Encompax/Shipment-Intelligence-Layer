@@ -542,8 +542,8 @@ function registerShipmentIntelligenceRoutes(app) {
     router.post("/load-board/bids/:bidId/tender-response", async (req, res) => {
         var _a, _b, _c, _d, _e, _f;
         const responseType = (_a = req.body) === null || _a === void 0 ? void 0 : _a.responseType;
-        if (!["QUOTE", "ACCEPT_TENDER", "DECLINE_TENDER", "COUNTER", "REQUEST_MORE_INFO"].includes(responseType)) {
-            return res.status(400).json({ error: "responseType must be QUOTE, ACCEPT_TENDER, DECLINE_TENDER, COUNTER, or REQUEST_MORE_INFO" });
+        if (!["QUOTE", "ACCEPT_TENDER", "DECLINE_TENDER", "COUNTER", "REQUEST_MORE_INFO", "INFO_PROVIDED", "COUNTER_ACCEPTED", "COUNTER_REJECTED"].includes(responseType)) {
+            return res.status(400).json({ error: "responseType must be QUOTE, ACCEPT_TENDER, DECLINE_TENDER, COUNTER, REQUEST_MORE_INFO, INFO_PROVIDED, COUNTER_ACCEPTED, or COUNTER_REJECTED" });
         }
         const workspaceId = requestWorkspaceId(req);
         const bid = (await (0, silPersistenceService_1.listSilBids)({ workspaceId })).find((item) => item.bidId === req.params.bidId);

@@ -882,7 +882,7 @@ const TransportationCommandPanel: React.FC = () => {
     try {
       setActionStatus(`Recording ${responseType.replaceAll("_", " ").toLowerCase()}...`);
       const rate =
-        responseType === "COUNTER"
+        responseType === "COUNTER" || responseType === "COUNTER_ACCEPTED"
           ? Number(bidForm.counterOfferRate || bid.counterOfferRate || bid.totalCost || bid.bidRate)
           : undefined;
       const result = await recordLoadBoardTenderResponse(bid.bidId, {
@@ -892,6 +892,12 @@ const TransportationCommandPanel: React.FC = () => {
         message:
           responseType === "REQUEST_MORE_INFO"
             ? "Carrier requested more context before commitment."
+            : responseType === "INFO_PROVIDED"
+              ? "Requested tender information was provided by the operator."
+              : responseType === "COUNTER_ACCEPTED"
+                ? "Operator accepted carrier counter for governed award review."
+                : responseType === "COUNTER_REJECTED"
+                  ? "Operator rejected carrier counter."
             : `Carrier tender response recorded as ${responseType}.`,
       });
       setBids((current) => current.map((item) => (item.bidId === bid.bidId ? result.bid : item)));
@@ -1611,6 +1617,33 @@ const TransportationCommandPanel: React.FC = () => {
                             >
                               Info
                             </button>
+                            {bid.tenderResponses?.at(-1)?.responseType === "REQUEST_MORE_INFO" && (
+                              <button
+                                className="btn btn-secondary btn-xs"
+                                type="button"
+                                onClick={() => handleTenderResponse(bid, "INFO_PROVIDED")}
+                              >
+                                Resolve Info
+                              </button>
+                            )}
+                            {bid.tenderResponses?.at(-1)?.responseType === "COUNTER" && (
+                              <>
+                                <button
+                                  className="btn btn-secondary btn-xs"
+                                  type="button"
+                                  onClick={() => handleTenderResponse(bid, "COUNTER_ACCEPTED")}
+                                >
+                                  Accept Counter
+                                </button>
+                                <button
+                                  className="btn btn-danger btn-xs"
+                                  type="button"
+                                  onClick={() => handleTenderResponse(bid, "COUNTER_REJECTED")}
+                                >
+                                  Reject Counter
+                                </button>
+                              </>
+                            )}
                             <button
                               className="btn btn-primary btn-xs"
                               type="button"

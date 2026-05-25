@@ -323,7 +323,15 @@ export type SilTenderResponse = {
   responseId: string;
   bidId: string;
   carrierId: string;
-  responseType: "QUOTE" | "ACCEPT_TENDER" | "DECLINE_TENDER" | "COUNTER" | "REQUEST_MORE_INFO";
+  responseType:
+    | "QUOTE"
+    | "ACCEPT_TENDER"
+    | "DECLINE_TENDER"
+    | "COUNTER"
+    | "REQUEST_MORE_INFO"
+    | "INFO_PROVIDED"
+    | "COUNTER_ACCEPTED"
+    | "COUNTER_REJECTED";
   status: "RECEIVED" | "ACCEPTED" | "REJECTED" | "PENDING_REVIEW";
   rate?: number;
   message?: string;
