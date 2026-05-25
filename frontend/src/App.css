@@ -1182,6 +1182,20 @@ td {
   border-color: rgba(22, 163, 74, 0.24);
 }
 
+.readiness-override-box {
+  display: grid;
+  gap: var(--space-3);
+  margin-top: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid rgba(217, 119, 6, 0.28);
+  border-radius: var(--radius-md);
+  background: rgba(255, 251, 235, 0.72);
+}
+
+.override-reason-field {
+  grid-column: span 2;
+}
+
 .readiness-score-row {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -2146,6 +2160,16 @@ td.mono {
 }
 .btn-danger:hover:not(:disabled) {
   background: var(--color-error);
+  color: #fff;
+}
+
+.btn-warning {
+  background: var(--color-warning-bg);
+  color: var(--color-warning);
+  border-color: rgba(217, 119, 6, 0.28);
+}
+.btn-warning:hover:not(:disabled) {
+  background: var(--color-warning);
   color: #fff;
 }
 

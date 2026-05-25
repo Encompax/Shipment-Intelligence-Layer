@@ -263,6 +263,8 @@ const TransportationCommandPanel: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [actionStatus, setActionStatus] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [readinessOverrideReason, setReadinessOverrideReason] = useState("");
+  const [readinessOverrideRole, setReadinessOverrideRole] = useState("OPERATIONS_MANAGER");
   const [loadForm, setLoadForm] = useState({
     customerId: "gopuff",
     customerName: "Gopuff",
@@ -519,14 +521,22 @@ const TransportationCommandPanel: React.FC = () => {
     }
   }
 
-  async function handleBidDecision(bidId: string, decision: "SHORTLISTED" | "AWARDED" | "REJECTED") {
+  async function handleBidDecision(
+    bidId: string,
+    decision: "SHORTLISTED" | "AWARDED" | "REJECTED",
+    options?: { overrideReadiness?: boolean }
+  ) {
     try {
       if (decision === "AWARDED" && selectedLoad) {
         const readinessResult = await fetchDispatchReadiness(selectedLoad.loadId, bidId);
         const readiness = readinessResult.readiness as DispatchReadiness | undefined;
         if (readiness) setDispatchReadiness(readiness);
-        if (readiness?.status === "HOLD") {
+        if (readiness?.status === "HOLD" && !options?.overrideReadiness) {
           setActionStatus("Award held by dispatch readiness. Route readiness review before carrier commitment.");
+          return;
+        }
+        if (readiness?.status === "HOLD" && readinessOverrideReason.trim().length < 12) {
+          setActionStatus("Override requires a reason of at least 12 characters.");
           return;
         }
         if (readiness?.status === "READY_WITH_REVIEW") {
@@ -538,10 +548,21 @@ const TransportationCommandPanel: React.FC = () => {
       await decideLoadBoardBid(bidId, {
         decision,
         actor: "operator",
-        evidence: ["operator decision from Transportation Command"],
+        actorRole: options?.overrideReadiness ? readinessOverrideRole : undefined,
+        overrideReadiness: options?.overrideReadiness,
+        overrideReason: options?.overrideReadiness ? readinessOverrideReason.trim() : undefined,
+        evidence: [
+          "operator decision from Transportation Command",
+          ...(options?.overrideReadiness ? [`Override reason: ${readinessOverrideReason.trim()}`] : []),
+        ],
       });
       await refreshTransportationData(selectedLoad?.loadId);
-      setActionStatus(`Bid marked ${decision.toLowerCase().replaceAll("_", " ")}.`);
+      if (options?.overrideReadiness) setReadinessOverrideReason("");
+      setActionStatus(
+        options?.overrideReadiness
+          ? `Bid marked ${decision.toLowerCase().replaceAll("_", " ")} with governed override.`
+          : `Bid marked ${decision.toLowerCase().replaceAll("_", " ")}.`
+      );
     } catch (err) {
       setActionStatus(err instanceof Error ? err.message : "Bid decision failed");
     }
@@ -649,7 +670,8 @@ const TransportationCommandPanel: React.FC = () => {
   async function handleShipmentProgress(
     state: string,
     stop?: ShipmentStop,
-    timestampField?: "arrivedAt" | "loadedUnloadedAt" | "departedAt"
+    timestampField?: "arrivedAt" | "loadedUnloadedAt" | "departedAt",
+    options?: { overrideReadiness?: boolean }
   ) {
     if (!selectedShipment) return;
 
@@ -658,8 +680,12 @@ const TransportationCommandPanel: React.FC = () => {
         const readinessResult = await fetchDispatchReadiness(selectedLoad.loadId, selectedBid?.bidId);
         const readiness = readinessResult.readiness as DispatchReadiness | undefined;
         if (readiness) setDispatchReadiness(readiness);
-        if (readiness?.status === "HOLD") {
+        if (readiness?.status === "HOLD" && !options?.overrideReadiness) {
           setActionStatus("Dispatch held by readiness controls. Route readiness review before tender movement.");
+          return;
+        }
+        if (readiness?.status === "HOLD" && readinessOverrideReason.trim().length < 12) {
+          setActionStatus("Override requires a reason of at least 12 characters.");
           return;
         }
       }
@@ -672,9 +698,13 @@ const TransportationCommandPanel: React.FC = () => {
         stopStatus,
         timestampField,
         actor: "operator",
+        actorRole: options?.overrideReadiness ? readinessOverrideRole : undefined,
+        overrideReadiness: options?.overrideReadiness,
+        overrideReason: options?.overrideReadiness ? readinessOverrideReason.trim() : undefined,
         evidence: [
           `Operator updated shipment state to ${state}`,
           stop ? `Stop ${stop.sequence} ${stop.type} ${stopStatus}` : "Shipment header update",
+          ...(options?.overrideReadiness ? [`Override reason: ${readinessOverrideReason.trim()}`] : []),
         ],
       });
 
@@ -684,6 +714,10 @@ const TransportationCommandPanel: React.FC = () => {
       setWorkflowEvents((current) => [result.event, ...current]);
       if (result.governanceSignal) {
         setSignals((current) => [result.governanceSignal, ...current]);
+      }
+      if (result.overrideEvent) {
+        setWorkflowEvents((current) => [result.overrideEvent, ...current]);
+        setReadinessOverrideReason("");
       }
       setActionStatus(
         result.governanceSignal
@@ -1142,6 +1176,60 @@ const TransportationCommandPanel: React.FC = () => {
                       Route Readiness Review
                     </button>
                   </div>
+                  {dispatchReadiness?.status === "HOLD" && (
+                    <div className="readiness-override-box">
+                      <div className="transport-panel-header compact">
+                        <div>
+                          <p className="transport-eyebrow">Authorized Exception</p>
+                          <h4>Override With Reason</h4>
+                        </div>
+                      </div>
+                      <div className="transport-form-grid">
+                        <label>
+                          Role
+                          <select
+                            value={readinessOverrideRole}
+                            onChange={(event) => setReadinessOverrideRole(event.target.value)}
+                          >
+                            <option value="OPERATIONS_MANAGER">Operations Manager</option>
+                            <option value="ENTERPRISE_OPERATOR">Enterprise Operator</option>
+                            <option value="ADMIN">Admin</option>
+                          </select>
+                        </label>
+                        <label className="override-reason-field">
+                          Reason
+                          <textarea
+                            rows={3}
+                            value={readinessOverrideReason}
+                            placeholder="Explain why this hold can be overridden."
+                            onChange={(event) => setReadinessOverrideReason(event.target.value)}
+                          />
+                        </label>
+                      </div>
+                      <div className="ops-action-row">
+                        {selectedBid && (
+                          <button
+                            className="btn btn-warning btn-sm"
+                            type="button"
+                            onClick={() => handleBidDecision(selectedBid.bidId, "AWARDED", { overrideReadiness: true })}
+                            disabled={readinessOverrideReason.trim().length < 12}
+                          >
+                            Override Award
+                          </button>
+                        )}
+                        {selectedShipment && (
+                          <button
+                            className="btn btn-warning btn-sm"
+                            type="button"
+                            onClick={() => handleShipmentProgress("DISPATCHED", undefined, undefined, { overrideReadiness: true })}
+                            disabled={readinessOverrideReason.trim().length < 12}
+                          >
+                            Override Dispatch
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  )}
                   {dispatchReadiness?.evidence?.[0] && <p className="ops-note">{dispatchReadiness.evidence[0]}</p>}
                 </div>
 

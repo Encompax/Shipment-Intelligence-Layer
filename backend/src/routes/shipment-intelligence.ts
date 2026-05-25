@@ -19,7 +19,14 @@ import {
   listWorkflowEvents,
   seedWorkflowEvents,
 } from "../services/shipmentIntelligence/workflowEventService";
-import { BidState, BrokerageLoadState, SilCarrierProvider, SilGovernanceSignalDraft, SilSeverity } from "../services/shipmentIntelligence/types";
+import {
+  BidState,
+  BrokerageLoadState,
+  SilCarrierProvider,
+  SilGovernanceSignalDraft,
+  SilSeverity,
+  SilWorkflowEvent,
+} from "../services/shipmentIntelligence/types";
 import {
   createSilBid,
   createSilLeanRecord,
@@ -58,6 +65,23 @@ export function registerShipmentIntelligenceRoutes(app: Express) {
 
   const requestWorkspaceId = (req: Request) =>
     (req.query.workspaceId as string | undefined) ?? (req.body?.workspaceId as string | undefined);
+
+  const readinessOverrideError = (body: Record<string, unknown> | undefined) => {
+    if (!body?.overrideReadiness) return null;
+    const actorRole = String(body.actorRole ?? "").toUpperCase();
+    const reason = String(body.overrideReason ?? "").trim();
+    const evidence = Array.isArray(body.evidence) ? body.evidence.filter(Boolean) : [];
+    if (!["ADMIN", "OPERATIONS_MANAGER", "ENTERPRISE_OPERATOR"].includes(actorRole)) {
+      return "Dispatch readiness override requires ADMIN, OPERATIONS_MANAGER, or ENTERPRISE_OPERATOR actorRole.";
+    }
+    if (reason.length < 12) {
+      return "Dispatch readiness override requires a reason of at least 12 characters.";
+    }
+    if (evidence.length === 0) {
+      return "Dispatch readiness override requires at least one evidence entry.";
+    }
+    return null;
+  };
 
   const findLaneForLoad = async (load: Awaited<ReturnType<typeof listSilLoads>>[number]) => {
     const lanes = await listSilLanes({ workspaceId: load.workspaceId });
@@ -229,7 +253,9 @@ export function registerShipmentIntelligenceRoutes(app: Express) {
 
   router.patch("/shipments/:shipmentId/progress", async (req: Request, res: Response) => {
     const workspaceId = requestWorkspaceId(req);
-    if (req.body?.state === "DISPATCHED" && !req.body?.overrideReadiness) {
+    let dispatchReadiness = null as ReturnType<typeof buildDispatchReadiness> | null;
+    let dispatchOverrideGovernanceSignal = null as SilGovernanceSignalDraft | null;
+    if (req.body?.state === "DISPATCHED") {
       const [shipments, loads, postings, bids, carriers, lanes] = await Promise.all([
         listSilShipments({ workspaceId }),
         listSilLoads({ workspaceId }),
@@ -255,15 +281,20 @@ export function registerShipmentIntelligenceRoutes(app: Express) {
             item.mode === load.mode &&
             item.equipmentType === load.equipmentType
         );
-        const readiness = buildDispatchReadiness({ load, bid, carrier, lane, posting, shipment });
-        if (readiness.status === "HOLD") {
+        dispatchReadiness = buildDispatchReadiness({ load, bid, carrier, lane, posting, shipment });
+        if (dispatchReadiness.status === "HOLD" && !req.body?.overrideReadiness) {
           return res.status(409).json({
             error: "Dispatch readiness is HOLD. Route readiness review before dispatch.",
-            readiness,
+            readiness: dispatchReadiness,
           });
         }
-        if (readiness.status === "READY_WITH_REVIEW" && readiness.governanceSignal) {
-          await persistSilGovernanceSignal(readiness.governanceSignal, "READY_FOR_ENCOMPAX");
+        if (dispatchReadiness.status === "HOLD" && req.body?.overrideReadiness) {
+          const overrideError = readinessOverrideError(req.body);
+          if (overrideError) return res.status(403).json({ error: overrideError, readiness: dispatchReadiness });
+        }
+        if (dispatchReadiness.governanceSignal) {
+          await persistSilGovernanceSignal(dispatchReadiness.governanceSignal, "READY_FOR_ENCOMPAX");
+          dispatchOverrideGovernanceSignal = dispatchReadiness.governanceSignal;
         }
       }
     }
@@ -274,7 +305,35 @@ export function registerShipmentIntelligenceRoutes(app: Express) {
       workspaceId,
     });
     if (!result) return res.status(404).json({ error: "Shipment not found" });
-    res.json(result);
+
+    let overrideEvent: SilWorkflowEvent | null = null;
+    if (req.body?.state === "DISPATCHED" && req.body?.overrideReadiness && dispatchReadiness) {
+      overrideEvent = await persistSilWorkflowEvent({
+        eventId: `sil_evt_dispatch_override_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        eventType: "DISPATCH_READINESS_CHECKED",
+        occurredAt: new Date().toISOString(),
+        actor: req.body?.actor ?? "operator",
+        source: "USER",
+        workspaceId,
+        loadId: dispatchReadiness.loadId,
+        shipmentId: req.params.shipmentId,
+        bidId: dispatchReadiness.bidId,
+        carrierId: dispatchReadiness.carrierId,
+        summary: `Authorized dispatch readiness override recorded for ${dispatchReadiness.loadId}.`,
+        evidence: [
+          `Override actor role: ${req.body.actorRole}`,
+          `Override reason: ${req.body.overrideReason}`,
+          `Readiness status: ${dispatchReadiness.status}`,
+          `Readiness score: ${dispatchReadiness.score}`,
+          ...dispatchReadiness.blockingReasons.map((reason) => `Blocking: ${reason}`),
+          ...dispatchReadiness.reviewReasons.map((reason) => `Review: ${reason}`),
+          ...(Array.isArray(req.body?.evidence) ? req.body.evidence : []),
+        ],
+        governanceSignal: dispatchOverrideGovernanceSignal ?? undefined,
+      });
+    }
+
+    res.json({ ...result, readiness: dispatchReadiness, overrideEvent });
   });
 
   router.get("/carriers", async (req: Request, res: Response) => {
@@ -500,6 +559,10 @@ export function registerShipmentIntelligenceRoutes(app: Express) {
         readiness,
       });
     }
+    if (readiness?.status === "HOLD" && req.body?.overrideReadiness) {
+      const overrideError = readinessOverrideError(req.body);
+      if (overrideError) return res.status(403).json({ error: overrideError, readiness });
+    }
     const updatedBid = await updateSilBidStatus(bid.bidId, decision);
     const governanceSignal =
       decision === "AWARDED" && (readiness?.governanceSignal || score.governanceSignalRequired)
@@ -533,7 +596,35 @@ export function registerShipmentIntelligenceRoutes(app: Express) {
       await updateSilLoadStatus(load.loadId, "CARRIER_SELECTED");
     }
 
-    res.json({ bid: updatedBid, score, readiness, governanceSignal, event });
+    const overrideEvent =
+      decision === "AWARDED" && req.body?.overrideReadiness && readiness
+        ? await persistSilWorkflowEvent({
+            eventId: `sil_evt_award_override_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+            eventType: "DISPATCH_READINESS_CHECKED",
+            occurredAt: new Date().toISOString(),
+            actor: req.body?.actor ?? "operator",
+            source: "USER",
+            workspaceId: bid.workspaceId,
+            loadId: bid.loadId,
+            bidId: bid.bidId,
+            carrierId: bid.carrierId,
+            previousState: bid.status,
+            nextState: decision,
+            summary: `Authorized award override recorded for ${bid.loadId}.`,
+            evidence: [
+              `Override actor role: ${req.body.actorRole}`,
+              `Override reason: ${req.body.overrideReason}`,
+              `Readiness status: ${readiness.status}`,
+              `Readiness score: ${readiness.score}`,
+              ...readiness.blockingReasons.map((reason) => `Blocking: ${reason}`),
+              ...readiness.reviewReasons.map((reason) => `Review: ${reason}`),
+              ...(Array.isArray(req.body?.evidence) ? req.body.evidence : []),
+            ],
+            governanceSignal: governanceSignal ?? undefined,
+          })
+        : null;
+
+    res.json({ bid: updatedBid, score, readiness, governanceSignal, event, overrideEvent });
   });
 
   router.get("/matching/recommendations", async (req: Request, res: Response) => {
