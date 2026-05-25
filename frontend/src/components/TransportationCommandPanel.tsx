@@ -4,6 +4,7 @@ import {
   createLoadBoardPosting,
   createCarrierInvitePacket,
   createDispatchReadinessReview,
+  createShipmentFromAward,
   createTransportationCarrier,
   createTransportationLoad,
   decideLoadBoardBid,
@@ -905,6 +906,25 @@ const TransportationCommandPanel: React.FC = () => {
       setActionStatus("Tender response recorded.");
     } catch (err) {
       setActionStatus(err instanceof Error ? err.message : "Tender response failed");
+    }
+  }
+
+  async function handleCreateShipmentFromAward() {
+    if (!selectedBid) return;
+
+    try {
+      setActionStatus("Creating shipment execution record from award...");
+      const result = await createShipmentFromAward(selectedBid.bidId, { actor: "operator" });
+      setShipments((current) => [
+        result.shipment,
+        ...current.filter((shipment) => shipment.shipmentId !== result.shipment.shipmentId),
+      ]);
+      setWorkflowEvents((current) => [result.event, ...current]);
+      const calendarResult = await fetchAppointmentCalendar();
+      setAppointmentCalendar(calendarResult.appointments ?? []);
+      setActionStatus("Shipment execution record created.");
+    } catch (err) {
+      setActionStatus(err instanceof Error ? err.message : "Shipment creation failed");
     }
   }
 
@@ -1959,7 +1979,16 @@ const TransportationCommandPanel: React.FC = () => {
                       </div>
                     </>
                   ) : (
-                    <p className="ops-note">Award a carrier or create a shipment to begin execution tracking.</p>
+                    <>
+                      <p className="ops-note">Award a carrier or create a shipment to begin execution tracking.</p>
+                      {selectedBid?.status === "AWARDED" && (
+                        <div className="ops-action-row">
+                          <button className="btn btn-primary btn-sm" type="button" onClick={handleCreateShipmentFromAward}>
+                            Create Shipment
+                          </button>
+                        </div>
+                      )}
+                    </>
                   )}
                 </div>
 

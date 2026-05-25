@@ -36,6 +36,7 @@ import {
   createSilBid,
   createSilLeanRecord,
   createSilLoad,
+  createSilShipmentFromAward,
   createSilPosting,
   expireSilTenderWindow,
   getSilWorkspace,
@@ -261,6 +262,29 @@ export function registerShipmentIntelligenceRoutes(app: Express) {
   router.get("/shipments", async (req: Request, res: Response) => {
     const shipments = await listSilShipments({ workspaceId: requestWorkspaceId(req) });
     res.json({ count: shipments.length, shipments });
+  });
+
+  router.post("/shipments/from-award/:bidId", async (req: Request, res: Response) => {
+    const workspaceId = requestWorkspaceId(req);
+    const [bids, loads, carriers] = await Promise.all([
+      listSilBids({ workspaceId }),
+      listSilLoads({ workspaceId }),
+      listSilCarriers({ workspaceId }),
+    ]);
+    const bid = bids.find((item) => item.bidId === req.params.bidId);
+    if (!bid) return res.status(404).json({ error: "Bid not found" });
+    if (bid.status !== "AWARDED") return res.status(409).json({ error: "Shipment can only be created from an awarded bid." });
+    const load = loads.find((item) => item.loadId === bid.loadId);
+    if (!load) return res.status(404).json({ error: "Load not found for bid" });
+    const carrier = carriers.find((item) => item.carrierId === bid.carrierId);
+
+    const result = await createSilShipmentFromAward({
+      load,
+      bid,
+      carrier,
+      actor: req.body?.actor,
+    });
+    res.status(201).json(result);
   });
 
   router.get("/appointments/calendar", async (req: Request, res: Response) => {
@@ -732,8 +756,15 @@ export function registerShipmentIntelligenceRoutes(app: Express) {
       governanceSignal: governanceSignal ?? undefined,
     });
 
-    if (decision === "AWARDED") {
+    let shipmentResult: Awaited<ReturnType<typeof createSilShipmentFromAward>> | null = null;
+    if (decision === "AWARDED" && updatedBid) {
       await updateSilLoadStatus(load.loadId, "CARRIER_SELECTED");
+      shipmentResult = await createSilShipmentFromAward({
+        load,
+        bid: updatedBid,
+        carrier,
+        actor: req.body?.actor,
+      });
     }
 
     const overrideEvent =
@@ -764,7 +795,7 @@ export function registerShipmentIntelligenceRoutes(app: Express) {
           })
         : null;
 
-    res.json({ bid: updatedBid, score, readiness, governanceSignal, event, overrideEvent });
+    res.json({ bid: updatedBid, score, readiness, governanceSignal, event, overrideEvent, shipmentResult });
   });
 
   router.get("/matching/recommendations", async (req: Request, res: Response) => {

@@ -140,6 +140,19 @@ export async function fetchTransportationShipments() {
   return fetchShipmentIntelligence("/shipments");
 }
 
+export async function createShipmentFromAward(bidId: string, payload: Record<string, unknown>) {
+  const res = await fetch(`${SHIPMENT_INTELLIGENCE_BASE}/shipments/from-award/${encodeURIComponent(bidId)}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    throw new Error(body?.error ?? `Create shipment from award error: ${res.status}`);
+  }
+  return res.json();
+}
+
 export async function fetchAppointmentCalendar(filters?: { from?: string; to?: string }) {
   const params = new URLSearchParams();
   if (filters?.from) params.set("from", filters.from);

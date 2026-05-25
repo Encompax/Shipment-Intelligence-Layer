@@ -465,6 +465,104 @@ export async function listSilShipments(filters?: { workspaceId?: string }) {
   return records.map((record) => withWorkspace(fromRecord<SilShipment>(record))).filter((record) => matchesWorkspace(record, filters?.workspaceId));
 }
 
+export async function createSilShipmentFromAward(input: {
+  load: SilLoad;
+  bid: SilBid;
+  carrier?: SilCarrierProfile;
+  actor?: string;
+}) {
+  await seedSilPersistence();
+  const workspaceId = input.load.workspaceId ?? input.bid.workspaceId ?? DEFAULT_WORKSPACE_ID;
+  const existing = (await listSilShipments({ workspaceId })).find((shipment) => shipment.loadId === input.load.loadId);
+  const shipmentId = existing?.shipmentId ?? `shipment-${normalizeIdPart(input.load.loadId, "load")}`;
+  const carrierName = input.carrier?.carrierName ?? input.bid.carrierId;
+  const shipment: SilShipment = withWorkspace({
+    ...(existing ?? {}),
+    workspaceId,
+    shipmentId,
+    loadId: input.load.loadId,
+    carrierId: input.bid.carrierId,
+    carrierName,
+    state: existing?.state ?? "BOOKED",
+    stops: existing?.stops?.length
+      ? existing.stops
+      : [
+          {
+            stopId: `${shipmentId}-pickup`,
+            shipmentId,
+            sequence: 1,
+            type: "PICKUP",
+            location: input.load.origin,
+            appointmentStart: input.load.pickupWindowStart,
+            appointmentEnd: input.load.pickupWindowEnd,
+            appointmentStatus: input.load.pickupWindowStart ? "REQUESTED" : undefined,
+            status: "PENDING",
+          },
+          {
+            stopId: `${shipmentId}-delivery`,
+            shipmentId,
+            sequence: 2,
+            type: "DELIVERY",
+            location: input.load.destination,
+            appointmentStart: input.load.deliveryWindowStart,
+            appointmentEnd: input.load.deliveryWindowEnd,
+            appointmentStatus: input.load.deliveryWindowStart ? "REQUESTED" : undefined,
+            status: "PENDING",
+          },
+        ],
+    cost:
+      input.bid.totalCost ??
+      input.bid.bidRate +
+        (input.bid.fuelSurcharge ?? 0) +
+        (input.bid.accessorialTotal ?? 0) +
+        (input.bid.lumperFee ?? 0) +
+        (input.bid.detentionEstimate ?? 0),
+    estimatedDelivery: input.load.deliveryWindowEnd,
+    source: existing?.source ?? "manual",
+  });
+
+  await prisma.silShipmentRecord.upsert({
+    where: { shipmentId },
+    update: {
+      loadId: shipment.loadId,
+      state: shipment.state,
+      source: shipment.source,
+      data: json(shipment),
+    },
+    create: {
+      shipmentId: shipment.shipmentId,
+      loadId: shipment.loadId,
+      state: shipment.state,
+      source: shipment.source,
+      data: json(shipment),
+    },
+  });
+
+  const event = await persistSilWorkflowEvent({
+    eventId: makeId("sil_evt_shipment_created"),
+    eventType: "SHIPMENT_CREATED",
+    occurredAt: new Date().toISOString(),
+    actor: input.actor ?? "operator",
+    source: "USER",
+    workspaceId,
+    loadId: input.load.loadId,
+    shipmentId: shipment.shipmentId,
+    bidId: input.bid.bidId,
+    carrierId: input.bid.carrierId,
+    nextState: shipment.state,
+    shipmentState: shipment.state,
+    summary: `Shipment execution record created for ${input.load.loadId}.`,
+    evidence: [
+      `Carrier: ${carrierName}`,
+      `Bid: ${input.bid.bidId}`,
+      `Cost: ${shipment.cost ?? "not set"}`,
+      `Stops: ${shipment.stops.length}`,
+    ],
+  });
+
+  return { shipment, event };
+}
+
 export async function listSilAppointmentCalendar(filters?: { workspaceId?: string; from?: string; to?: string }) {
   const shipments = await listSilShipments({ workspaceId: filters?.workspaceId });
   const fromTime = filters?.from ? new Date(filters.from).getTime() : null;

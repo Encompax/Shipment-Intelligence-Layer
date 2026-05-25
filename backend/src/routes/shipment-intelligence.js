@@ -183,6 +183,31 @@ function registerShipmentIntelligenceRoutes(app) {
         const shipments = await (0, silPersistenceService_1.listSilShipments)({ workspaceId: requestWorkspaceId(req) });
         res.json({ count: shipments.length, shipments });
     });
+    router.post("/shipments/from-award/:bidId", async (req, res) => {
+        var _a;
+        const workspaceId = requestWorkspaceId(req);
+        const [bids, loads, carriers] = await Promise.all([
+            (0, silPersistenceService_1.listSilBids)({ workspaceId }),
+            (0, silPersistenceService_1.listSilLoads)({ workspaceId }),
+            (0, silPersistenceService_1.listSilCarriers)({ workspaceId }),
+        ]);
+        const bid = bids.find((item) => item.bidId === req.params.bidId);
+        if (!bid)
+            return res.status(404).json({ error: "Bid not found" });
+        if (bid.status !== "AWARDED")
+            return res.status(409).json({ error: "Shipment can only be created from an awarded bid." });
+        const load = loads.find((item) => item.loadId === bid.loadId);
+        if (!load)
+            return res.status(404).json({ error: "Load not found for bid" });
+        const carrier = carriers.find((item) => item.carrierId === bid.carrierId);
+        const result = await (0, silPersistenceService_1.createSilShipmentFromAward)({
+            load,
+            bid,
+            carrier,
+            actor: (_a = req.body) === null || _a === void 0 ? void 0 : _a.actor,
+        });
+        res.status(201).json(result);
+    });
     router.get("/appointments/calendar", async (req, res) => {
         const appointments = await (0, silPersistenceService_1.listSilAppointmentCalendar)({
             workspaceId: requestWorkspaceId(req),
@@ -562,7 +587,7 @@ function registerShipmentIntelligenceRoutes(app) {
         res.json(result);
     });
     router.post("/load-board/bids/:bidId/decision", async (req, res) => {
-        var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l;
+        var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m;
         const decision = (_a = req.body) === null || _a === void 0 ? void 0 : _a.decision;
         if (!decision || !["SHORTLISTED", "REJECTED", "AWARDED", "WITHDRAWN"].includes(decision)) {
             return res.status(400).json({ error: "decision must be SHORTLISTED, REJECTED, AWARDED, or WITHDRAWN" });
@@ -629,15 +654,22 @@ function registerShipmentIntelligenceRoutes(app) {
             ],
             governanceSignal: governanceSignal !== null && governanceSignal !== void 0 ? governanceSignal : undefined,
         });
-        if (decision === "AWARDED") {
+        let shipmentResult = null;
+        if (decision === "AWARDED" && updatedBid) {
             await (0, silPersistenceService_1.updateSilLoadStatus)(load.loadId, "CARRIER_SELECTED");
+            shipmentResult = await (0, silPersistenceService_1.createSilShipmentFromAward)({
+                load,
+                bid: updatedBid,
+                carrier,
+                actor: (_h = req.body) === null || _h === void 0 ? void 0 : _h.actor,
+            });
         }
-        const overrideEvent = decision === "AWARDED" && ((_h = req.body) === null || _h === void 0 ? void 0 : _h.overrideReadiness) && readiness
+        const overrideEvent = decision === "AWARDED" && ((_j = req.body) === null || _j === void 0 ? void 0 : _j.overrideReadiness) && readiness
             ? await (0, silPersistenceService_1.persistSilWorkflowEvent)({
                 eventId: `sil_evt_award_override_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
                 eventType: "DISPATCH_READINESS_CHECKED",
                 occurredAt: new Date().toISOString(),
-                actor: (_k = (_j = req.body) === null || _j === void 0 ? void 0 : _j.actor) !== null && _k !== void 0 ? _k : "operator",
+                actor: (_l = (_k = req.body) === null || _k === void 0 ? void 0 : _k.actor) !== null && _l !== void 0 ? _l : "operator",
                 source: "USER",
                 workspaceId: bid.workspaceId,
                 loadId: bid.loadId,
@@ -653,12 +685,12 @@ function registerShipmentIntelligenceRoutes(app) {
                     `Readiness score: ${readiness.score}`,
                     ...readiness.blockingReasons.map((reason) => `Blocking: ${reason}`),
                     ...readiness.reviewReasons.map((reason) => `Review: ${reason}`),
-                    ...(Array.isArray((_l = req.body) === null || _l === void 0 ? void 0 : _l.evidence) ? req.body.evidence : []),
+                    ...(Array.isArray((_m = req.body) === null || _m === void 0 ? void 0 : _m.evidence) ? req.body.evidence : []),
                 ],
                 governanceSignal: governanceSignal !== null && governanceSignal !== void 0 ? governanceSignal : undefined,
             })
             : null;
-        res.json({ bid: updatedBid, score, readiness, governanceSignal, event, overrideEvent });
+        res.json({ bid: updatedBid, score, readiness, governanceSignal, event, overrideEvent, shipmentResult });
     });
     router.get("/matching/recommendations", async (req, res) => {
         const workspaceId = requestWorkspaceId(req);

@@ -6,6 +6,7 @@ exports.getSilLoad = getSilLoad;
 exports.updateSilLoadStatus = updateSilLoadStatus;
 exports.createSilLoad = createSilLoad;
 exports.listSilShipments = listSilShipments;
+exports.createSilShipmentFromAward = createSilShipmentFromAward;
 exports.listSilAppointmentCalendar = listSilAppointmentCalendar;
 exports.updateSilStopAppointment = updateSilStopAppointment;
 exports.listSilShipmentDocuments = listSilShipmentDocuments;
@@ -392,6 +393,94 @@ async function listSilShipments(filters) {
     await seedSilPersistence();
     const records = await prisma_1.prisma.silShipmentRecord.findMany({ orderBy: { updatedAt: "desc" } });
     return records.map((record) => withWorkspace(fromRecord(record))).filter((record) => matchesWorkspace(record, filters === null || filters === void 0 ? void 0 : filters.workspaceId));
+}
+async function createSilShipmentFromAward(input) {
+    var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q;
+    await seedSilPersistence();
+    const workspaceId = (_b = (_a = input.load.workspaceId) !== null && _a !== void 0 ? _a : input.bid.workspaceId) !== null && _b !== void 0 ? _b : DEFAULT_WORKSPACE_ID;
+    const existing = (await listSilShipments({ workspaceId })).find((shipment) => shipment.loadId === input.load.loadId);
+    const shipmentId = (_c = existing === null || existing === void 0 ? void 0 : existing.shipmentId) !== null && _c !== void 0 ? _c : `shipment-${normalizeIdPart(input.load.loadId, "load")}`;
+    const carrierName = (_e = (_d = input.carrier) === null || _d === void 0 ? void 0 : _d.carrierName) !== null && _e !== void 0 ? _e : input.bid.carrierId;
+    const shipment = withWorkspace({
+        ...(existing !== null && existing !== void 0 ? existing : {}),
+        workspaceId,
+        shipmentId,
+        loadId: input.load.loadId,
+        carrierId: input.bid.carrierId,
+        carrierName,
+        state: (_f = existing === null || existing === void 0 ? void 0 : existing.state) !== null && _f !== void 0 ? _f : "BOOKED",
+        stops: ((_g = existing === null || existing === void 0 ? void 0 : existing.stops) === null || _g === void 0 ? void 0 : _g.length)
+            ? existing.stops
+            : [
+                {
+                    stopId: `${shipmentId}-pickup`,
+                    shipmentId,
+                    sequence: 1,
+                    type: "PICKUP",
+                    location: input.load.origin,
+                    appointmentStart: input.load.pickupWindowStart,
+                    appointmentEnd: input.load.pickupWindowEnd,
+                    appointmentStatus: input.load.pickupWindowStart ? "REQUESTED" : undefined,
+                    status: "PENDING",
+                },
+                {
+                    stopId: `${shipmentId}-delivery`,
+                    shipmentId,
+                    sequence: 2,
+                    type: "DELIVERY",
+                    location: input.load.destination,
+                    appointmentStart: input.load.deliveryWindowStart,
+                    appointmentEnd: input.load.deliveryWindowEnd,
+                    appointmentStatus: input.load.deliveryWindowStart ? "REQUESTED" : undefined,
+                    status: "PENDING",
+                },
+            ],
+        cost: (_h = input.bid.totalCost) !== null && _h !== void 0 ? _h : input.bid.bidRate +
+            ((_j = input.bid.fuelSurcharge) !== null && _j !== void 0 ? _j : 0) +
+            ((_k = input.bid.accessorialTotal) !== null && _k !== void 0 ? _k : 0) +
+            ((_l = input.bid.lumperFee) !== null && _l !== void 0 ? _l : 0) +
+            ((_m = input.bid.detentionEstimate) !== null && _m !== void 0 ? _m : 0),
+        estimatedDelivery: input.load.deliveryWindowEnd,
+        source: (_o = existing === null || existing === void 0 ? void 0 : existing.source) !== null && _o !== void 0 ? _o : "manual",
+    });
+    await prisma_1.prisma.silShipmentRecord.upsert({
+        where: { shipmentId },
+        update: {
+            loadId: shipment.loadId,
+            state: shipment.state,
+            source: shipment.source,
+            data: json(shipment),
+        },
+        create: {
+            shipmentId: shipment.shipmentId,
+            loadId: shipment.loadId,
+            state: shipment.state,
+            source: shipment.source,
+            data: json(shipment),
+        },
+    });
+    const event = await persistSilWorkflowEvent({
+        eventId: makeId("sil_evt_shipment_created"),
+        eventType: "SHIPMENT_CREATED",
+        occurredAt: new Date().toISOString(),
+        actor: (_p = input.actor) !== null && _p !== void 0 ? _p : "operator",
+        source: "USER",
+        workspaceId,
+        loadId: input.load.loadId,
+        shipmentId: shipment.shipmentId,
+        bidId: input.bid.bidId,
+        carrierId: input.bid.carrierId,
+        nextState: shipment.state,
+        shipmentState: shipment.state,
+        summary: `Shipment execution record created for ${input.load.loadId}.`,
+        evidence: [
+            `Carrier: ${carrierName}`,
+            `Bid: ${input.bid.bidId}`,
+            `Cost: ${(_q = shipment.cost) !== null && _q !== void 0 ? _q : "not set"}`,
+            `Stops: ${shipment.stops.length}`,
+        ],
+    });
+    return { shipment, event };
 }
 async function listSilAppointmentCalendar(filters) {
     const shipments = await listSilShipments({ workspaceId: filters === null || filters === void 0 ? void 0 : filters.workspaceId });
