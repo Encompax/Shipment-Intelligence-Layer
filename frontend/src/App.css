@@ -1080,6 +1080,85 @@ td {
   font-size: var(--font-size-xs);
 }
 
+.tender-packet-panel {
+  display: grid;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+  padding: var(--space-4);
+  border: 1px solid rgba(15, 118, 110, 0.2);
+  border-radius: var(--radius-lg);
+  background:
+    linear-gradient(135deg, rgba(240, 253, 250, 0.82), rgba(255, 255, 255, 0.94));
+}
+
+.tender-packet-panel > .transport-panel-header > span {
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-full);
+  background: rgba(15, 118, 110, 0.1);
+  color: #0f766e;
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+}
+
+.tender-packet-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-2);
+}
+
+.tender-packet-grid > div,
+.tender-response-list article {
+  display: grid;
+  gap: var(--space-1);
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: rgba(255, 255, 255, 0.78);
+}
+
+.tender-packet-grid span,
+.tender-packet-grid small,
+.tender-response-list small {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+}
+
+.tender-packet-grid span {
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.tender-packet-grid strong {
+  color: var(--color-text-primary);
+  font-size: var(--font-size-lg);
+}
+
+.tender-response-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: var(--space-2);
+}
+
+.tender-response-list article > div {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.tender-response-list article > div span {
+  color: #0f766e;
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+}
+
+.tender-response-list p {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+}
+
 .transport-row-actions {
   display: flex;
   flex-wrap: wrap;

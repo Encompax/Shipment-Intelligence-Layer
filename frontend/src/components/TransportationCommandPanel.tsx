@@ -103,6 +103,8 @@ type Posting = {
   status: string;
   visibility?: string;
   invitedCarrierIds?: string[];
+  invitedAt?: string;
+  expiresAt?: string;
   bidCount: number;
   bestBidRate?: number;
   inviteCommunications?: {
@@ -270,6 +272,7 @@ const money = (value?: number) =>
     ? new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(value)
     : "--";
 
+const shortDateTime = (value?: string) => (value ? new Date(value).toLocaleString() : "--");
 const shortLoadId = (loadId: string) => loadId.replace("load-", "");
 const toDateTimeInput = (value?: string) => (value ? value.slice(0, 16) : "");
 const fromDateTimeInput = (value?: string) => (value ? new Date(value).toISOString() : undefined);
@@ -445,6 +448,12 @@ const TransportationCommandPanel: React.FC = () => {
   );
 
   const selectedBid = selectedBids[0] ?? null;
+  const tenderResponseCount = selectedBids.reduce((count, bid) => count + (bid.tenderResponses?.length ?? 0), 0);
+  const latestInvite = selectedPosting?.inviteCommunications?.at(-1);
+  const latestTenderResponse = selectedBids
+    .flatMap((bid) => (bid.tenderResponses ?? []).map((response) => ({ ...response, bidId: bid.bidId, carrierId: bid.carrierId })))
+    .sort((left, right) => new Date(right.respondedAt).getTime() - new Date(left.respondedAt).getTime())[0];
+  const postingExpired = Boolean(selectedPosting?.expiresAt && new Date(selectedPosting.expiresAt).getTime() < Date.now());
   const selectedBidReadinessIsHold =
     Boolean(dispatchReadiness && selectedBid?.bidId === dispatchReadiness.bidId && dispatchReadiness.status === "HOLD");
 
@@ -1356,6 +1365,60 @@ const TransportationCommandPanel: React.FC = () => {
                     </article>
                   ))}
                   {carrierEligibility.length === 0 && <p className="ops-note">No carrier eligibility recommendations available.</p>}
+                </div>
+              </div>
+
+              <div className="tender-packet-panel">
+                <div className="transport-panel-header compact">
+                  <div>
+                    <p className="transport-eyebrow">Tender Packet</p>
+                    <h4>Invite and response trail</h4>
+                  </div>
+                  <span>{postingExpired ? "Expired" : `${tenderResponseCount} response(s)`}</span>
+                </div>
+                <div className="tender-packet-grid">
+                  <div>
+                    <span>Invite Count</span>
+                    <strong>{selectedPosting?.inviteCommunications?.length ?? 0}</strong>
+                    <small>{latestInvite ? `${latestInvite.status} via ${latestInvite.channel}` : "No invite communications sent"}</small>
+                  </div>
+                  <div>
+                    <span>Latest Invite</span>
+                    <strong>{latestInvite?.carrierId.replace("carrier-", "") ?? "--"}</strong>
+                    <small>{shortDateTime(latestInvite?.sentAt ?? selectedPosting?.invitedAt)}</small>
+                  </div>
+                  <div>
+                    <span>Response Count</span>
+                    <strong>{tenderResponseCount}</strong>
+                    <small>
+                      {latestTenderResponse
+                        ? `${latestTenderResponse.responseType.replaceAll("_", " ")} from ${latestTenderResponse.carrierId.replace("carrier-", "")}`
+                        : "Awaiting carrier response"}
+                    </small>
+                  </div>
+                  <div>
+                    <span>Posting Window</span>
+                    <strong>{postingExpired ? "Expired" : selectedPosting?.expiresAt ? "Open" : "No expiry"}</strong>
+                    <small>{selectedPosting?.expiresAt ? `Until ${shortDateTime(selectedPosting.expiresAt)}` : "Set an expiration before open bidding"}</small>
+                  </div>
+                </div>
+                <div className="tender-response-list">
+                  {selectedBids.flatMap((bid) =>
+                    (bid.tenderResponses ?? []).slice(-2).map((response) => (
+                      <article key={response.responseId}>
+                        <div>
+                          <strong>{bid.carrierId.replace("carrier-", "")}</strong>
+                          <span>{response.responseType.replaceAll("_", " ")}</span>
+                        </div>
+                        <p>{response.message ?? "Carrier response recorded."}</p>
+                        <small>
+                          {response.status} / {shortDateTime(response.respondedAt)}
+                          {response.rate ? ` / ${money(response.rate)}` : ""}
+                        </small>
+                      </article>
+                    ))
+                  )}
+                  {tenderResponseCount === 0 && <p className="ops-note">Tender responses will appear here as carriers accept, decline, counter, or request more information.</p>}
                 </div>
               </div>
 
