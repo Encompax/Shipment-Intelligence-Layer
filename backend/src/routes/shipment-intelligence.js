@@ -234,15 +234,24 @@ function registerShipmentIntelligenceRoutes(app) {
         res.json(result);
     });
     router.get("/shipments/:shipmentId/documents", async (req, res) => {
+        const workspaceId = requestWorkspaceId(req);
+        const shipments = await (0, silPersistenceService_1.listSilShipments)({ workspaceId });
+        const shipment = shipments.find((item) => item.shipmentId === req.params.shipmentId);
+        if (!shipment)
+            return res.status(404).json({ error: "Shipment not found" });
         const documents = await (0, silPersistenceService_1.listSilShipmentDocuments)({
-            workspaceId: requestWorkspaceId(req),
+            workspaceId,
             shipmentId: req.params.shipmentId,
         });
         const podPacket = documents.filter((document) => ["POD", "BOL", "LUMPER_RECEIPT", "DETENTION_EVIDENCE"].includes(document.documentType));
+        const requirements = (0, silPersistenceService_1.buildSilShipmentDocumentRequirements)(shipment, documents);
+        const documentPacketReady = requirements.every((requirement) => !requirement.required || requirement.satisfied);
         res.json({
             count: documents.length,
             podPacketCount: podPacket.length,
             podReady: documents.some((document) => document.documentType === "POD" && document.status !== "REJECTED"),
+            documentPacketReady,
+            requirements,
             documents,
         });
     });

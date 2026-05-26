@@ -253,6 +253,15 @@ type ShipmentDocument = {
   notes?: string;
 };
 
+type ShipmentDocumentRequirement = {
+  documentType: string;
+  label: string;
+  required: boolean;
+  satisfied: boolean;
+  status: "NOT_YET_REQUIRED" | "MISSING" | "UPLOADED" | "VERIFIED";
+  evidence: string;
+};
+
 type Signal = {
   signalType: string;
   severity: string;
@@ -336,6 +345,8 @@ const TransportationCommandPanel: React.FC = () => {
   const [appointmentDrafts, setAppointmentDrafts] = useState<Record<string, { start: string; end: string; dockDoor: string }>>({});
   const [shipmentDocuments, setShipmentDocuments] = useState<ShipmentDocument[]>([]);
   const [podReady, setPodReady] = useState(false);
+  const [documentPacketReady, setDocumentPacketReady] = useState(false);
+  const [documentRequirements, setDocumentRequirements] = useState<ShipmentDocumentRequirement[]>([]);
   const [documentFile, setDocumentFile] = useState<File | null>(null);
   const [documentType, setDocumentType] = useState("POD");
   const [documentNotes, setDocumentNotes] = useState("");
@@ -554,6 +565,8 @@ const TransportationCommandPanel: React.FC = () => {
       if (!selectedShipment?.shipmentId) {
         setShipmentDocuments([]);
         setPodReady(false);
+        setDocumentPacketReady(false);
+        setDocumentRequirements([]);
         return;
       }
       try {
@@ -561,10 +574,14 @@ const TransportationCommandPanel: React.FC = () => {
         if (!alive) return;
         setShipmentDocuments(result.documents ?? []);
         setPodReady(Boolean(result.podReady));
+        setDocumentPacketReady(Boolean(result.documentPacketReady));
+        setDocumentRequirements(result.requirements ?? []);
       } catch {
         if (!alive) return;
         setShipmentDocuments([]);
         setPodReady(false);
+        setDocumentPacketReady(false);
+        setDocumentRequirements([]);
       }
     }
 
@@ -1066,6 +1083,8 @@ const TransportationCommandPanel: React.FC = () => {
       const documentsResult = await fetchShipmentDocuments(selectedShipment.shipmentId);
       setShipmentDocuments(documentsResult.documents ?? []);
       setPodReady(Boolean(documentsResult.podReady));
+      setDocumentPacketReady(Boolean(documentsResult.documentPacketReady));
+      setDocumentRequirements(documentsResult.requirements ?? []);
       if (result.event) setWorkflowEvents((current) => [result.event, ...current]);
       setDocumentFile(null);
       setDocumentNotes("");
@@ -2026,11 +2045,28 @@ const TransportationCommandPanel: React.FC = () => {
 
                 <div className="ops-card document-packet-card">
                   <div className="ops-card-header">
-                    <span>POD Packet</span>
-                    <strong>{podReady ? "Ready" : "Open"}</strong>
+                    <span>Evidence Packet</span>
+                    <strong>{documentPacketReady ? "Ready" : podReady ? "POD Ready" : "Open"}</strong>
                   </div>
                   {selectedShipment ? (
                     <>
+                      <div className="document-requirement-list">
+                        {documentRequirements.map((requirement) => (
+                          <div
+                            key={requirement.documentType}
+                            className={`document-requirement ${requirement.status.toLowerCase().replace(/_/g, "-")}`}
+                          >
+                            <div>
+                              <strong>{requirement.label}</strong>
+                              <span>{requirement.evidence}</span>
+                            </div>
+                            <em>{requirement.status.replace(/_/g, " ")}</em>
+                          </div>
+                        ))}
+                        {documentRequirements.length === 0 && (
+                          <p className="ops-note">Document requirements load with the shipment evidence packet.</p>
+                        )}
+                      </div>
                       <div className="document-upload-grid">
                         <select value={documentType} onChange={(event) => setDocumentType(event.target.value)}>
                           <option value="POD">POD</option>

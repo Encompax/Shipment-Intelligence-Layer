@@ -231,6 +231,16 @@ export type SilShipmentDocument = {
   notes?: string;
 };
 
+export type SilShipmentDocumentRequirement = {
+  documentType: SilDocumentType;
+  label: string;
+  requiredFor: ShipmentState[];
+  required: boolean;
+  satisfied: boolean;
+  status: "NOT_YET_REQUIRED" | "MISSING" | "UPLOADED" | "VERIFIED";
+  evidence: string;
+};
+
 export type SilCarrierProfile = {
   workspaceId?: string;
   carrierId: string;

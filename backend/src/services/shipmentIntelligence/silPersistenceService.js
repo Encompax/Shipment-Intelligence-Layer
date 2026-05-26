@@ -1,5 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.buildSilShipmentDocumentRequirements = buildSilShipmentDocumentRequirements;
 exports.seedSilPersistence = seedSilPersistence;
 exports.listSilLoads = listSilLoads;
 exports.getSilLoad = getSilLoad;
@@ -61,6 +62,73 @@ const withWorkspace = (record, workspaceId = DEFAULT_WORKSPACE_ID) => {
     });
 };
 const matchesWorkspace = (record, workspaceId) => { var _a; return !workspaceId || ((_a = record.workspaceId) !== null && _a !== void 0 ? _a : DEFAULT_WORKSPACE_ID) === workspaceId; };
+const activeDocument = (documents, documentType) => documents.find((document) => document.documentType === documentType && document.status !== "REJECTED");
+const shipmentHasReached = (state, requiredFor) => requiredFor.includes(state);
+function buildSilShipmentDocumentRequirements(shipment, documents) {
+    const state = shipment.state;
+    const hasException = state === "EXCEPTION" || Boolean(shipment.exception);
+    const definitions = [
+        {
+            documentType: "RATE_CONFIRMATION",
+            label: "Rate confirmation",
+            requiredFor: ["BOOKED", "DISPATCHED", "AT_PICKUP", "IN_TRANSIT", "AT_DELIVERY", "DELIVERED", "EXCEPTION"],
+            evidenceWhenMissing: "Attach the agreed rate confirmation before dispatch or invoice controls are trusted.",
+            evidenceWhenSatisfied: "Rate agreement is attached to the shipment packet.",
+        },
+        {
+            documentType: "BOL",
+            label: "Bill of lading",
+            requiredFor: ["DISPATCHED", "AT_PICKUP", "IN_TRANSIT", "AT_DELIVERY", "DELIVERED", "EXCEPTION"],
+            evidenceWhenMissing: "Attach the BOL once the shipment is dispatched or picked up.",
+            evidenceWhenSatisfied: "BOL is attached for pickup and transit evidence.",
+        },
+        {
+            documentType: "POD",
+            label: "Proof of delivery",
+            requiredFor: ["DELIVERED"],
+            evidenceWhenMissing: "Attach POD before treating the delivery packet as complete.",
+            evidenceWhenSatisfied: "POD is attached and the delivery packet can be reviewed.",
+        },
+        {
+            documentType: "DETENTION_EVIDENCE",
+            label: "Detention evidence",
+            requiredFor: ["EXCEPTION"],
+            requiredWhen: () => hasException,
+            evidenceWhenMissing: "Attach detention or delay evidence when the shipment is in exception handling.",
+            evidenceWhenSatisfied: "Exception evidence is attached for detention or delay review.",
+        },
+        {
+            documentType: "CUSTOMER_APPROVAL",
+            label: "Customer approval",
+            requiredFor: ["EXCEPTION"],
+            requiredWhen: () => hasException,
+            evidenceWhenMissing: "Attach customer approval for exception-driven cost, timing, or service changes.",
+            evidenceWhenSatisfied: "Customer approval is attached for exception handling.",
+        },
+    ];
+    return definitions.map((definition) => {
+        var _a;
+        const document = activeDocument(documents, definition.documentType);
+        const required = shipmentHasReached(state, definition.requiredFor) || Boolean((_a = definition.requiredWhen) === null || _a === void 0 ? void 0 : _a.call(definition, shipment));
+        const satisfied = Boolean(document);
+        const status = !required
+            ? "NOT_YET_REQUIRED"
+            : (document === null || document === void 0 ? void 0 : document.status) === "VERIFIED"
+                ? "VERIFIED"
+                : satisfied
+                    ? "UPLOADED"
+                    : "MISSING";
+        return {
+            documentType: definition.documentType,
+            label: definition.label,
+            requiredFor: definition.requiredFor,
+            required,
+            satisfied,
+            status,
+            evidence: satisfied ? definition.evidenceWhenSatisfied : definition.evidenceWhenMissing,
+        };
+    });
+}
 async function ensureSilWorkspaceTable() {
     await prisma_1.prisma.$executeRaw `
     CREATE TABLE IF NOT EXISTS "SilWorkspaceRecord" (

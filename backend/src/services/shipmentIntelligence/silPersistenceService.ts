@@ -23,6 +23,7 @@ import {
   SilMarketRateObservation,
   SilShipment,
   SilShipmentDocument,
+  SilShipmentDocumentRequirement,
   SilTenderResponse,
   SilWorkflowEvent,
   ShipmentState,
@@ -55,6 +56,88 @@ const withWorkspace = <T extends { workspaceId?: string }>(record: T, workspaceI
 
 const matchesWorkspace = <T extends { workspaceId?: string }>(record: T, workspaceId?: string) =>
   !workspaceId || (record.workspaceId ?? DEFAULT_WORKSPACE_ID) === workspaceId;
+
+const activeDocument = (documents: SilShipmentDocument[], documentType: SilShipmentDocument["documentType"]) =>
+  documents.find((document) => document.documentType === documentType && document.status !== "REJECTED");
+
+const shipmentHasReached = (state: ShipmentState, requiredFor: ShipmentState[]) => requiredFor.includes(state);
+
+export function buildSilShipmentDocumentRequirements(
+  shipment: SilShipment,
+  documents: SilShipmentDocument[]
+): SilShipmentDocumentRequirement[] {
+  const state = shipment.state;
+  const hasException = state === "EXCEPTION" || Boolean(shipment.exception);
+  const definitions: Array<
+    Omit<SilShipmentDocumentRequirement, "required" | "satisfied" | "status" | "evidence"> & {
+      requiredWhen?: (shipment: SilShipment) => boolean;
+      evidenceWhenMissing: string;
+      evidenceWhenSatisfied: string;
+    }
+  > = [
+    {
+      documentType: "RATE_CONFIRMATION",
+      label: "Rate confirmation",
+      requiredFor: ["BOOKED", "DISPATCHED", "AT_PICKUP", "IN_TRANSIT", "AT_DELIVERY", "DELIVERED", "EXCEPTION"],
+      evidenceWhenMissing: "Attach the agreed rate confirmation before dispatch or invoice controls are trusted.",
+      evidenceWhenSatisfied: "Rate agreement is attached to the shipment packet.",
+    },
+    {
+      documentType: "BOL",
+      label: "Bill of lading",
+      requiredFor: ["DISPATCHED", "AT_PICKUP", "IN_TRANSIT", "AT_DELIVERY", "DELIVERED", "EXCEPTION"],
+      evidenceWhenMissing: "Attach the BOL once the shipment is dispatched or picked up.",
+      evidenceWhenSatisfied: "BOL is attached for pickup and transit evidence.",
+    },
+    {
+      documentType: "POD",
+      label: "Proof of delivery",
+      requiredFor: ["DELIVERED"],
+      evidenceWhenMissing: "Attach POD before treating the delivery packet as complete.",
+      evidenceWhenSatisfied: "POD is attached and the delivery packet can be reviewed.",
+    },
+    {
+      documentType: "DETENTION_EVIDENCE",
+      label: "Detention evidence",
+      requiredFor: ["EXCEPTION"],
+      requiredWhen: () => hasException,
+      evidenceWhenMissing: "Attach detention or delay evidence when the shipment is in exception handling.",
+      evidenceWhenSatisfied: "Exception evidence is attached for detention or delay review.",
+    },
+    {
+      documentType: "CUSTOMER_APPROVAL",
+      label: "Customer approval",
+      requiredFor: ["EXCEPTION"],
+      requiredWhen: () => hasException,
+      evidenceWhenMissing: "Attach customer approval for exception-driven cost, timing, or service changes.",
+      evidenceWhenSatisfied: "Customer approval is attached for exception handling.",
+    },
+  ];
+
+  return definitions.map((definition) => {
+    const document = activeDocument(documents, definition.documentType);
+    const required =
+      shipmentHasReached(state, definition.requiredFor) || Boolean(definition.requiredWhen?.(shipment));
+    const satisfied = Boolean(document);
+    const status: SilShipmentDocumentRequirement["status"] = !required
+      ? "NOT_YET_REQUIRED"
+      : document?.status === "VERIFIED"
+        ? "VERIFIED"
+        : satisfied
+          ? "UPLOADED"
+          : "MISSING";
+
+    return {
+      documentType: definition.documentType,
+      label: definition.label,
+      requiredFor: definition.requiredFor,
+      required,
+      satisfied,
+      status,
+      evidence: satisfied ? definition.evidenceWhenSatisfied : definition.evidenceWhenMissing,
+    };
+  });
+}
 
 async function ensureSilWorkspaceTable() {
   await prisma.$executeRaw`
