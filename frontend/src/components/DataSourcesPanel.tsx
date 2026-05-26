@@ -1,5 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
-import { createDatasource, fetchDatasources, fetchUploadPreview, importUploadLoads, uploadFile } from "../api/client";
+import {
+  createDatasource,
+  fetchDatasources,
+  fetchUploadPreview,
+  importUploadCarriers,
+  importUploadLoads,
+  uploadFile,
+} from "../api/client";
 
 type DataSource = {
   id: string;
@@ -122,6 +129,17 @@ export default function DataSourcesPanel() {
           equipmentType: headers.find((header: string) => /equipment|trailer/i.test(header)) ?? "",
           targetBuyRate: headers.find((header: string) => /buy|cost|carrier.*rate/i.test(header)) ?? "",
           targetSellRate: headers.find((header: string) => /sell|revenue|customer.*rate/i.test(header)) ?? "",
+          carrierName: headers.find((header: string) => /carrier|vendor|provider/i.test(header)) ?? "",
+          mcNumber: headers.find((header: string) => /^mc|mc.*number/i.test(header)) ?? "",
+          dotNumber: headers.find((header: string) => /^dot|dot.*number/i.test(header)) ?? "",
+          insuranceStatus: headers.find((header: string) => /insurance/i.test(header)) ?? "",
+          safetyStatus: headers.find((header: string) => /safety/i.test(header)) ?? "",
+          creditStatus: headers.find((header: string) => /credit/i.test(header)) ?? "",
+          serviceScore: headers.find((header: string) => /service.*score|score/i.test(header)) ?? "",
+          onTimeRate: headers.find((header: string) => /on.*time|ontime|otp/i.test(header)) ?? "",
+          falloffRate: headers.find((header: string) => /falloff|fall.*off|cancel/i.test(header)) ?? "",
+          preferred: headers.find((header: string) => /preferred|primary/i.test(header)) ?? "",
+          blocked: headers.find((header: string) => /blocked|do.*not.*use|dnu/i.test(header)) ?? "",
         });
       }
       setFile(null);
@@ -142,6 +160,20 @@ export default function DataSourcesPanel() {
       );
     } catch (err) {
       setStatus(err instanceof Error ? err.message : "Load import failed");
+    }
+  }
+
+  async function handleImportCarriers() {
+    if (!preview) return;
+
+    try {
+      setStatus("Importing mapped rows into SIL carrier profiles...");
+      const result = await importUploadCarriers(preview.upload.id, { mapping });
+      setStatus(
+        `Imported ${result.importedCount} carrier profile(s). Skipped ${result.skippedCount ?? 0} duplicate row(s). ${result.rejectedCount} row(s) need review.`
+      );
+    } catch (err) {
+      setStatus(err instanceof Error ? err.message : "Carrier import failed");
     }
   }
 
@@ -329,6 +361,43 @@ export default function DataSourcesPanel() {
                       </label>
                     ))}
                   </div>
+                  <div className="transport-panel-header compact">
+                    <div>
+                      <p className="transport-eyebrow">Carrier Profile Mapping</p>
+                      <h4>Bid Scoring Inputs</h4>
+                    </div>
+                    <span>Optional</span>
+                  </div>
+                  <div className="manual-field-grid compact">
+                    {[
+                      ["carrierName", "Carrier"],
+                      ["mcNumber", "MC Number"],
+                      ["dotNumber", "DOT Number"],
+                      ["insuranceStatus", "Insurance"],
+                      ["safetyStatus", "Safety"],
+                      ["creditStatus", "Credit"],
+                      ["serviceScore", "Service Score"],
+                      ["onTimeRate", "On-Time Rate"],
+                      ["falloffRate", "Falloff Rate"],
+                      ["preferred", "Preferred"],
+                      ["blocked", "Blocked"],
+                    ].map(([field, label]) => (
+                      <label key={field}>
+                        {label}
+                        <select
+                          value={mapping[field] ?? ""}
+                          onChange={(event) => setMapping((current) => ({ ...current, [field]: event.target.value }))}
+                        >
+                          <option value="">Not mapped</option>
+                          {preview.headers.map((header) => (
+                            <option key={header} value={header}>
+                              {header}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    ))}
+                  </div>
                   <div className="transport-table-wrap">
                     <table className="transport-table">
                       <thead>
@@ -351,6 +420,9 @@ export default function DataSourcesPanel() {
                   </div>
                   <button className="btn btn-primary" type="button" onClick={handleImportLoads}>
                     Import Mapped Loads
+                  </button>
+                  <button className="btn btn-secondary" type="button" onClick={handleImportCarriers}>
+                    Import Carrier Profiles
                   </button>
                 </div>
               )}

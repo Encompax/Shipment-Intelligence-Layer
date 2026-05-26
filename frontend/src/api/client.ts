@@ -491,6 +491,19 @@ export async function importUploadLoads(uploadId: number, payload: Record<string
   return res.json();
 }
 
+export async function importUploadCarriers(uploadId: number, payload: Record<string, unknown>) {
+  const res = await fetch(`${API_BASE}/ingest/uploads/${encodeURIComponent(String(uploadId))}/import-carriers`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    throw new Error(body?.error ?? `Carrier import error: ${res.status}`);
+  }
+  return res.json();
+}
+
 // ── Shipment Intelligence: Carriers ────────────────────────────────────────
 
 export async function fetchCarrierMetrics() {

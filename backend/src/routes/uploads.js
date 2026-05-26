@@ -177,6 +177,36 @@ const buildLoadImportDraft = (row, mapping) => {
         source: 'manual',
     };
 };
+const parseBoolean = (value) => {
+    const normalized = normalizeKeyPart(value);
+    return ["true", "yes", "y", "1", "preferred", "blocked"].includes(normalized);
+};
+const parseNumber = (value) => {
+    const parsed = Number(String(value !== null && value !== void 0 ? value : "").replace(/[^0-9.-]/g, ""));
+    return Number.isFinite(parsed) ? parsed : undefined;
+};
+const normalizeStatus = (value, allowed, fallback) => {
+    const normalized = normalizeKeyPart(value).replace(/[\s-]+/g, "_").toUpperCase();
+    return allowed.includes(normalized) ? normalized : fallback;
+};
+const buildCarrierImportDraft = (row, mapping) => {
+    const carrierName = normalizeCell(row[mapping.carrierName]);
+    if (!carrierName)
+        throw new Error("Carrier name is required.");
+    return {
+        carrierName,
+        mcNumber: mapping.mcNumber ? normalizeCell(row[mapping.mcNumber]) || undefined : undefined,
+        dotNumber: mapping.dotNumber ? normalizeCell(row[mapping.dotNumber]) || undefined : undefined,
+        insuranceStatus: normalizeStatus(mapping.insuranceStatus ? row[mapping.insuranceStatus] : undefined, ["UNKNOWN", "VALID", "EXPIRED", "INSUFFICIENT"], "UNKNOWN"),
+        safetyStatus: normalizeStatus(mapping.safetyStatus ? row[mapping.safetyStatus] : undefined, ["UNKNOWN", "CLEAR", "REVIEW", "BLOCKED"], "UNKNOWN"),
+        creditStatus: normalizeStatus(mapping.creditStatus ? row[mapping.creditStatus] : undefined, ["UNKNOWN", "APPROVED", "REVIEW", "BLOCKED"], "UNKNOWN"),
+        serviceScore: mapping.serviceScore ? parseNumber(row[mapping.serviceScore]) : undefined,
+        onTimeRate: mapping.onTimeRate ? parseNumber(row[mapping.onTimeRate]) : undefined,
+        falloffRate: mapping.falloffRate ? parseNumber(row[mapping.falloffRate]) : undefined,
+        preferred: mapping.preferred ? parseBoolean(row[mapping.preferred]) : undefined,
+        blocked: mapping.blocked ? parseBoolean(row[mapping.blocked]) : undefined,
+    };
+};
 const loadImportKey = (load) => [
     load.customerId,
     load.origin.city,
@@ -190,6 +220,7 @@ const loadImportKey = (load) => [
 ]
     .map(normalizeKeyPart)
     .join('|');
+const carrierImportKey = (carrier) => [carrier.mcNumber, carrier.dotNumber, carrier.carrierName].map(normalizeKeyPart).join('|');
 function registerUploadRoutes(app) {
     app.post('/api/ingest/upload', async (req, res) => {
         var _a;
@@ -285,6 +316,50 @@ function registerUploadRoutes(app) {
             }
             catch (error) {
                 rejected.push({ row: index + 2, error: error instanceof Error ? error.message : 'Import failed' });
+            }
+        }
+        res.status(201).json({
+            upload: result.upload,
+            format: result.format,
+            sheetName: result.parsed.sheetName,
+            importedCount: imported.length,
+            rejectedCount: rejected.length,
+            skippedCount: skipped.length,
+            imported,
+            rejected,
+            skipped,
+        });
+    });
+    app.post('/api/ingest/uploads/:uploadId/import-carriers', async (req, res) => {
+        var _a, _b, _c;
+        const result = await readUploadTable(Number(req.params.uploadId));
+        if (!result)
+            return res.status(404).json({ error: 'Upload not found' });
+        if ('error' in result)
+            return res.status(415).json({ error: result.error, upload: result.upload });
+        const mapping = (_b = (_a = req.body) === null || _a === void 0 ? void 0 : _a.mapping) !== null && _b !== void 0 ? _b : {};
+        if (!mapping.carrierName) {
+            return res.status(400).json({ error: 'Missing required mapping field: carrierName' });
+        }
+        const allowDuplicates = ((_c = req.body) === null || _c === void 0 ? void 0 : _c.allowDuplicates) === true;
+        const batchKeys = new Set();
+        const imported = [];
+        const rejected = [];
+        const skipped = [];
+        for (const [index, row] of result.parsed.records.entries()) {
+            try {
+                const draft = buildCarrierImportDraft(row, mapping);
+                const key = carrierImportKey(draft);
+                if (!allowDuplicates && batchKeys.has(key)) {
+                    skipped.push({ row: index + 2, reason: 'Duplicate carrier row in this upload.', key });
+                    continue;
+                }
+                batchKeys.add(key);
+                const { carrier } = await (0, silPersistenceService_1.upsertSilCarrier)(draft);
+                imported.push(carrier);
+            }
+            catch (error) {
+                rejected.push({ row: index + 2, error: error instanceof Error ? error.message : 'Carrier import failed' });
             }
         }
         res.status(201).json({

@@ -5,8 +5,8 @@ import { config } from '../lib/config';
 import path from 'path';
 import fs from 'fs';
 import * as XLSX from 'xlsx';
-import { createSilLoad, listSilLoads } from '../services/shipmentIntelligence/silPersistenceService';
-import { EquipmentType, SilLoad, TransportMode } from '../services/shipmentIntelligence/types';
+import { createSilLoad, listSilLoads, upsertSilCarrier } from '../services/shipmentIntelligence/silPersistenceService';
+import { EquipmentType, SilCarrierProfile, SilLoad, TransportMode } from '../services/shipmentIntelligence/types';
 
 const hashDataSourceId = (value: string) =>
   Math.abs(
@@ -142,6 +142,54 @@ const buildLoadImportDraft = (row: Record<string, string>, mapping: Record<strin
   };
 };
 
+type CarrierImportDraft = Partial<SilCarrierProfile> & Pick<SilCarrierProfile, "carrierName">;
+
+const parseBoolean = (value: string | undefined) => {
+  const normalized = normalizeKeyPart(value);
+  return ["true", "yes", "y", "1", "preferred", "blocked"].includes(normalized);
+};
+
+const parseNumber = (value: string | undefined) => {
+  const parsed = Number(String(value ?? "").replace(/[^0-9.-]/g, ""));
+  return Number.isFinite(parsed) ? parsed : undefined;
+};
+
+const normalizeStatus = <T extends string>(value: string | undefined, allowed: readonly T[], fallback: T): T => {
+  const normalized = normalizeKeyPart(value).replace(/[\s-]+/g, "_").toUpperCase();
+  return allowed.includes(normalized as T) ? (normalized as T) : fallback;
+};
+
+const buildCarrierImportDraft = (row: Record<string, string>, mapping: Record<string, string>): CarrierImportDraft => {
+  const carrierName = normalizeCell(row[mapping.carrierName]);
+  if (!carrierName) throw new Error("Carrier name is required.");
+
+  return {
+    carrierName,
+    mcNumber: mapping.mcNumber ? normalizeCell(row[mapping.mcNumber]) || undefined : undefined,
+    dotNumber: mapping.dotNumber ? normalizeCell(row[mapping.dotNumber]) || undefined : undefined,
+    insuranceStatus: normalizeStatus(
+      mapping.insuranceStatus ? row[mapping.insuranceStatus] : undefined,
+      ["UNKNOWN", "VALID", "EXPIRED", "INSUFFICIENT"] as const,
+      "UNKNOWN"
+    ),
+    safetyStatus: normalizeStatus(
+      mapping.safetyStatus ? row[mapping.safetyStatus] : undefined,
+      ["UNKNOWN", "CLEAR", "REVIEW", "BLOCKED"] as const,
+      "UNKNOWN"
+    ),
+    creditStatus: normalizeStatus(
+      mapping.creditStatus ? row[mapping.creditStatus] : undefined,
+      ["UNKNOWN", "APPROVED", "REVIEW", "BLOCKED"] as const,
+      "UNKNOWN"
+    ),
+    serviceScore: mapping.serviceScore ? parseNumber(row[mapping.serviceScore]) : undefined,
+    onTimeRate: mapping.onTimeRate ? parseNumber(row[mapping.onTimeRate]) : undefined,
+    falloffRate: mapping.falloffRate ? parseNumber(row[mapping.falloffRate]) : undefined,
+    preferred: mapping.preferred ? parseBoolean(row[mapping.preferred]) : undefined,
+    blocked: mapping.blocked ? parseBoolean(row[mapping.blocked]) : undefined,
+  };
+};
+
 const loadImportKey = (load: LoadImportDraft | SilLoad) =>
   [
     load.customerId,
@@ -156,6 +204,9 @@ const loadImportKey = (load: LoadImportDraft | SilLoad) =>
   ]
     .map(normalizeKeyPart)
     .join('|');
+
+const carrierImportKey = (carrier: CarrierImportDraft | SilCarrierProfile) =>
+  [carrier.mcNumber, carrier.dotNumber, carrier.carrierName].map(normalizeKeyPart).join('|');
 
 export function registerUploadRoutes(app: Express) {
  app.post('/api/ingest/upload', async (req: Request, res: Response) => {
@@ -250,6 +301,51 @@ export function registerUploadRoutes(app: Express) {
        imported.push(load.load);
      } catch (error) {
        rejected.push({ row: index + 2, error: error instanceof Error ? error.message : 'Import failed' });
+     }
+   }
+
+   res.status(201).json({
+     upload: result.upload,
+     format: result.format,
+     sheetName: result.parsed.sheetName,
+     importedCount: imported.length,
+     rejectedCount: rejected.length,
+     skippedCount: skipped.length,
+     imported,
+     rejected,
+     skipped,
+   });
+ });
+
+ app.post('/api/ingest/uploads/:uploadId/import-carriers', async (req: Request, res: Response) => {
+   const result = await readUploadTable(Number(req.params.uploadId));
+   if (!result) return res.status(404).json({ error: 'Upload not found' });
+   if ('error' in result) return res.status(415).json({ error: result.error, upload: result.upload });
+
+   const mapping = req.body?.mapping ?? {};
+   if (!mapping.carrierName) {
+     return res.status(400).json({ error: 'Missing required mapping field: carrierName' });
+   }
+
+   const allowDuplicates = req.body?.allowDuplicates === true;
+   const batchKeys = new Set<string>();
+   const imported: SilCarrierProfile[] = [];
+   const rejected: Array<{ row: number; error: string }> = [];
+   const skipped: Array<{ row: number; reason: string; key: string }> = [];
+
+   for (const [index, row] of result.parsed.records.entries()) {
+     try {
+       const draft = buildCarrierImportDraft(row, mapping);
+       const key = carrierImportKey(draft);
+       if (!allowDuplicates && batchKeys.has(key)) {
+         skipped.push({ row: index + 2, reason: 'Duplicate carrier row in this upload.', key });
+         continue;
+       }
+       batchKeys.add(key);
+       const { carrier } = await upsertSilCarrier(draft);
+       imported.push(carrier);
+     } catch (error) {
+       rejected.push({ row: index + 2, error: error instanceof Error ? error.message : 'Carrier import failed' });
      }
    }
 
