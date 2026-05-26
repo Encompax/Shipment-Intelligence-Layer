@@ -1020,12 +1020,21 @@ const TransportationCommandPanel: React.FC = () => {
       if (result.governanceSignal) {
         setSignals((current) => [result.governanceSignal, ...current]);
       }
+      if (result.documentGovernanceSignal) {
+        setSignals((current) => [result.documentGovernanceSignal, ...current]);
+      }
+      if (Array.isArray(result.documentRequirements)) {
+        setDocumentRequirements(result.documentRequirements);
+        setDocumentPacketReady(Boolean(result.documentPacketReady));
+      }
       if (result.overrideEvent) {
         setWorkflowEvents((current) => [result.overrideEvent, ...current]);
         setReadinessOverrideReason("");
       }
       setActionStatus(
-        result.governanceSignal
+        result.documentGovernanceSignal
+          ? `Shipment progress recorded. Missing evidence packet requirements routed to Encompax.`
+          : result.governanceSignal
           ? `Shipment progress recorded. ${result.governanceSignal.signalType} routed to Encompax.`
           : "Shipment progress recorded."
       );

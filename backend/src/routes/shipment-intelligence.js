@@ -288,10 +288,13 @@ function registerShipmentIntelligenceRoutes(app) {
         res.status(201).json(result);
     });
     router.patch("/shipments/:shipmentId/progress", async (req, res) => {
-        var _a, _b, _c, _d, _e, _f, _g, _h, _j;
+        var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m;
         const workspaceId = requestWorkspaceId(req);
         let dispatchReadiness = null;
         let dispatchOverrideGovernanceSignal = null;
+        let documentRequirements = null;
+        let documentPacketReady = null;
+        let documentGovernanceSignal = null;
         if (((_a = req.body) === null || _a === void 0 ? void 0 : _a.state) === "DISPATCHED") {
             const [shipments, loads, postings, bids, carriers, lanes] = await Promise.all([
                 (0, silPersistenceService_1.listSilShipments)({ workspaceId }),
@@ -332,6 +335,54 @@ function registerShipmentIntelligenceRoutes(app) {
                 }
             }
         }
+        if (["DISPATCHED", "DELIVERED", "EXCEPTION"].includes((_e = req.body) === null || _e === void 0 ? void 0 : _e.state)) {
+            const shipments = await (0, silPersistenceService_1.listSilShipments)({ workspaceId });
+            const shipment = shipments.find((item) => item.shipmentId === req.params.shipmentId);
+            if (!shipment)
+                return res.status(404).json({ error: "Shipment not found" });
+            const documents = await (0, silPersistenceService_1.listSilShipmentDocuments)({ workspaceId, shipmentId: shipment.shipmentId });
+            documentRequirements = (0, silPersistenceService_1.buildSilShipmentDocumentRequirements)({
+                ...shipment,
+                state: req.body.state,
+                exception: (_g = (_f = req.body) === null || _f === void 0 ? void 0 : _f.exception) !== null && _g !== void 0 ? _g : shipment.exception,
+            }, documents);
+            const missingRequirements = documentRequirements.filter((requirement) => requirement.required && !requirement.satisfied);
+            documentPacketReady = missingRequirements.length === 0;
+            if (missingRequirements.length > 0) {
+                documentGovernanceSignal = {
+                    workspaceId,
+                    signalType: req.body.state === "EXCEPTION" ? "SHIPMENT_EXECUTION_EXCEPTION" : "CUSTOMER_DELIVERY_COMMITMENT_RISK",
+                    sourceModule: "SHIPMENT_INTELLIGENCE_LAYER",
+                    severity: req.body.state === "DELIVERED" || req.body.state === "EXCEPTION" ? "HIGH" : "MEDIUM",
+                    confidenceScore: 0.78,
+                    description: `Shipment ${shipment.shipmentId} moved toward ${req.body.state} with missing evidence packet requirements.`,
+                    businessDomains: ["TRANSPORTATION", "FREIGHT_BROKERAGE", "SHIPMENT_VISIBILITY"],
+                    affectedEntities: {
+                        shipments: [shipment.shipmentId],
+                        loads: shipment.loadId ? [shipment.loadId] : undefined,
+                        carriers: shipment.carrierId ? [shipment.carrierId] : undefined,
+                    },
+                    metrics: {
+                        missing_document_count: missingRequirements.length,
+                        required_document_count: documentRequirements.filter((requirement) => requirement.required).length,
+                        packet_ready: false,
+                    },
+                    tags: ["sil", "shipment-execution", "document-evidence", "governance-review"],
+                    recommendedActions: [
+                        {
+                            actionType: "ROUTE_SHIPMENT_DOCUMENT_PACKET_FOR_REVIEW",
+                            targetModule: "PLATFORM_OVERVIEW",
+                            priority: req.body.state === "DISPATCHED" ? "MEDIUM" : "HIGH",
+                            description: `Review missing shipment evidence: ${missingRequirements
+                                .map((requirement) => requirement.label)
+                                .join(", ")}.`,
+                        },
+                    ],
+                    rawPayloadRef: shipment.shipmentId,
+                };
+                await (0, silPersistenceService_1.persistSilGovernanceSignal)(documentGovernanceSignal, "READY_FOR_ENCOMPAX");
+            }
+        }
         const result = await (0, silPersistenceService_1.updateSilShipmentProgress)({
             ...req.body,
             shipmentId: req.params.shipmentId,
@@ -340,12 +391,12 @@ function registerShipmentIntelligenceRoutes(app) {
         if (!result)
             return res.status(404).json({ error: "Shipment not found" });
         let overrideEvent = null;
-        if (((_e = req.body) === null || _e === void 0 ? void 0 : _e.state) === "DISPATCHED" && ((_f = req.body) === null || _f === void 0 ? void 0 : _f.overrideReadiness) && dispatchReadiness) {
+        if (((_h = req.body) === null || _h === void 0 ? void 0 : _h.state) === "DISPATCHED" && ((_j = req.body) === null || _j === void 0 ? void 0 : _j.overrideReadiness) && dispatchReadiness) {
             overrideEvent = await (0, silPersistenceService_1.persistSilWorkflowEvent)({
                 eventId: `sil_evt_dispatch_override_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
                 eventType: "DISPATCH_READINESS_CHECKED",
                 occurredAt: new Date().toISOString(),
-                actor: (_h = (_g = req.body) === null || _g === void 0 ? void 0 : _g.actor) !== null && _h !== void 0 ? _h : "operator",
+                actor: (_l = (_k = req.body) === null || _k === void 0 ? void 0 : _k.actor) !== null && _l !== void 0 ? _l : "operator",
                 source: "USER",
                 workspaceId,
                 loadId: dispatchReadiness.loadId,
@@ -360,12 +411,19 @@ function registerShipmentIntelligenceRoutes(app) {
                     `Readiness score: ${dispatchReadiness.score}`,
                     ...dispatchReadiness.blockingReasons.map((reason) => `Blocking: ${reason}`),
                     ...dispatchReadiness.reviewReasons.map((reason) => `Review: ${reason}`),
-                    ...(Array.isArray((_j = req.body) === null || _j === void 0 ? void 0 : _j.evidence) ? req.body.evidence : []),
+                    ...(Array.isArray((_m = req.body) === null || _m === void 0 ? void 0 : _m.evidence) ? req.body.evidence : []),
                 ],
                 governanceSignal: dispatchOverrideGovernanceSignal !== null && dispatchOverrideGovernanceSignal !== void 0 ? dispatchOverrideGovernanceSignal : undefined,
             });
         }
-        res.json({ ...result, readiness: dispatchReadiness, overrideEvent });
+        res.json({
+            ...result,
+            readiness: dispatchReadiness,
+            overrideEvent,
+            documentRequirements,
+            documentPacketReady,
+            documentGovernanceSignal,
+        });
     });
     router.get("/carriers", async (req, res) => {
         const carriers = await (0, silPersistenceService_1.listSilCarriers)({ workspaceId: requestWorkspaceId(req) });

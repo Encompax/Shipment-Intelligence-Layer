@@ -373,6 +373,9 @@ export function registerShipmentIntelligenceRoutes(app: Express) {
     const workspaceId = requestWorkspaceId(req);
     let dispatchReadiness = null as ReturnType<typeof buildDispatchReadiness> | null;
     let dispatchOverrideGovernanceSignal = null as SilGovernanceSignalDraft | null;
+    let documentRequirements: ReturnType<typeof buildSilShipmentDocumentRequirements> | null = null;
+    let documentPacketReady: boolean | null = null;
+    let documentGovernanceSignal: SilGovernanceSignalDraft | null = null;
     if (req.body?.state === "DISPATCHED") {
       const [shipments, loads, postings, bids, carriers, lanes] = await Promise.all([
         listSilShipments({ workspaceId }),
@@ -417,6 +420,58 @@ export function registerShipmentIntelligenceRoutes(app: Express) {
       }
     }
 
+    if (["DISPATCHED", "DELIVERED", "EXCEPTION"].includes(req.body?.state)) {
+      const shipments = await listSilShipments({ workspaceId });
+      const shipment = shipments.find((item) => item.shipmentId === req.params.shipmentId);
+      if (!shipment) return res.status(404).json({ error: "Shipment not found" });
+      const documents = await listSilShipmentDocuments({ workspaceId, shipmentId: shipment.shipmentId });
+      documentRequirements = buildSilShipmentDocumentRequirements(
+        {
+          ...shipment,
+          state: req.body.state,
+          exception: req.body?.exception ?? shipment.exception,
+        },
+        documents
+      );
+      const missingRequirements = documentRequirements.filter((requirement) => requirement.required && !requirement.satisfied);
+      documentPacketReady = missingRequirements.length === 0;
+
+      if (missingRequirements.length > 0) {
+        documentGovernanceSignal = {
+          workspaceId,
+          signalType: req.body.state === "EXCEPTION" ? "SHIPMENT_EXECUTION_EXCEPTION" : "CUSTOMER_DELIVERY_COMMITMENT_RISK",
+          sourceModule: "SHIPMENT_INTELLIGENCE_LAYER",
+          severity: req.body.state === "DELIVERED" || req.body.state === "EXCEPTION" ? "HIGH" : "MEDIUM",
+          confidenceScore: 0.78,
+          description: `Shipment ${shipment.shipmentId} moved toward ${req.body.state} with missing evidence packet requirements.`,
+          businessDomains: ["TRANSPORTATION", "FREIGHT_BROKERAGE", "SHIPMENT_VISIBILITY"],
+          affectedEntities: {
+            shipments: [shipment.shipmentId],
+            loads: shipment.loadId ? [shipment.loadId] : undefined,
+            carriers: shipment.carrierId ? [shipment.carrierId] : undefined,
+          },
+          metrics: {
+            missing_document_count: missingRequirements.length,
+            required_document_count: documentRequirements.filter((requirement) => requirement.required).length,
+            packet_ready: false,
+          },
+          tags: ["sil", "shipment-execution", "document-evidence", "governance-review"],
+          recommendedActions: [
+            {
+              actionType: "ROUTE_SHIPMENT_DOCUMENT_PACKET_FOR_REVIEW",
+              targetModule: "PLATFORM_OVERVIEW",
+              priority: req.body.state === "DISPATCHED" ? "MEDIUM" : "HIGH",
+              description: `Review missing shipment evidence: ${missingRequirements
+                .map((requirement) => requirement.label)
+                .join(", ")}.`,
+            },
+          ],
+          rawPayloadRef: shipment.shipmentId,
+        };
+        await persistSilGovernanceSignal(documentGovernanceSignal, "READY_FOR_ENCOMPAX");
+      }
+    }
+
     const result = await updateSilShipmentProgress({
       ...req.body,
       shipmentId: req.params.shipmentId,
@@ -451,7 +506,14 @@ export function registerShipmentIntelligenceRoutes(app: Express) {
       });
     }
 
-    res.json({ ...result, readiness: dispatchReadiness, overrideEvent });
+    res.json({
+      ...result,
+      readiness: dispatchReadiness,
+      overrideEvent,
+      documentRequirements,
+      documentPacketReady,
+      documentGovernanceSignal,
+    });
   });
 
   router.get("/carriers", async (req: Request, res: Response) => {
