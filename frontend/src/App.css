@@ -718,6 +718,29 @@ td {
     var(--color-bg-default);
 }
 
+.intake-template-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.intake-template-row .ops-note {
+  margin: 0;
+}
+
+.intake-template-row a {
+  color: var(--color-primary);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+  text-decoration: none;
+}
+
+.intake-template-row a:hover {
+  text-decoration: underline;
+}
+
 .transport-parent-brand {
   display: flex;
   align-items: center;

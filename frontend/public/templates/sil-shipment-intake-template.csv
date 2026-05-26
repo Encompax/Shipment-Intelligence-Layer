@@ -1,0 +1,5 @@
+customer_name,customer_id,origin_city,origin_state,destination_city,destination_state,mode,equipment_type,target_buy_rate,target_sell_rate,carrier_name,mc_number,dot_number,insurance_status,safety_status,credit_status,service_score,on_time_rate,falloff_rate,preferred,blocked,market_low_rate,market_median_rate,market_high_rate,average_transit_days,transit_variance_days,sample_size
+Gopuff,gopuff,Philadelphia,PA,Atlanta,GA,FTL,DRY_VAN,2450,2950,Riverbend Freight,MC742190,DOT1827364,VALID,CLEAR,REVIEW,82,91,4,false,false,2050,2450,2925,2.4,0.6,38
+Gopuff,gopuff,Philadelphia,PA,Atlanta,GA,FTL,DRY_VAN,2475,2975,Northline Carrier Group,MC815503,DOT2910448,VALID,CLEAR,APPROVED,91,96,2,true,false,2050,2450,2925,2.4,0.6,38
+Ethos Biosciences,ethos-biosciences,Logan Township,NJ,Boston,MA,LTL,DRY_VAN,575,850,Keystone LTL,MC330921,DOT1820109,VALID,REVIEW,APPROVED,76,89,6,false,false,420,575,760,1.6,0.4,22
+Example Retail,example-retail,Columbus,OH,Chicago,IL,FTL,REEFER,1825,2300,Lakefront Refrigerated,MC640112,DOT3778120,EXPIRED,REVIEW,BLOCKED,58,81,14,false,true,1550,1825,2180,1.2,0.5,19

@@ -343,7 +343,12 @@ export default function DataSourcesPanel() {
               <button className="btn btn-primary" type="button" disabled={!file || !selectedSourceId} onClick={handleUpload}>
                 Upload File
               </button>
-              <p className="ops-note">CSV and Excel files can be previewed, mapped, and imported into SIL loads.</p>
+              <div className="intake-template-row">
+                <p className="ops-note">CSV and Excel files can be previewed, mapped, and imported into SIL loads.</p>
+                <a href="/templates/sil-shipment-intake-template.csv" download>
+                  Download SIL intake template
+                </a>
+              </div>
               {preview && (
                 <div className="mapping-workbench">
                   <div className="transport-panel-header compact">
