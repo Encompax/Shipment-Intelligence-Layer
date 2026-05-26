@@ -16,6 +16,7 @@ exports.updateSilShipmentProgress = updateSilShipmentProgress;
 exports.listSilCarriers = listSilCarriers;
 exports.upsertSilCarrier = upsertSilCarrier;
 exports.listSilLanes = listSilLanes;
+exports.upsertSilLane = upsertSilLane;
 exports.listSilPostings = listSilPostings;
 exports.createSilPosting = createSilPosting;
 exports.updateSilPostingVisibility = updateSilPostingVisibility;
@@ -27,6 +28,7 @@ exports.updateSilBidCommercials = updateSilBidCommercials;
 exports.recordSilTenderResponse = recordSilTenderResponse;
 exports.updateSilBidStatus = updateSilBidStatus;
 exports.listSilMarketRates = listSilMarketRates;
+exports.createSilMarketRate = createSilMarketRate;
 exports.listSilGovernanceSignals = listSilGovernanceSignals;
 exports.persistSilGovernanceSignal = persistSilGovernanceSignal;
 exports.persistSilWorkflowEvent = persistSilWorkflowEvent;
@@ -876,6 +878,51 @@ async function listSilLanes(filters) {
     const records = await prisma_1.prisma.silLaneRecord.findMany({ orderBy: [{ origin: "asc" }, { destination: "asc" }] });
     return records.map((record) => withWorkspace(fromRecord(record))).filter((record) => matchesWorkspace(record, filters === null || filters === void 0 ? void 0 : filters.workspaceId));
 }
+async function upsertSilLane(input) {
+    var _a, _b, _c;
+    await seedSilPersistence();
+    const workspaceId = (_a = input.workspaceId) !== null && _a !== void 0 ? _a : DEFAULT_WORKSPACE_ID;
+    const laneId = (_b = input.laneId) !== null && _b !== void 0 ? _b : [
+        "lane",
+        normalizeIdPart(input.originRegion, "origin"),
+        normalizeIdPart(input.destinationRegion, "destination"),
+        normalizeIdPart(input.mode, "mode"),
+        normalizeIdPart(input.equipmentType, "equipment"),
+    ].join("-");
+    const lane = withWorkspace({
+        laneId,
+        originRegion: input.originRegion.toUpperCase(),
+        destinationRegion: input.destinationRegion.toUpperCase(),
+        mode: input.mode,
+        equipmentType: input.equipmentType,
+        averageTransitDays: input.averageTransitDays,
+        transitVarianceDays: input.transitVarianceDays,
+        onTimeRate: input.onTimeRate,
+        marketRateLow: input.marketRateLow,
+        marketRateMedian: input.marketRateMedian,
+        marketRateHigh: input.marketRateHigh,
+        lastUpdatedAt: (_c = input.lastUpdatedAt) !== null && _c !== void 0 ? _c : new Date().toISOString(),
+    }, workspaceId);
+    await prisma_1.prisma.silLaneRecord.upsert({
+        where: { laneId: lane.laneId },
+        update: {
+            origin: lane.originRegion,
+            destination: lane.destinationRegion,
+            mode: lane.mode,
+            equipment: lane.equipmentType,
+            data: json(lane),
+        },
+        create: {
+            laneId: lane.laneId,
+            origin: lane.originRegion,
+            destination: lane.destinationRegion,
+            mode: lane.mode,
+            equipment: lane.equipmentType,
+            data: json(lane),
+        },
+    });
+    return lane;
+}
 async function listSilPostings(filters) {
     await seedSilPersistence();
     const records = await prisma_1.prisma.silLoadPostingRecord.findMany({ orderBy: { updatedAt: "desc" } });
@@ -1320,6 +1367,39 @@ async function listSilMarketRates(filters) {
     await seedSilPersistence();
     const records = await prisma_1.prisma.silMarketRateRecord.findMany({ orderBy: { observedAt: "desc" } });
     return records.map((record) => withWorkspace(fromRecord(record))).filter((record) => matchesWorkspace(record, filters === null || filters === void 0 ? void 0 : filters.workspaceId));
+}
+async function createSilMarketRate(input) {
+    var _a, _b;
+    await seedSilPersistence();
+    const observation = withWorkspace({
+        observationId: (_a = input.observationId) !== null && _a !== void 0 ? _a : makeId("sil_market_rate"),
+        workspaceId: input.workspaceId,
+        laneId: input.laneId,
+        source: input.source,
+        lowRate: input.lowRate,
+        medianRate: input.medianRate,
+        highRate: input.highRate,
+        currency: input.currency,
+        sampleSize: input.sampleSize,
+        observedAt: (_b = input.observedAt) !== null && _b !== void 0 ? _b : new Date().toISOString(),
+    });
+    await prisma_1.prisma.silMarketRateRecord.upsert({
+        where: { observationId: observation.observationId },
+        update: {
+            laneId: observation.laneId,
+            source: observation.source,
+            observedAt: new Date(observation.observedAt),
+            data: json(observation),
+        },
+        create: {
+            observationId: observation.observationId,
+            laneId: observation.laneId,
+            source: observation.source,
+            observedAt: new Date(observation.observedAt),
+            data: json(observation),
+        },
+    });
+    return observation;
 }
 async function listSilGovernanceSignals(filters) {
     await seedSilPersistence();

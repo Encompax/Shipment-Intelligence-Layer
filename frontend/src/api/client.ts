@@ -504,6 +504,19 @@ export async function importUploadCarriers(uploadId: number, payload: Record<str
   return res.json();
 }
 
+export async function importUploadLaneRates(uploadId: number, payload: Record<string, unknown>) {
+  const res = await fetch(`${API_BASE}/ingest/uploads/${encodeURIComponent(String(uploadId))}/import-lane-rates`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    throw new Error(body?.error ?? `Lane-rate import error: ${res.status}`);
+  }
+  return res.json();
+}
+
 // ── Shipment Intelligence: Carriers ────────────────────────────────────────
 
 export async function fetchCarrierMetrics() {

@@ -5,8 +5,14 @@ import { config } from '../lib/config';
 import path from 'path';
 import fs from 'fs';
 import * as XLSX from 'xlsx';
-import { createSilLoad, listSilLoads, upsertSilCarrier } from '../services/shipmentIntelligence/silPersistenceService';
-import { EquipmentType, SilCarrierProfile, SilLoad, TransportMode } from '../services/shipmentIntelligence/types';
+import {
+  createSilLoad,
+  createSilMarketRate,
+  listSilLoads,
+  upsertSilCarrier,
+  upsertSilLane,
+} from '../services/shipmentIntelligence/silPersistenceService';
+import { EquipmentType, SilCarrierProfile, SilLaneProfile, SilLoad, TransportMode } from '../services/shipmentIntelligence/types';
 
 const hashDataSourceId = (value: string) =>
   Math.abs(
@@ -208,6 +214,44 @@ const loadImportKey = (load: LoadImportDraft | SilLoad) =>
 const carrierImportKey = (carrier: CarrierImportDraft | SilCarrierProfile) =>
   [carrier.mcNumber, carrier.dotNumber, carrier.carrierName].map(normalizeKeyPart).join('|');
 
+type LaneRateImportDraft = Partial<SilLaneProfile> &
+  Pick<SilLaneProfile, "originRegion" | "destinationRegion" | "mode" | "equipmentType"> & {
+    lowRate?: number;
+    medianRate?: number;
+    highRate?: number;
+    sampleSize?: number;
+  };
+
+const buildLaneRateImportDraft = (row: Record<string, string>, mapping: Record<string, string>): LaneRateImportDraft => {
+  const originRegion = normalizeCell(row[mapping.originRegion] ?? row[mapping.originState]).toUpperCase();
+  const destinationRegion = normalizeCell(row[mapping.destinationRegion] ?? row[mapping.destinationState]).toUpperCase();
+  if (!originRegion || !destinationRegion) throw new Error("Origin and destination regions are required.");
+
+  const medianRate = mapping.medianRate ? parseNumber(row[mapping.medianRate]) : undefined;
+  const lowRate = mapping.lowRate ? parseNumber(row[mapping.lowRate]) : undefined;
+  const highRate = mapping.highRate ? parseNumber(row[mapping.highRate]) : undefined;
+
+  return {
+    originRegion,
+    destinationRegion,
+    mode: parseMode(row[mapping.mode]),
+    equipmentType: parseEquipmentType(row[mapping.equipmentType]),
+    averageTransitDays: mapping.averageTransitDays ? parseNumber(row[mapping.averageTransitDays]) : undefined,
+    transitVarianceDays: mapping.transitVarianceDays ? parseNumber(row[mapping.transitVarianceDays]) : undefined,
+    onTimeRate: mapping.onTimeRate ? parseNumber(row[mapping.onTimeRate]) : undefined,
+    marketRateLow: lowRate,
+    marketRateMedian: medianRate,
+    marketRateHigh: highRate,
+    lowRate,
+    medianRate,
+    highRate,
+    sampleSize: mapping.sampleSize ? parseNumber(row[mapping.sampleSize]) : undefined,
+  };
+};
+
+const laneRateImportKey = (lane: LaneRateImportDraft | SilLaneProfile) =>
+  [lane.originRegion, lane.destinationRegion, lane.mode, lane.equipmentType].map(normalizeKeyPart).join('|');
+
 export function registerUploadRoutes(app: Express) {
  app.post('/api/ingest/upload', async (req: Request, res: Response) => {
    const dataSourceRef = String(req.body.dataSourceId ?? '').trim();
@@ -346,6 +390,64 @@ export function registerUploadRoutes(app: Express) {
        imported.push(carrier);
      } catch (error) {
        rejected.push({ row: index + 2, error: error instanceof Error ? error.message : 'Carrier import failed' });
+     }
+   }
+
+   res.status(201).json({
+     upload: result.upload,
+     format: result.format,
+     sheetName: result.parsed.sheetName,
+     importedCount: imported.length,
+     rejectedCount: rejected.length,
+     skippedCount: skipped.length,
+     imported,
+     rejected,
+     skipped,
+   });
+ });
+
+ app.post('/api/ingest/uploads/:uploadId/import-lane-rates', async (req: Request, res: Response) => {
+   const result = await readUploadTable(Number(req.params.uploadId));
+   if (!result) return res.status(404).json({ error: 'Upload not found' });
+   if ('error' in result) return res.status(415).json({ error: result.error, upload: result.upload });
+
+   const mapping = req.body?.mapping ?? {};
+   const hasOrigin = mapping.originRegion || mapping.originState;
+   const hasDestination = mapping.destinationRegion || mapping.destinationState;
+   if (!hasOrigin || !hasDestination || !mapping.medianRate) {
+     return res.status(400).json({ error: 'Missing required mapping fields: originRegion/originState, destinationRegion/destinationState, medianRate' });
+   }
+
+   const allowDuplicates = req.body?.allowDuplicates === true;
+   const batchKeys = new Set<string>();
+   const imported: SilLaneProfile[] = [];
+   const rejected: Array<{ row: number; error: string }> = [];
+   const skipped: Array<{ row: number; reason: string; key: string }> = [];
+
+   for (const [index, row] of result.parsed.records.entries()) {
+     try {
+       const draft = buildLaneRateImportDraft(row, mapping);
+       const key = laneRateImportKey(draft);
+       if (!allowDuplicates && batchKeys.has(key)) {
+         skipped.push({ row: index + 2, reason: 'Duplicate lane row in this upload.', key });
+         continue;
+       }
+       batchKeys.add(key);
+       const lane = await upsertSilLane(draft);
+       if (draft.medianRate !== undefined) {
+         await createSilMarketRate({
+           laneId: lane.laneId,
+           source: 'MANUAL',
+           lowRate: draft.lowRate,
+           medianRate: draft.medianRate,
+           highRate: draft.highRate,
+           currency: 'USD',
+           sampleSize: draft.sampleSize,
+         });
+       }
+       imported.push(lane);
+     } catch (error) {
+       rejected.push({ row: index + 2, error: error instanceof Error ? error.message : 'Lane-rate import failed' });
      }
    }
 

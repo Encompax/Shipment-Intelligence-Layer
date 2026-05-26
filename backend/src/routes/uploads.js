@@ -221,6 +221,33 @@ const loadImportKey = (load) => [
     .map(normalizeKeyPart)
     .join('|');
 const carrierImportKey = (carrier) => [carrier.mcNumber, carrier.dotNumber, carrier.carrierName].map(normalizeKeyPart).join('|');
+const buildLaneRateImportDraft = (row, mapping) => {
+    var _a, _b;
+    const originRegion = normalizeCell((_a = row[mapping.originRegion]) !== null && _a !== void 0 ? _a : row[mapping.originState]).toUpperCase();
+    const destinationRegion = normalizeCell((_b = row[mapping.destinationRegion]) !== null && _b !== void 0 ? _b : row[mapping.destinationState]).toUpperCase();
+    if (!originRegion || !destinationRegion)
+        throw new Error("Origin and destination regions are required.");
+    const medianRate = mapping.medianRate ? parseNumber(row[mapping.medianRate]) : undefined;
+    const lowRate = mapping.lowRate ? parseNumber(row[mapping.lowRate]) : undefined;
+    const highRate = mapping.highRate ? parseNumber(row[mapping.highRate]) : undefined;
+    return {
+        originRegion,
+        destinationRegion,
+        mode: parseMode(row[mapping.mode]),
+        equipmentType: parseEquipmentType(row[mapping.equipmentType]),
+        averageTransitDays: mapping.averageTransitDays ? parseNumber(row[mapping.averageTransitDays]) : undefined,
+        transitVarianceDays: mapping.transitVarianceDays ? parseNumber(row[mapping.transitVarianceDays]) : undefined,
+        onTimeRate: mapping.onTimeRate ? parseNumber(row[mapping.onTimeRate]) : undefined,
+        marketRateLow: lowRate,
+        marketRateMedian: medianRate,
+        marketRateHigh: highRate,
+        lowRate,
+        medianRate,
+        highRate,
+        sampleSize: mapping.sampleSize ? parseNumber(row[mapping.sampleSize]) : undefined,
+    };
+};
+const laneRateImportKey = (lane) => [lane.originRegion, lane.destinationRegion, lane.mode, lane.equipmentType].map(normalizeKeyPart).join('|');
 function registerUploadRoutes(app) {
     app.post('/api/ingest/upload', async (req, res) => {
         var _a;
@@ -360,6 +387,63 @@ function registerUploadRoutes(app) {
             }
             catch (error) {
                 rejected.push({ row: index + 2, error: error instanceof Error ? error.message : 'Carrier import failed' });
+            }
+        }
+        res.status(201).json({
+            upload: result.upload,
+            format: result.format,
+            sheetName: result.parsed.sheetName,
+            importedCount: imported.length,
+            rejectedCount: rejected.length,
+            skippedCount: skipped.length,
+            imported,
+            rejected,
+            skipped,
+        });
+    });
+    app.post('/api/ingest/uploads/:uploadId/import-lane-rates', async (req, res) => {
+        var _a, _b, _c;
+        const result = await readUploadTable(Number(req.params.uploadId));
+        if (!result)
+            return res.status(404).json({ error: 'Upload not found' });
+        if ('error' in result)
+            return res.status(415).json({ error: result.error, upload: result.upload });
+        const mapping = (_b = (_a = req.body) === null || _a === void 0 ? void 0 : _a.mapping) !== null && _b !== void 0 ? _b : {};
+        const hasOrigin = mapping.originRegion || mapping.originState;
+        const hasDestination = mapping.destinationRegion || mapping.destinationState;
+        if (!hasOrigin || !hasDestination || !mapping.medianRate) {
+            return res.status(400).json({ error: 'Missing required mapping fields: originRegion/originState, destinationRegion/destinationState, medianRate' });
+        }
+        const allowDuplicates = ((_c = req.body) === null || _c === void 0 ? void 0 : _c.allowDuplicates) === true;
+        const batchKeys = new Set();
+        const imported = [];
+        const rejected = [];
+        const skipped = [];
+        for (const [index, row] of result.parsed.records.entries()) {
+            try {
+                const draft = buildLaneRateImportDraft(row, mapping);
+                const key = laneRateImportKey(draft);
+                if (!allowDuplicates && batchKeys.has(key)) {
+                    skipped.push({ row: index + 2, reason: 'Duplicate lane row in this upload.', key });
+                    continue;
+                }
+                batchKeys.add(key);
+                const lane = await (0, silPersistenceService_1.upsertSilLane)(draft);
+                if (draft.medianRate !== undefined) {
+                    await (0, silPersistenceService_1.createSilMarketRate)({
+                        laneId: lane.laneId,
+                        source: 'MANUAL',
+                        lowRate: draft.lowRate,
+                        medianRate: draft.medianRate,
+                        highRate: draft.highRate,
+                        currency: 'USD',
+                        sampleSize: draft.sampleSize,
+                    });
+                }
+                imported.push(lane);
+            }
+            catch (error) {
+                rejected.push({ row: index + 2, error: error instanceof Error ? error.message : 'Lane-rate import failed' });
             }
         }
         res.status(201).json({

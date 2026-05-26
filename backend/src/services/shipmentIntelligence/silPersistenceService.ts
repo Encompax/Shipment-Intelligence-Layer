@@ -1018,6 +1018,58 @@ export async function listSilLanes(filters?: { workspaceId?: string }) {
   return records.map((record) => withWorkspace(fromRecord<SilLaneProfile>(record))).filter((record) => matchesWorkspace(record, filters?.workspaceId));
 }
 
+export async function upsertSilLane(input: Partial<SilLaneProfile> & Pick<SilLaneProfile, "originRegion" | "destinationRegion" | "mode" | "equipmentType">) {
+  await seedSilPersistence();
+  const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;
+  const laneId =
+    input.laneId ??
+    [
+      "lane",
+      normalizeIdPart(input.originRegion, "origin"),
+      normalizeIdPart(input.destinationRegion, "destination"),
+      normalizeIdPart(input.mode, "mode"),
+      normalizeIdPart(input.equipmentType, "equipment"),
+    ].join("-");
+  const lane = withWorkspace<SilLaneProfile>(
+    {
+      laneId,
+      originRegion: input.originRegion.toUpperCase(),
+      destinationRegion: input.destinationRegion.toUpperCase(),
+      mode: input.mode,
+      equipmentType: input.equipmentType,
+      averageTransitDays: input.averageTransitDays,
+      transitVarianceDays: input.transitVarianceDays,
+      onTimeRate: input.onTimeRate,
+      marketRateLow: input.marketRateLow,
+      marketRateMedian: input.marketRateMedian,
+      marketRateHigh: input.marketRateHigh,
+      lastUpdatedAt: input.lastUpdatedAt ?? new Date().toISOString(),
+    },
+    workspaceId
+  );
+
+  await prisma.silLaneRecord.upsert({
+    where: { laneId: lane.laneId },
+    update: {
+      origin: lane.originRegion,
+      destination: lane.destinationRegion,
+      mode: lane.mode,
+      equipment: lane.equipmentType,
+      data: json(lane),
+    },
+    create: {
+      laneId: lane.laneId,
+      origin: lane.originRegion,
+      destination: lane.destinationRegion,
+      mode: lane.mode,
+      equipment: lane.equipmentType,
+      data: json(lane),
+    },
+  });
+
+  return lane;
+}
+
 export async function listSilPostings(filters?: { workspaceId?: string }) {
   await seedSilPersistence();
   const records = await prisma.silLoadPostingRecord.findMany({ orderBy: { updatedAt: "desc" } });
@@ -1527,6 +1579,41 @@ export async function listSilMarketRates(filters?: { workspaceId?: string }) {
   await seedSilPersistence();
   const records = await prisma.silMarketRateRecord.findMany({ orderBy: { observedAt: "desc" } });
   return records.map((record) => withWorkspace(fromRecord<SilMarketRateObservation>(record))).filter((record) => matchesWorkspace(record, filters?.workspaceId));
+}
+
+export async function createSilMarketRate(input: Partial<SilMarketRateObservation> & Pick<SilMarketRateObservation, "laneId" | "source" | "medianRate" | "currency">) {
+  await seedSilPersistence();
+  const observation = withWorkspace<SilMarketRateObservation>({
+    observationId: input.observationId ?? makeId("sil_market_rate"),
+    workspaceId: input.workspaceId,
+    laneId: input.laneId,
+    source: input.source,
+    lowRate: input.lowRate,
+    medianRate: input.medianRate,
+    highRate: input.highRate,
+    currency: input.currency,
+    sampleSize: input.sampleSize,
+    observedAt: input.observedAt ?? new Date().toISOString(),
+  });
+
+  await prisma.silMarketRateRecord.upsert({
+    where: { observationId: observation.observationId },
+    update: {
+      laneId: observation.laneId,
+      source: observation.source,
+      observedAt: new Date(observation.observedAt),
+      data: json(observation),
+    },
+    create: {
+      observationId: observation.observationId,
+      laneId: observation.laneId,
+      source: observation.source,
+      observedAt: new Date(observation.observedAt),
+      data: json(observation),
+    },
+  });
+
+  return observation;
 }
 
 export async function listSilGovernanceSignals(filters?: { workspaceId?: string }) {

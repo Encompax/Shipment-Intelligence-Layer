@@ -4,6 +4,7 @@ import {
   fetchDatasources,
   fetchUploadPreview,
   importUploadCarriers,
+  importUploadLaneRates,
   importUploadLoads,
   uploadFile,
 } from "../api/client";
@@ -140,6 +141,14 @@ export default function DataSourcesPanel() {
           falloffRate: headers.find((header: string) => /falloff|fall.*off|cancel/i.test(header)) ?? "",
           preferred: headers.find((header: string) => /preferred|primary/i.test(header)) ?? "",
           blocked: headers.find((header: string) => /blocked|do.*not.*use|dnu/i.test(header)) ?? "",
+          originRegion: headers.find((header: string) => /origin.*region|origin.*state|from.*state|lane.*origin/i.test(header)) ?? "",
+          destinationRegion: headers.find((header: string) => /dest.*region|dest.*state|to.*state|lane.*dest/i.test(header)) ?? "",
+          lowRate: headers.find((header: string) => /low.*rate|min.*rate/i.test(header)) ?? "",
+          medianRate: headers.find((header: string) => /median.*rate|market.*rate|avg.*rate|average.*rate/i.test(header)) ?? "",
+          highRate: headers.find((header: string) => /high.*rate|max.*rate/i.test(header)) ?? "",
+          averageTransitDays: headers.find((header: string) => /transit.*day|avg.*day/i.test(header)) ?? "",
+          transitVarianceDays: headers.find((header: string) => /variance.*day|transit.*variance/i.test(header)) ?? "",
+          sampleSize: headers.find((header: string) => /sample|volume|count/i.test(header)) ?? "",
         });
       }
       setFile(null);
@@ -174,6 +183,20 @@ export default function DataSourcesPanel() {
       );
     } catch (err) {
       setStatus(err instanceof Error ? err.message : "Carrier import failed");
+    }
+  }
+
+  async function handleImportLaneRates() {
+    if (!preview) return;
+
+    try {
+      setStatus("Importing mapped rows into SIL lane and market-rate intelligence...");
+      const result = await importUploadLaneRates(preview.upload.id, { mapping });
+      setStatus(
+        `Imported ${result.importedCount} lane-rate record(s). Skipped ${result.skippedCount ?? 0} duplicate row(s). ${result.rejectedCount} row(s) need review.`
+      );
+    } catch (err) {
+      setStatus(err instanceof Error ? err.message : "Lane-rate import failed");
     }
   }
 
@@ -398,6 +421,43 @@ export default function DataSourcesPanel() {
                       </label>
                     ))}
                   </div>
+                  <div className="transport-panel-header compact">
+                    <div>
+                      <p className="transport-eyebrow">Lane Rate Mapping</p>
+                      <h4>Market Intelligence Inputs</h4>
+                    </div>
+                    <span>Optional</span>
+                  </div>
+                  <div className="manual-field-grid compact">
+                    {[
+                      ["originRegion", "Origin Region"],
+                      ["destinationRegion", "Destination Region"],
+                      ["mode", "Mode"],
+                      ["equipmentType", "Equipment"],
+                      ["lowRate", "Low Rate"],
+                      ["medianRate", "Median Rate"],
+                      ["highRate", "High Rate"],
+                      ["averageTransitDays", "Transit Days"],
+                      ["transitVarianceDays", "Transit Variance"],
+                      ["onTimeRate", "On-Time Rate"],
+                      ["sampleSize", "Sample Size"],
+                    ].map(([field, label]) => (
+                      <label key={field}>
+                        {label}
+                        <select
+                          value={mapping[field] ?? ""}
+                          onChange={(event) => setMapping((current) => ({ ...current, [field]: event.target.value }))}
+                        >
+                          <option value="">Not mapped</option>
+                          {preview.headers.map((header) => (
+                            <option key={header} value={header}>
+                              {header}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    ))}
+                  </div>
                   <div className="transport-table-wrap">
                     <table className="transport-table">
                       <thead>
@@ -423,6 +483,9 @@ export default function DataSourcesPanel() {
                   </button>
                   <button className="btn btn-secondary" type="button" onClick={handleImportCarriers}>
                     Import Carrier Profiles
+                  </button>
+                  <button className="btn btn-secondary" type="button" onClick={handleImportLaneRates}>
+                    Import Lane Rates
                   </button>
                 </div>
               )}
