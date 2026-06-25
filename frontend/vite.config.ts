@@ -13,8 +13,16 @@ export default defineConfig({
         target: "http://localhost:3001",
         changeOrigin: true,
       },
+      "/api/shipment-intelligence": {
+        target: "http://localhost:3001",
+        changeOrigin: true,
+      },
+      "/api/ingest": {
+        target: "http://localhost:3001",
+        changeOrigin: true,
+      },
       "/api": {
-        target: "http://localhost:4000",
+        target: "http://localhost:3001",
         changeOrigin: true,
       },
     },
