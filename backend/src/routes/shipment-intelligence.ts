@@ -20,6 +20,10 @@ import {
 } from "../services/shipmentIntelligence/carrierProviderAdapter";
 import { analyzeMarketRate } from "../services/shipmentIntelligence/marketRateService";
 import {
+  buildEncompaxPlatformOverviewPayload,
+  sendSignalToEncompaxPlatformOverview,
+} from "../services/shipmentIntelligence/encompaxPlatformBridge";
+import {
   listWorkflowEvents,
   seedWorkflowEvents,
 } from "../services/shipmentIntelligence/workflowEventService";
@@ -48,6 +52,7 @@ import {
   listSilBids,
   listSilCarriers,
   listSilGovernanceSignals,
+  listSilGovernanceSignalEnvelopes,
   listSilLanes,
   listSilLeanTemplates,
   listSilLoads,
@@ -60,6 +65,7 @@ import {
   recordSilTenderResponse,
   seedSilPersistence,
   sendSilCarrierInvites,
+  updateSilGovernanceSignalStatus,
   updateSilBidCommercials,
   updateSilBidStatus,
   updateSilLoadStatus,
@@ -1147,6 +1153,80 @@ export function registerShipmentIntelligenceRoutes(app: Express) {
     const persistedSignals = await listSilGovernanceSignals({ workspaceId });
     const governanceSignals = persistedSignals;
     res.json({ count: governanceSignals.length, governanceSignals });
+  });
+
+  router.get("/governance-signals/envelopes", async (req: Request, res: Response) => {
+    const workspaceId = requestWorkspaceId(req);
+    await buildGeneratedGovernanceSignals(workspaceId);
+    const records = await listSilGovernanceSignalEnvelopes({
+      workspaceId,
+      status: req.query.status as string | undefined,
+    });
+
+    res.json({ count: records.length, records });
+  });
+
+  router.get("/governance-signals/:signalId/platform-payload", async (req: Request, res: Response) => {
+    const signalId = decodeURIComponent(req.params.signalId);
+    const records = await listSilGovernanceSignalEnvelopes({
+      workspaceId: requestWorkspaceId(req),
+    });
+    const record = records.find((item) => item.signalId === signalId);
+    if (!record) return res.status(404).json({ error: "SIL governance signal not found" });
+
+    res.json({
+      signalId,
+      status: record.status,
+      payload: buildEncompaxPlatformOverviewPayload(signalId, record.signal),
+    });
+  });
+
+  router.post("/governance-signals/:signalId/send-to-encompax", async (req: Request, res: Response) => {
+    const signalId = decodeURIComponent(req.params.signalId);
+    const records = await listSilGovernanceSignalEnvelopes({
+      workspaceId: requestWorkspaceId(req),
+    });
+    const record = records.find((item) => item.signalId === signalId);
+    if (!record) return res.status(404).json({ error: "SIL governance signal not found" });
+
+    const result = await sendSignalToEncompaxPlatformOverview(signalId, record.signal);
+    const status = result.sent ? "SENT_TO_ENCOMPAX" : "ENCOMPAX_SEND_FAILED";
+    const updated = await updateSilGovernanceSignalStatus(signalId, status);
+
+    res.status(result.sent ? 200 : 502).json({
+      success: result.sent,
+      updated,
+      bridge: result,
+    });
+  });
+
+  router.post("/governance-signals/send-ready-to-encompax", async (req: Request, res: Response) => {
+    const workspaceId = requestWorkspaceId(req);
+    await buildGeneratedGovernanceSignals(workspaceId);
+    const readySignals = await listSilGovernanceSignalEnvelopes({
+      workspaceId,
+      status: (req.body?.status as string | undefined) ?? "READY_FOR_ENCOMPAX",
+    });
+
+    const results: Array<{
+      signalId: string;
+      success: boolean;
+      updated: Awaited<ReturnType<typeof updateSilGovernanceSignalStatus>>;
+      bridge: Awaited<ReturnType<typeof sendSignalToEncompaxPlatformOverview>>;
+    }> = [];
+    for (const record of readySignals) {
+      const bridge = await sendSignalToEncompaxPlatformOverview(record.signalId, record.signal);
+      const status = bridge.sent ? "SENT_TO_ENCOMPAX" : "ENCOMPAX_SEND_FAILED";
+      const updated = await updateSilGovernanceSignalStatus(record.signalId, status);
+      results.push({ signalId: record.signalId, success: bridge.sent, updated, bridge });
+    }
+
+    res.status(results.every((result) => result.success) ? 200 : 207).json({
+      count: results.length,
+      sentCount: results.filter((result) => result.success).length,
+      failedCount: results.filter((result) => !result.success).length,
+      results,
+    });
   });
 
   router.get("/workflow-events", async (req: Request, res: Response) => {

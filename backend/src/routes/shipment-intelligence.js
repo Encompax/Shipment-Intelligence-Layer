@@ -12,6 +12,7 @@ const matchingEngine_1 = require("../services/shipmentIntelligence/matchingEngin
 const loadLifecycleService_1 = require("../services/shipmentIntelligence/loadLifecycleService");
 const carrierProviderAdapter_1 = require("../services/shipmentIntelligence/carrierProviderAdapter");
 const marketRateService_1 = require("../services/shipmentIntelligence/marketRateService");
+const encompaxPlatformBridge_1 = require("../services/shipmentIntelligence/encompaxPlatformBridge");
 const workflowEventService_1 = require("../services/shipmentIntelligence/workflowEventService");
 const silPersistenceService_1 = require("../services/shipmentIntelligence/silPersistenceService");
 function registerShipmentIntelligenceRoutes(app) {
@@ -1006,6 +1007,68 @@ function registerShipmentIntelligenceRoutes(app) {
         const persistedSignals = await (0, silPersistenceService_1.listSilGovernanceSignals)({ workspaceId });
         const governanceSignals = persistedSignals;
         res.json({ count: governanceSignals.length, governanceSignals });
+    });
+    router.get("/governance-signals/envelopes", async (req, res) => {
+        const workspaceId = requestWorkspaceId(req);
+        await buildGeneratedGovernanceSignals(workspaceId);
+        const records = await (0, silPersistenceService_1.listSilGovernanceSignalEnvelopes)({
+            workspaceId,
+            status: req.query.status,
+        });
+        res.json({ count: records.length, records });
+    });
+    router.get("/governance-signals/:signalId/platform-payload", async (req, res) => {
+        const signalId = decodeURIComponent(req.params.signalId);
+        const records = await (0, silPersistenceService_1.listSilGovernanceSignalEnvelopes)({
+            workspaceId: requestWorkspaceId(req),
+        });
+        const record = records.find((item) => item.signalId === signalId);
+        if (!record)
+            return res.status(404).json({ error: "SIL governance signal not found" });
+        res.json({
+            signalId,
+            status: record.status,
+            payload: (0, encompaxPlatformBridge_1.buildEncompaxPlatformOverviewPayload)(signalId, record.signal),
+        });
+    });
+    router.post("/governance-signals/:signalId/send-to-encompax", async (req, res) => {
+        const signalId = decodeURIComponent(req.params.signalId);
+        const records = await (0, silPersistenceService_1.listSilGovernanceSignalEnvelopes)({
+            workspaceId: requestWorkspaceId(req),
+        });
+        const record = records.find((item) => item.signalId === signalId);
+        if (!record)
+            return res.status(404).json({ error: "SIL governance signal not found" });
+        const result = await (0, encompaxPlatformBridge_1.sendSignalToEncompaxPlatformOverview)(signalId, record.signal);
+        const status = result.sent ? "SENT_TO_ENCOMPAX" : "ENCOMPAX_SEND_FAILED";
+        const updated = await (0, silPersistenceService_1.updateSilGovernanceSignalStatus)(signalId, status);
+        res.status(result.sent ? 200 : 502).json({
+            success: result.sent,
+            updated,
+            bridge: result,
+        });
+    });
+    router.post("/governance-signals/send-ready-to-encompax", async (req, res) => {
+        var _a, _b;
+        const workspaceId = requestWorkspaceId(req);
+        await buildGeneratedGovernanceSignals(workspaceId);
+        const readySignals = await (0, silPersistenceService_1.listSilGovernanceSignalEnvelopes)({
+            workspaceId,
+            status: (_b = (_a = req.body) === null || _a === void 0 ? void 0 : _a.status) !== null && _b !== void 0 ? _b : "READY_FOR_ENCOMPAX",
+        });
+        const results = [];
+        for (const record of readySignals) {
+            const bridge = await (0, encompaxPlatformBridge_1.sendSignalToEncompaxPlatformOverview)(record.signalId, record.signal);
+            const status = bridge.sent ? "SENT_TO_ENCOMPAX" : "ENCOMPAX_SEND_FAILED";
+            const updated = await (0, silPersistenceService_1.updateSilGovernanceSignalStatus)(record.signalId, status);
+            results.push({ signalId: record.signalId, success: bridge.sent, updated, bridge });
+        }
+        res.status(results.every((result) => result.success) ? 200 : 207).json({
+            count: results.length,
+            sentCount: results.filter((result) => result.success).length,
+            failedCount: results.filter((result) => !result.success).length,
+            results,
+        });
     });
     router.get("/workflow-events", async (req, res) => {
         const memoryEvents = (0, workflowEventService_1.listWorkflowEvents)({

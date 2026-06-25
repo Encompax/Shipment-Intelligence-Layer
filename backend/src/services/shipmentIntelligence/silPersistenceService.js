@@ -30,6 +30,8 @@ exports.updateSilBidStatus = updateSilBidStatus;
 exports.listSilMarketRates = listSilMarketRates;
 exports.createSilMarketRate = createSilMarketRate;
 exports.listSilGovernanceSignals = listSilGovernanceSignals;
+exports.listSilGovernanceSignalEnvelopes = listSilGovernanceSignalEnvelopes;
+exports.updateSilGovernanceSignalStatus = updateSilGovernanceSignalStatus;
 exports.persistSilGovernanceSignal = persistSilGovernanceSignal;
 exports.persistSilWorkflowEvent = persistSilWorkflowEvent;
 exports.listPersistedWorkflowEvents = listPersistedWorkflowEvents;
@@ -1405,6 +1407,36 @@ async function listSilGovernanceSignals(filters) {
     await seedSilPersistence();
     const records = await prisma_1.prisma.silGovernanceSignalRecord.findMany({ orderBy: { updatedAt: "desc" } });
     return records.map((record) => withWorkspace(fromRecord(record))).filter((record) => matchesWorkspace(record, filters === null || filters === void 0 ? void 0 : filters.workspaceId));
+}
+async function listSilGovernanceSignalEnvelopes(filters) {
+    await seedSilPersistence();
+    const records = await prisma_1.prisma.silGovernanceSignalRecord.findMany({
+        where: {
+            status: filters === null || filters === void 0 ? void 0 : filters.status,
+        },
+        orderBy: { updatedAt: "desc" },
+    });
+    return records
+        .map((record) => ({
+        signalId: record.signalId,
+        status: record.status,
+        updatedAt: record.updatedAt.toISOString(),
+        signal: withWorkspace(fromRecord(record)),
+    }))
+        .filter((record) => matchesWorkspace(record.signal, filters === null || filters === void 0 ? void 0 : filters.workspaceId));
+}
+async function updateSilGovernanceSignalStatus(signalId, status) {
+    await seedSilPersistence();
+    const record = await prisma_1.prisma.silGovernanceSignalRecord.update({
+        where: { signalId },
+        data: { status },
+    });
+    return {
+        signalId: record.signalId,
+        status: record.status,
+        updatedAt: record.updatedAt.toISOString(),
+        signal: withWorkspace(fromRecord(record)),
+    };
 }
 async function persistSilGovernanceSignal(signal, status = "DRAFT") {
     await seedSilPersistence();

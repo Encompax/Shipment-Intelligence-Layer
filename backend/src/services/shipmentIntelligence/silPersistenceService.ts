@@ -219,6 +219,13 @@ export type SilWorkspacePayload = {
   enabledAgentProviders?: Array<"MANUAL" | "OPENAI" | "ANTHROPIC" | "HUGGINGFACE">;
 };
 
+export type SilGovernanceSignalEnvelope = {
+  signalId: string;
+  status: string;
+  updatedAt: string;
+  signal: SilGovernanceSignalDraft;
+};
+
 const defaultWorkspace: SilWorkspacePayload = {
   workspaceId: DEFAULT_WORKSPACE_ID,
   organization: "Example Organization",
@@ -1620,6 +1627,40 @@ export async function listSilGovernanceSignals(filters?: { workspaceId?: string 
   await seedSilPersistence();
   const records = await prisma.silGovernanceSignalRecord.findMany({ orderBy: { updatedAt: "desc" } });
   return records.map((record) => withWorkspace(fromRecord<SilGovernanceSignalDraft>(record))).filter((record) => matchesWorkspace(record, filters?.workspaceId));
+}
+
+export async function listSilGovernanceSignalEnvelopes(filters?: { workspaceId?: string; status?: string }) {
+  await seedSilPersistence();
+  const records = await prisma.silGovernanceSignalRecord.findMany({
+    where: {
+      status: filters?.status,
+    },
+    orderBy: { updatedAt: "desc" },
+  });
+
+  return records
+    .map<SilGovernanceSignalEnvelope>((record) => ({
+      signalId: record.signalId,
+      status: record.status,
+      updatedAt: record.updatedAt.toISOString(),
+      signal: withWorkspace(fromRecord<SilGovernanceSignalDraft>(record)),
+    }))
+    .filter((record) => matchesWorkspace(record.signal, filters?.workspaceId));
+}
+
+export async function updateSilGovernanceSignalStatus(signalId: string, status: string) {
+  await seedSilPersistence();
+  const record = await prisma.silGovernanceSignalRecord.update({
+    where: { signalId },
+    data: { status },
+  });
+
+  return {
+    signalId: record.signalId,
+    status: record.status,
+    updatedAt: record.updatedAt.toISOString(),
+    signal: withWorkspace(fromRecord<SilGovernanceSignalDraft>(record)),
+  };
 }
 
 export async function persistSilGovernanceSignal(signal: SilGovernanceSignalDraft, status = "DRAFT") {
