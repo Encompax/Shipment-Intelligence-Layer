@@ -1,0 +1,14 @@
+{
+  "projects": {
+    "default": "encompax-prod"
+  },
+  "targets": {
+    "encompax-prod": {
+      "hosting": {
+        "sil": [
+          "encompax-sil"
+        ]
+      }
+    }
+  }
+}
