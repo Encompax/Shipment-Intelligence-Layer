@@ -80,6 +80,14 @@ export async function fetchTransportationOverview() {
   return fetchShipmentIntelligence("/overview");
 }
 
+export async function fetchSilOperationsOverview() {
+  return fetchShipmentIntelligence("/operations/overview");
+}
+
+export async function fetchSilOperationsPanel(area: string) {
+  return fetchShipmentIntelligence(`/operations/${encodeURIComponent(area)}`);
+}
+
 export async function fetchSilWorkspace() {
   return fetchShipmentIntelligence("/workspace");
 }

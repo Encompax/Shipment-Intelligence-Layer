@@ -1,11 +1,6 @@
 import React from "react";
+import OperationsPhasePanel from "./OperationsPhasePanel";
 
-const ProductionManagementPanel: React.FC = () => (
-  <div className="panel-placeholder">
-    <p>Monitor work centers, WIP levels, and schedule attainment across production lines.</p>
-    <p>Upcoming: OEE tracking, changeover performance, and constraint dashboards.</p>
-    <span className="placeholder-pill">Coming in Phase 2</span>
-  </div>
-);
+const ProductionManagementPanel: React.FC = () => <OperationsPhasePanel area="production" />;
 
 export default ProductionManagementPanel;

@@ -20,6 +20,10 @@ import {
 } from "../services/shipmentIntelligence/carrierProviderAdapter";
 import { analyzeMarketRate } from "../services/shipmentIntelligence/marketRateService";
 import {
+  buildSilOperationsOverview,
+  SilOperationArea,
+} from "../services/shipmentIntelligence/operationsOverviewService";
+import {
   buildEncompaxPlatformOverviewPayload,
   sendSignalToEncompaxPlatformOverview,
 } from "../services/shipmentIntelligence/encompaxPlatformBridge";
@@ -160,6 +164,25 @@ export function registerShipmentIntelligenceRoutes(app: Express) {
       governanceSignalCount: governanceSignals.length,
       loadsAtRisk: governanceSignals.filter((signal) => ["HIGH", "CRITICAL"].includes(signal.severity)).length,
       timestamp: new Date().toISOString(),
+    });
+  });
+
+  router.get("/operations/overview", async (req: Request, res: Response) => {
+    const overview = await buildSilOperationsOverview(requestWorkspaceId(req));
+    res.json(overview);
+  });
+
+  router.get("/operations/:area", async (req: Request, res: Response) => {
+    const overview = await buildSilOperationsOverview(requestWorkspaceId(req));
+    const area = req.params.area as SilOperationArea;
+    const panel = overview.panels[area];
+    if (!panel) {
+      return res.status(404).json({ error: "Unknown SIL operations area" });
+    }
+    res.json({
+      workspaceId: overview.workspaceId,
+      generatedAt: overview.generatedAt,
+      panel,
     });
   });
 

@@ -12,6 +12,7 @@ const matchingEngine_1 = require("../services/shipmentIntelligence/matchingEngin
 const loadLifecycleService_1 = require("../services/shipmentIntelligence/loadLifecycleService");
 const carrierProviderAdapter_1 = require("../services/shipmentIntelligence/carrierProviderAdapter");
 const marketRateService_1 = require("../services/shipmentIntelligence/marketRateService");
+const operationsOverviewService_1 = require("../services/shipmentIntelligence/operationsOverviewService");
 const encompaxPlatformBridge_1 = require("../services/shipmentIntelligence/encompaxPlatformBridge");
 const workflowEventService_1 = require("../services/shipmentIntelligence/workflowEventService");
 const silPersistenceService_1 = require("../services/shipmentIntelligence/silPersistenceService");
@@ -88,6 +89,23 @@ function registerShipmentIntelligenceRoutes(app) {
             governanceSignalCount: governanceSignals.length,
             loadsAtRisk: governanceSignals.filter((signal) => ["HIGH", "CRITICAL"].includes(signal.severity)).length,
             timestamp: new Date().toISOString(),
+        });
+    });
+    router.get("/operations/overview", async (req, res) => {
+        const overview = await (0, operationsOverviewService_1.buildSilOperationsOverview)(requestWorkspaceId(req));
+        res.json(overview);
+    });
+    router.get("/operations/:area", async (req, res) => {
+        const overview = await (0, operationsOverviewService_1.buildSilOperationsOverview)(requestWorkspaceId(req));
+        const area = req.params.area;
+        const panel = overview.panels[area];
+        if (!panel) {
+            return res.status(404).json({ error: "Unknown SIL operations area" });
+        }
+        res.json({
+            workspaceId: overview.workspaceId,
+            generatedAt: overview.generatedAt,
+            panel,
         });
     });
     router.get("/workspace", async (req, res) => {
