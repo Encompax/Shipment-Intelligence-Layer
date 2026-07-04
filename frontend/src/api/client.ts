@@ -5,12 +5,32 @@
  */
 const API_BASE = (import.meta.env.VITE_API_BASE_URL ?? '/api').replace(/\/$/, '');
 
+async function readJsonResponse(res: Response, label: string) {
+  const text = await res.text();
+  let body: any = null;
+
+  if (text) {
+    try {
+      body = JSON.parse(text);
+    } catch {
+      body = null;
+    }
+  }
+
+  if (!res.ok) {
+    throw new Error(body?.error ?? `${label}: ${res.status}`);
+  }
+
+  if (body === null) {
+    throw new Error(`${label}: API unavailable or returned a non-JSON response`);
+  }
+
+  return body;
+}
+
 export async function fetchDatasources() {
  const res = await fetch(`${API_BASE}/datasources`);
- if (!res.ok) {
-   throw new Error(`Failed to fetch datasources: ${res.status}`);
- }
- return res.json();
+ return readJsonResponse(res, "Failed to fetch datasources");
 }
 
 export async function createDatasource(payload: {
@@ -23,10 +43,7 @@ export async function createDatasource(payload: {
    headers: { "Content-Type": "application/json" },
    body: JSON.stringify(payload),
  });
- if (!res.ok) {
-   throw new Error(`Failed to create datasource: ${res.status}`);
- }
- return res.json();
+ return readJsonResponse(res, "Failed to create datasource");
 }
 
 // ── SIL (Shipment Intelligence Layer) ────────────────────────────────────────
@@ -38,42 +55,34 @@ export async function fetchSilMetrics(from?: string, to?: string) {
   if (from) params.set('from', from);
   if (to) params.set('to', to);
   const res = await fetch(`${SIL_BASE}/metrics?${params}`);
-  if (!res.ok) throw new Error(`SIL metrics error: ${res.status}`);
-  return res.json();
+  return readJsonResponse(res, "SIL metrics error");
 }
 
 export async function fetchSilLiveFeed() {
   const res = await fetch(`${SIL_BASE}/live-feed`);
-  if (!res.ok) throw new Error(`SIL live-feed error: ${res.status}`);
-  return res.json();
+  return readJsonResponse(res, "SIL live-feed error");
 }
 
 export async function fetchSilInTransit() {
   const res = await fetch(`${SIL_BASE}/in-transit`);
-  if (!res.ok) throw new Error(`SIL in-transit error: ${res.status}`);
-  return res.json();
+  return readJsonResponse(res, "SIL in-transit error");
 }
 
 export async function fetchSilExceptions() {
   const res = await fetch(`${SIL_BASE}/exceptions`);
-  if (!res.ok) throw new Error(`SIL exceptions error: ${res.status}`);
-  return res.json();
+  return readJsonResponse(res, "SIL exceptions error");
 }
 
 export async function fetchSilWorkerStatus() {
   const res = await fetch(`${SIL_BASE}/worker-status`);
-  if (!res.ok) throw new Error(`SIL worker-status error: ${res.status}`);
-  return res.json();
+  return readJsonResponse(res, "SIL worker-status error");
 }
 
 const SHIPMENT_INTELLIGENCE_BASE = `${API_BASE}/shipment-intelligence`;
 
 async function fetchShipmentIntelligence(path: string) {
   const res = await fetch(`${SHIPMENT_INTELLIGENCE_BASE}${path}`);
-  if (!res.ok) {
-    throw new Error(`Shipment Intelligence API error: ${res.status}`);
-  }
-  return res.json();
+  return readJsonResponse(res, "Shipment Intelligence API error");
 }
 
 export async function fetchTransportationOverview() {
