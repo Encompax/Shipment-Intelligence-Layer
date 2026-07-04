@@ -21,10 +21,20 @@ const inventory_movements_1 = require("./routes/inventory-movements");
 const cycle_count_transactions_1 = require("./routes/cycle-count-transactions");
 const shipment_intelligence_1 = require("./routes/shipment-intelligence");
 const app = (0, express_1.default)();
+const allowedOrigins = (process.env.ALLOWED_ORIGINS || process.env.ALLOWED_ORIGIN || 'http://localhost:5173')
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean);
 // LAN-only deployment — CORS restricted to same origin.
 // Update ALLOWED_ORIGIN env var if the frontend is served from a different port.
 app.use((0, cors_1.default)({
-    origin: process.env.ALLOWED_ORIGIN || 'http://localhost:5173',
+    origin(origin, callback) {
+        if (!origin || allowedOrigins.includes(origin)) {
+            callback(null, true);
+            return;
+        }
+        callback(new Error(`CORS blocked origin: ${origin}`));
+    },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
     allowedHeaders: ['Content-Type', 'Authorization'],

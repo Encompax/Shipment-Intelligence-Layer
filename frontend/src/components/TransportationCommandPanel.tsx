@@ -47,6 +47,18 @@ type Load = {
   mode: string;
   equipmentType: string;
   status: string;
+  weight?: number;
+  weightUnit?: string;
+  unitCount?: number;
+  unitType?: string;
+  handlingUnitCount?: number;
+  handlingUnitType?: string;
+  commodity?: string;
+  skuRefs?: string[];
+  poNumber?: string;
+  bolNumber?: string;
+  customerReference?: string;
+  specialInstructions?: string;
   targetSellRate?: number;
   targetBuyRate?: number;
   marginTarget?: number;
@@ -287,6 +299,50 @@ const shortDateTime = (value?: string) => (value ? new Date(value).toLocaleStrin
 const shortLoadId = (loadId: string) => loadId.replace("load-", "");
 const toDateTimeInput = (value?: string) => (value ? value.slice(0, 16) : "");
 const fromDateTimeInput = (value?: string) => (value ? new Date(value).toISOString() : undefined);
+const escapeHtml = (value?: string | number | null) =>
+  String(value ?? "--")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+
+const printableLocation = (location?: { city?: string; state?: string; facilityName?: string }) =>
+  [location?.facilityName, location?.city, location?.state].filter(Boolean).join(", ") || "--";
+
+function openPrintPacket(title: string, bodyHtml: string) {
+  const printWindow = window.open("", "_blank", "noopener,noreferrer,width=980,height=760");
+  if (!printWindow) return;
+
+  printWindow.document.write(`<!doctype html>
+<html>
+  <head>
+    <title>${escapeHtml(title)}</title>
+    <style>
+      body { font-family: Arial, sans-serif; color: #111827; margin: 32px; }
+      header { border-bottom: 2px solid #0f766e; margin-bottom: 24px; padding-bottom: 12px; }
+      h1 { margin: 0; font-size: 28px; }
+      h2 { font-size: 18px; margin: 24px 0 10px; }
+      .meta { color: #475569; font-size: 12px; letter-spacing: .08em; text-transform: uppercase; }
+      .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+      .box { border: 1px solid #cbd5e1; border-radius: 8px; padding: 12px; min-height: 74px; }
+      .label { color: #64748b; display: block; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; }
+      table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+      th, td { border-bottom: 1px solid #e2e8f0; padding: 10px 8px; text-align: left; vertical-align: top; }
+      th { color: #475569; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; }
+      .signature { margin-top: 42px; display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+      .signature div { border-top: 1px solid #94a3b8; padding-top: 8px; }
+      @media print { button { display: none; } body { margin: 18mm; } }
+    </style>
+  </head>
+  <body>
+    <button onclick="window.print()">Print</button>
+    ${bodyHtml}
+  </body>
+</html>`);
+  printWindow.document.close();
+  printWindow.focus();
+}
 
 async function loadTransportationData() {
   const [
@@ -521,6 +577,147 @@ const TransportationCommandPanel: React.FC = () => {
     () => appointmentCalendar.filter((appointment) => appointment.loadId === selectedLoad?.loadId),
     [appointmentCalendar, selectedLoad?.loadId]
   );
+
+  function handlePrintBol() {
+    if (!selectedLoad) return;
+
+    const pickup = selectedShipment?.stops.find((stop) => stop.type === "PICKUP") ?? selectedShipment?.stops[0];
+    const delivery =
+      selectedShipment?.stops.find((stop) => stop.type === "DELIVERY") ?? selectedShipment?.stops[selectedShipment.stops.length - 1];
+    const bolNumber = selectedLoad.bolNumber ?? `BOL-${shortLoadId(selectedLoad.loadId).toUpperCase()}`;
+
+    openPrintPacket(
+      `BOL ${bolNumber}`,
+      `<header>
+        <span class="meta">Encompax Shipment Intelligence Layer</span>
+        <h1>Bill of Lading</h1>
+      </header>
+      <section class="grid">
+        <div class="box"><span class="label">BOL Number</span><strong>${escapeHtml(bolNumber)}</strong></div>
+        <div class="box"><span class="label">Load ID</span><strong>${escapeHtml(selectedLoad.loadId)}</strong></div>
+        <div class="box"><span class="label">Shipper</span>${escapeHtml(printableLocation(pickup?.location ?? selectedLoad.origin))}</div>
+        <div class="box"><span class="label">Consignee</span>${escapeHtml(printableLocation(delivery?.location ?? selectedLoad.destination))}</div>
+        <div class="box"><span class="label">Carrier</span>${escapeHtml(selectedShipment?.carrierName ?? selectedBid?.carrierId ?? "Pending")}</div>
+        <div class="box"><span class="label">Mode / Equipment</span>${escapeHtml(`${selectedLoad.mode} / ${selectedLoad.equipmentType}`)}</div>
+      </section>
+      <h2>Shipment Contents</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Commodity</th>
+            <th>SKU / Reference</th>
+            <th>Units</th>
+            <th>Handling Units</th>
+            <th>Weight</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>${escapeHtml(selectedLoad.commodity ?? "General freight")}</td>
+            <td>${escapeHtml((selectedLoad.skuRefs ?? []).join(", ") || selectedLoad.customerReference || selectedLoad.poNumber)}</td>
+            <td>${escapeHtml([selectedLoad.unitCount, selectedLoad.unitType].filter(Boolean).join(" "))}</td>
+            <td>${escapeHtml([selectedLoad.handlingUnitCount, selectedLoad.handlingUnitType].filter(Boolean).join(" "))}</td>
+            <td>${escapeHtml([selectedLoad.weight, selectedLoad.weightUnit].filter(Boolean).join(" "))}</td>
+          </tr>
+        </tbody>
+      </table>
+      <h2>Instructions</h2>
+      <p>${escapeHtml(selectedLoad.specialInstructions ?? "No special instructions recorded.")}</p>
+      <section class="signature">
+        <div>Shipper signature / date</div>
+        <div>Carrier signature / date</div>
+      </section>`
+    );
+  }
+
+  function handlePrintManifest() {
+    if (!selectedLoad) return;
+
+    openPrintPacket(
+      `Shipment Manifest ${selectedLoad.loadId}`,
+      `<header>
+        <span class="meta">Encompax Shipment Intelligence Layer</span>
+        <h1>Shipment Manifest</h1>
+      </header>
+      <section class="grid">
+        <div class="box"><span class="label">Customer</span><strong>${escapeHtml(selectedLoad.customerName ?? selectedLoad.customerId)}</strong></div>
+        <div class="box"><span class="label">Load Status</span><strong>${escapeHtml(selectedLoad.status)}</strong></div>
+        <div class="box"><span class="label">Origin</span>${escapeHtml(printableLocation(selectedLoad.origin))}</div>
+        <div class="box"><span class="label">Destination</span>${escapeHtml(printableLocation(selectedLoad.destination))}</div>
+      </section>
+      <h2>Operational Details</h2>
+      <table>
+        <tbody>
+          <tr><th>Mode</th><td>${escapeHtml(selectedLoad.mode)}</td><th>Equipment</th><td>${escapeHtml(selectedLoad.equipmentType)}</td></tr>
+          <tr><th>PO</th><td>${escapeHtml(selectedLoad.poNumber)}</td><th>Customer Ref</th><td>${escapeHtml(selectedLoad.customerReference)}</td></tr>
+          <tr><th>Units</th><td>${escapeHtml([selectedLoad.unitCount, selectedLoad.unitType].filter(Boolean).join(" "))}</td><th>Weight</th><td>${escapeHtml([selectedLoad.weight, selectedLoad.weightUnit].filter(Boolean).join(" "))}</td></tr>
+          <tr><th>Sell Rate</th><td>${escapeHtml(money(selectedLoad.targetSellRate))}</td><th>Target Buy</th><td>${escapeHtml(money(selectedLoad.targetBuyRate))}</td></tr>
+        </tbody>
+      </table>
+      <h2>Appointments</h2>
+      <table>
+        <thead><tr><th>Stop</th><th>Facility</th><th>Appointment</th><th>Status</th></tr></thead>
+        <tbody>
+          ${
+            selectedAppointments.length
+              ? selectedAppointments
+                  .map(
+                    (appointment) =>
+                      `<tr><td>${escapeHtml(`${appointment.sequence}. ${appointment.type}`)}</td><td>${escapeHtml(
+                        printableLocation(appointment)
+                      )}</td><td>${escapeHtml(shortDateTime(appointment.appointmentStart))}</td><td>${escapeHtml(
+                        appointment.appointmentStatus
+                      )}</td></tr>`
+                  )
+                  .join("")
+              : `<tr><td colspan="4">No appointments scheduled.</td></tr>`
+          }
+        </tbody>
+      </table>`
+    );
+  }
+
+  function handlePrintDispatchPacket() {
+    if (!selectedLoad) return;
+
+    openPrintPacket(
+      `Dispatch Packet ${selectedLoad.loadId}`,
+      `<header>
+        <span class="meta">Encompax Shipment Intelligence Layer</span>
+        <h1>Dispatch Packet</h1>
+      </header>
+      <section class="grid">
+        <div class="box"><span class="label">Carrier</span><strong>${escapeHtml(selectedShipment?.carrierName ?? selectedBid?.carrierId ?? "Pending")}</strong></div>
+        <div class="box"><span class="label">Tracking</span><strong>${escapeHtml(selectedShipment?.trackingNumber ?? "Pending")}</strong></div>
+        <div class="box"><span class="label">Readiness</span><strong>${escapeHtml(dispatchReadiness?.status ?? "Not reviewed")}</strong></div>
+        <div class="box"><span class="label">Score</span><strong>${escapeHtml(dispatchReadiness?.score)}</strong></div>
+      </section>
+      <h2>Route</h2>
+      <table>
+        <thead><tr><th>Sequence</th><th>Type</th><th>Location</th><th>Appointment</th><th>Dock</th></tr></thead>
+        <tbody>
+          ${
+            selectedShipment?.stops.length
+              ? selectedShipment.stops
+                  .map(
+                    (stop) =>
+                      `<tr><td>${escapeHtml(stop.sequence)}</td><td>${escapeHtml(stop.type)}</td><td>${escapeHtml(
+                        printableLocation(stop.location)
+                      )}</td><td>${escapeHtml(shortDateTime(stop.appointmentStart))}</td><td>${escapeHtml(stop.dockDoor)}</td></tr>`
+                  )
+                  .join("")
+              : `<tr><td colspan="5">${escapeHtml(printableLocation(selectedLoad.origin))} to ${escapeHtml(
+                  printableLocation(selectedLoad.destination)
+                )}</td></tr>`
+          }
+        </tbody>
+      </table>
+      <h2>Governed Readiness Evidence</h2>
+      <ul>
+        ${(dispatchReadiness?.evidence ?? ["No readiness review has been stored yet."]).map((item) => `<li>${escapeHtml(item)}</li>`).join("")}
+      </ul>`
+    );
+  }
 
   useEffect(() => {
     let alive = true;
@@ -2059,6 +2256,17 @@ const TransportationCommandPanel: React.FC = () => {
                   </div>
                   {selectedShipment ? (
                     <>
+                      <div className="document-print-actions">
+                        <button className="btn btn-secondary btn-sm" type="button" onClick={handlePrintBol}>
+                          Print BOL
+                        </button>
+                        <button className="btn btn-secondary btn-sm" type="button" onClick={handlePrintManifest}>
+                          Print Manifest
+                        </button>
+                        <button className="btn btn-secondary btn-sm" type="button" onClick={handlePrintDispatchPacket}>
+                          Dispatch Packet
+                        </button>
+                      </div>
                       <div className="document-requirement-list">
                         {documentRequirements.map((requirement) => (
                           <div
