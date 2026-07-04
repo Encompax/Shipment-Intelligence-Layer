@@ -101,6 +101,10 @@ export async function fetchSilWorkspace() {
   return fetchShipmentIntelligence("/workspace");
 }
 
+export async function fetchSilAgentActivityReadiness() {
+  return fetchShipmentIntelligence("/agent-activity/readiness");
+}
+
 export async function updateSilWorkspace(payload: Record<string, unknown>) {
   const res = await fetch(`${SHIPMENT_INTELLIGENCE_BASE}/workspace`, {
     method: "PUT",

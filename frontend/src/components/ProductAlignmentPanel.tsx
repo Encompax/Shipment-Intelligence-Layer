@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { fetchSilWorkspace, updateSilWorkspace } from "../api/client";
+import { fetchSilAgentActivityReadiness, fetchSilWorkspace, updateSilWorkspace } from "../api/client";
 import EncompaxMark from "./EncompaxMark";
 import SILLogo from "./SILLogo";
 
@@ -27,7 +27,7 @@ type WorkspaceState = {
   governanceMode: "SIGNAL_ONLY" | "COUNCIL_REVIEW" | "ENTERPRISE_SYNC";
   monthlyTokenBudget: number;
   monthlySpendLimitUsd: number;
-  enabledAgentProviders: Array<"MANUAL" | "OPENAI" | "ANTHROPIC" | "HUGGINGFACE">;
+  enabledAgentProviders: Array<"MANUAL" | "OPENAI" | "ANTHROPIC" | "HUGGINGFACE" | "GEMINI">;
   modules: Array<{
     productId: string;
     status: ProductStatus;
@@ -40,6 +40,37 @@ type WorkspaceState = {
     role: "OWNER" | "ADMIN" | "OPERATOR" | "VIEWER";
     status: "ACTIVE" | "INVITED";
   }>;
+};
+
+type AgentProviderReadiness = {
+  provider: "MANUAL" | "OPENAI" | "ANTHROPIC" | "HUGGINGFACE" | "GEMINI";
+  configured: boolean;
+  enabledForWorkspace: boolean;
+  role: "DRY_RUN_BASELINE" | "ACTIVE_CANDIDATE" | "STAGED" | "NOT_CONFIGURED";
+  modelRef: string | null;
+  recommendedUse: string;
+  costControl: string;
+};
+
+type AgentActivityReadiness = {
+  authorityBoundary: string;
+  executionMode: string;
+  providers: AgentProviderReadiness[];
+  budgetPolicy: {
+    monthlyTokenBudget: number;
+    monthlySpendLimitUsd: number;
+    maxEstimatedTokensPerReview: number;
+    maxEstimatedCostUsdPerReview: number;
+    liveProviderCandidates: string[];
+    fallbackProvider: string;
+  };
+  evidencePackets: Array<{
+    packetType: string;
+    ready: boolean;
+    routedTo: string;
+    requiredInputs: string[];
+  }>;
+  nextSteps: string[];
 };
 
 const productModules: ProductModule[] = [
@@ -129,6 +160,7 @@ const ProductAlignmentPanel: React.FC = () => {
   const [saveStatus, setSaveStatus] = useState<string | null>(null);
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteRole, setInviteRole] = useState<"ADMIN" | "OPERATOR" | "VIEWER">("OPERATOR");
+  const [agentReadiness, setAgentReadiness] = useState<AgentActivityReadiness | null>(null);
 
   useEffect(() => {
     let mounted = true;
@@ -141,6 +173,13 @@ const ProductAlignmentPanel: React.FC = () => {
       })
       .catch(() => {
         if (mounted) setSaveStatus("Workspace API unavailable; using local defaults.");
+      });
+    fetchSilAgentActivityReadiness()
+      .then((payload) => {
+        if (mounted) setAgentReadiness(payload);
+      })
+      .catch(() => {
+        if (mounted) setAgentReadiness(null);
       });
 
     return () => {
@@ -155,6 +194,11 @@ const ProductAlignmentPanel: React.FC = () => {
     () => productModules.filter((product) => selectedProductIds.includes(product.id)),
     [selectedProductIds]
   );
+
+  const activeAgentCandidates = agentReadiness?.providers.filter(
+    (provider) => provider.role === "ACTIVE_CANDIDATE"
+  ) ?? [];
+  const readyEvidencePackets = agentReadiness?.evidencePackets.filter((packet) => packet.ready).length ?? 0;
 
   const toggleProduct = (product: ProductModule) => {
     if (product.status === "PLANNED") return;
@@ -449,6 +493,52 @@ const ProductAlignmentPanel: React.FC = () => {
             then API providers can be enabled when billing and seat contracts are ready.
           </p>
         </article>
+      </section>
+
+      <section className="suite-admin-card">
+        <div className="transport-panel-header">
+          <div>
+            <p className="transport-eyebrow">Agent Activity</p>
+            <h3>Provider Readiness Bridge</h3>
+          </div>
+          <span className="suite-status active">{agentReadiness?.executionMode ?? "DRY_RUN"}</span>
+        </div>
+        <p className="suite-admin-note">
+          {agentReadiness?.authorityBoundary ??
+            "SIL prepares evidence for agent review while Encompax Core remains the final governance authority."}
+        </p>
+        <div className="suite-summary-grid compact">
+          <div>
+            <span>Active candidates</span>
+            <strong>{activeAgentCandidates.length}</strong>
+          </div>
+          <div>
+            <span>Evidence packets</span>
+            <strong>{readyEvidencePackets}</strong>
+          </div>
+          <div>
+            <span>Max review tokens</span>
+            <strong>{agentReadiness?.budgetPolicy.maxEstimatedTokensPerReview ?? "2500"}</strong>
+          </div>
+          <div>
+            <span>Max review cost</span>
+            <strong>${agentReadiness?.budgetPolicy.maxEstimatedCostUsdPerReview ?? "0.15"}</strong>
+          </div>
+        </div>
+        <div className="suite-agent-grid">
+          {(agentReadiness?.providers ?? []).map((provider) => (
+            <div key={provider.provider} className="suite-agent-card">
+              <div>
+                <strong>{provider.provider}</strong>
+                <span className={`suite-status ${provider.configured ? "active" : "planned"}`}>
+                  {provider.role.replaceAll("_", " ")}
+                </span>
+              </div>
+              <p>{provider.recommendedUse}</p>
+              <small>{provider.modelRef ?? "Manual review"}</small>
+            </div>
+          ))}
+        </div>
       </section>
 
       <section className="suite-admin-card">

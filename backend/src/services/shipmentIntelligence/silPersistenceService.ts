@@ -220,7 +220,7 @@ export type SilWorkspacePayload = {
   governanceMode?: "SIGNAL_ONLY" | "COUNCIL_REVIEW" | "ENTERPRISE_SYNC";
   monthlyTokenBudget?: number;
   monthlySpendLimitUsd?: number;
-  enabledAgentProviders?: Array<"MANUAL" | "OPENAI" | "ANTHROPIC" | "HUGGINGFACE">;
+  enabledAgentProviders?: Array<"MANUAL" | "OPENAI" | "ANTHROPIC" | "HUGGINGFACE" | "GEMINI">;
 };
 
 export type SilGovernanceSignalEnvelope = {
