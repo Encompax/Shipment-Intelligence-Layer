@@ -1,0 +1,28 @@
+{
+  "carriers": [
+    { "name": "Carrier A", "mode": "parcel" },
+    { "name": "Carrier B", "mode": "parcel" },
+    { "name": "Carrier C", "mode": "ltl" }
+  ],
+  "customers": [
+    "Customer Alpha",
+    "Customer Beta",
+    "Customer Gamma"
+  ],
+  "items": [
+    { "sku": "SKU-1001", "description": "Sample Item A" },
+    { "sku": "SKU-1002", "description": "Sample Item B" },
+    { "sku": "SKU-2001", "description": "Sample Item C" },
+    { "sku": "SKU-3001", "description": "Sample Item D" }
+  ],
+  "operators": [
+    "Operator A",
+    "Operator B",
+    "Operator C"
+  ],
+  "locations": [
+    "Site A",
+    "Site B",
+    "Site C"
+  ]
+}

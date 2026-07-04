@@ -24,6 +24,7 @@ COPY package*.json ./
 RUN npm ci --omit=dev
 
 COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/src/config/tenant-defaults.json ./dist/src/config/tenant-defaults.json
 COPY --from=builder /app/config ./config
 COPY --from=builder /app/config ./dist/config
 COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
