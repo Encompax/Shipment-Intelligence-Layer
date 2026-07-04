@@ -1,4 +1,4 @@
-import { prisma } from "../../lib/prisma";
+﻿import { prisma } from "../../lib/prisma";
 import {
   bids,
   carriers,
@@ -10,6 +10,10 @@ import {
   shipments,
 } from "./mockData";
 import { leanTemplates, SilLeanTemplate } from "./leanTemplates";
+import {
+  mirrorSilGovernanceSignalToFirestore,
+  mirrorSilWorkflowEventToFirestore,
+} from "./firestoreAuditMirror";
 import {
   BidState,
   BrokerageLoadState,
@@ -1667,19 +1671,21 @@ export async function updateSilGovernanceSignalStatus(signalId: string, status: 
     data: { status },
   });
 
-  return {
+  const envelope = {
     signalId: record.signalId,
     status: record.status,
     updatedAt: record.updatedAt.toISOString(),
     signal: withWorkspace(fromRecord<SilGovernanceSignalDraft>(record)),
   };
+  await mirrorSilGovernanceSignalToFirestore(envelope);
+  return envelope;
 }
 
 export async function persistSilGovernanceSignal(signal: SilGovernanceSignalDraft, status = "DRAFT") {
   await seedSilPersistence();
   const scopedSignal = withWorkspace(signal);
   const id = signalId(scopedSignal);
-  await prisma.silGovernanceSignalRecord.upsert({
+  const record = await prisma.silGovernanceSignalRecord.upsert({
     where: { signalId: id },
     update: {
       signalType: signal.signalType,
@@ -1696,6 +1702,12 @@ export async function persistSilGovernanceSignal(signal: SilGovernanceSignalDraf
       status,
       data: json(scopedSignal),
     },
+  });
+  await mirrorSilGovernanceSignalToFirestore({
+    signalId: id,
+    status: record.status,
+    updatedAt: record.updatedAt.toISOString(),
+    signal: scopedSignal,
   });
   return { signalId: id, signal: scopedSignal };
 }
@@ -1725,6 +1737,7 @@ export async function persistSilWorkflowEvent(event: SilWorkflowEvent) {
       data: json(scopedEvent),
     },
   });
+  await mirrorSilWorkflowEventToFirestore(scopedEvent);
   return scopedEvent;
 }
 
@@ -1875,3 +1888,5 @@ export async function upsertSilWorkspace(input: SilWorkspacePayload) {
 
   return { workspace, event };
 }
+
+

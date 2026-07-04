@@ -1,10 +1,12 @@
-param(
+﻿param(
   [string]$ProjectId = "encompax-prod",
   [string]$Region = "us-central1",
   [string]$ServiceName = "encompax-sil-api",
   [string]$ImageName = "encompax-sil-api",
   [string]$AllowedOrigins = "https://sil.encompax.io,http://localhost:5173",
-  [string]$EncompaxApiBaseUrl = "https://api.encompax.io/api"
+  [string]$EncompaxApiBaseUrl = "https://api.encompax.io/api",
+  [string]$SilFirestoreEnabled = "true",
+  [string]$DatabaseUrl = "file:/tmp/sil-dev.db"
 )
 
 $ErrorActionPreference = "Stop"
@@ -14,6 +16,14 @@ if (-not (Get-Command gcloud -ErrorAction SilentlyContinue)) {
 }
 
 $image = "gcr.io/$ProjectId/$ImageName"
+$envFile = Join-Path $env:TEMP "sil-cloudrun-env-$ServiceName.yaml"
+@"
+ALLOWED_ORIGINS: "$AllowedOrigins"
+ENCOMPAX_API_BASE_URL: "$EncompaxApiBaseUrl"
+SIL_FIRESTORE_ENABLED: "$SilFirestoreEnabled"
+SIL_FIRESTORE_PROJECT_ID: "$ProjectId"
+DATABASE_URL: "$DatabaseUrl"
+"@ | Set-Content -Path $envFile -Encoding UTF8
 
 Push-Location "$PSScriptRoot\..\backend"
 try {
@@ -24,8 +34,11 @@ try {
     --region $Region `
     --platform managed `
     --allow-unauthenticated `
-    --set-env-vars "ALLOWED_ORIGINS=$AllowedOrigins,ENCOMPAX_API_BASE_URL=$EncompaxApiBaseUrl"
+    --env-vars-file $envFile
 }
 finally {
+  if (Test-Path $envFile) { Remove-Item -LiteralPath $envFile -Force }
   Pop-Location
 }
+
+
