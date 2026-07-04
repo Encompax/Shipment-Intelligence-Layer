@@ -28,6 +28,7 @@ import {
   sendSignalToEncompaxPlatformOverview,
 } from "../services/shipmentIntelligence/encompaxPlatformBridge";
 import { buildSilAgentActivityReadiness } from "../services/shipmentIntelligence/agentActivityService";
+import { buildSilPersistenceReadiness } from "../services/shipmentIntelligence/persistenceReadinessService";
 import {
   listWorkflowEvents,
   seedWorkflowEvents,
@@ -195,6 +196,11 @@ export function registerShipmentIntelligenceRoutes(app: Express) {
   router.get("/agent-activity/readiness", async (req: Request, res: Response) => {
     const workspace = await getSilWorkspace(requestWorkspaceId(req));
     res.json(buildSilAgentActivityReadiness(workspace));
+  });
+
+  router.get("/persistence/readiness", async (req: Request, res: Response) => {
+    const readiness = await buildSilPersistenceReadiness(requestWorkspaceId(req));
+    res.json(readiness);
   });
 
   router.put("/workspace", async (req: Request, res: Response) => {
