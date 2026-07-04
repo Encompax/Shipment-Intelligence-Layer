@@ -134,6 +134,11 @@ export type EquipmentType =
   | "CONTAINER"
   | "PARCEL";
 
+export type ShipmentDirection = "OUTBOUND" | "INBOUND" | "TRANSFER";
+export type ShipmentWeightUnit = "LB" | "KG";
+export type ShipmentUnitType = "EA" | "CASE" | "CARTON" | "PALLET" | "TOTE";
+export type HandlingUnitType = "PALLET" | "SKID" | "CARTON" | "TOTE" | "ROLL" | "DRUM";
+
 export type LocationRef = {
   facilityName?: string;
   address?: string;
@@ -164,6 +169,7 @@ export type SilLoad = {
   loadId: string;
   customerId: string;
   customerName?: string;
+  direction?: ShipmentDirection;
   origin: LocationRef;
   destination: LocationRef;
   pickupWindowStart?: string;
@@ -173,7 +179,18 @@ export type SilLoad = {
   mode: TransportMode;
   equipmentType: EquipmentType;
   weightLbs?: number;
+  weightUnit?: ShipmentWeightUnit;
+  unitCount?: number;
+  unitType?: ShipmentUnitType;
+  handlingUnitCount?: number;
+  handlingUnitType?: HandlingUnitType;
+  commodity?: string;
+  skuRefs?: string[];
+  poNumber?: string;
+  bolNumber?: string;
+  customerReference?: string;
   handlingRequirements?: string[];
+  specialInstructions?: string;
   hazmat?: boolean;
   temperatureControlled?: boolean;
   status: BrokerageLoadState;
@@ -296,7 +313,7 @@ export type SilCarrierInviteCommunication = {
   postingId: string;
   loadId: string;
   carrierId: string;
-  channel: "EMAIL" | "PORTAL" | "EDI" | "PHONE" | "API";
+  channel: "EMAIL" | "PORTAL" | "EDI" | "PHONE" | "API" | "TEAMS" | "SLACK";
   status: "QUEUED" | "SENT" | "ACKNOWLEDGED" | "DECLINED" | "EXPIRED";
   sentAt: string;
   expiresAt?: string;

@@ -92,7 +92,37 @@ const readUploadTable = async (uploadId: number) => {
 };
 
 type LoadImportDraft = Pick<SilLoad, "customerId" | "customerName" | "origin" | "destination" | "mode" | "equipmentType"> &
-  Pick<Partial<SilLoad>, "targetBuyRate" | "targetSellRate" | "source">;
+  Pick<
+    Partial<SilLoad>,
+    | "direction"
+    | "pickupWindowStart"
+    | "pickupWindowEnd"
+    | "deliveryWindowStart"
+    | "deliveryWindowEnd"
+    | "weightLbs"
+    | "weightUnit"
+    | "unitCount"
+    | "unitType"
+    | "handlingUnitCount"
+    | "handlingUnitType"
+    | "commodity"
+    | "skuRefs"
+    | "poNumber"
+    | "bolNumber"
+    | "customerReference"
+    | "handlingRequirements"
+    | "specialInstructions"
+    | "hazmat"
+    | "temperatureControlled"
+    | "targetBuyRate"
+    | "targetSellRate"
+    | "marginTarget"
+    | "fuelSurcharge"
+    | "accessorialEstimate"
+    | "lumperEstimate"
+    | "detentionRatePerHour"
+    | "source"
+  >;
 
 const normalizeCell = (value: string | undefined) => (value ?? "").trim();
 
@@ -104,8 +134,9 @@ const normalizeKeyPart = (value: string | number | undefined) =>
 
 const parseMode = (value: string | undefined): TransportMode => {
   const normalized = normalizeKeyPart(value);
-  if (normalized === "ltl") return "LTL";
-  if (normalized === "parcel") return "PARCEL";
+  if (["ltl", "less than truckload", "less-than-truckload", "box truck"].includes(normalized)) return "LTL";
+  if (["parcel", "small parcel", "small_parcel"].includes(normalized)) return "PARCEL";
+  if (["ftl", "tl", "truckload", "full truckload", "trailer load"].includes(normalized)) return "FTL";
   if (normalized === "intermodal") return "INTERMODAL";
   if (normalized === "air") return "AIR";
   if (normalized === "ocean") return "OCEAN";
@@ -123,6 +154,40 @@ const parseEquipmentType = (value: string | undefined): EquipmentType => {
   return "DRY_VAN";
 };
 
+const parseNumberCell = (value: string | undefined) => {
+  const parsed = Number(String(value ?? "").replace(/[^0-9.-]/g, ""));
+  return Number.isFinite(parsed) ? parsed : undefined;
+};
+
+const parseListCell = (value: string | undefined) =>
+  normalizeCell(value)
+    .split(/[;,|]/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+
+const parseLoadDirection = (value: string | undefined): SilLoad["direction"] => {
+  const normalized = normalizeKeyPart(value).replace(/[\s-]+/g, "_").toUpperCase();
+  if (normalized === "INBOUND" || normalized === "TRANSFER") return normalized;
+  return "OUTBOUND";
+};
+
+const parseWeightUnit = (value: string | undefined): SilLoad["weightUnit"] => {
+  const normalized = normalizeKeyPart(value).toUpperCase();
+  return normalized === "KG" || normalized === "KGS" || normalized === "KILOGRAMS" ? "KG" : "LB";
+};
+
+const parseUnitType = (value: string | undefined): SilLoad["unitType"] => {
+  const normalized = normalizeKeyPart(value).replace(/[\s-]+/g, "_").toUpperCase();
+  if (["CASE", "CARTON", "PALLET", "TOTE"].includes(normalized)) return normalized as SilLoad["unitType"];
+  return "EA";
+};
+
+const parseHandlingUnitType = (value: string | undefined): SilLoad["handlingUnitType"] => {
+  const normalized = normalizeKeyPart(value).replace(/[\s-]+/g, "_").toUpperCase();
+  if (["SKID", "CARTON", "TOTE", "ROLL", "DRUM"].includes(normalized)) return normalized as SilLoad["handlingUnitType"];
+  return "PALLET";
+};
+
 const buildLoadImportDraft = (row: Record<string, string>, mapping: Record<string, string>): LoadImportDraft => {
   const customerName = normalizeCell(row[mapping.customerName]) || 'Imported Customer';
   return {
@@ -133,17 +198,48 @@ const buildLoadImportDraft = (row: Record<string, string>, mapping: Record<strin
         .replace(/^-|-$/g, '') || 'imported-customer',
     customerName,
     origin: {
+      facilityName: mapping.originFacility ? normalizeCell(row[mapping.originFacility]) || undefined : undefined,
+      address: mapping.originAddress ? normalizeCell(row[mapping.originAddress]) || undefined : undefined,
       city: normalizeCell(row[mapping.originCity]) || 'Unknown',
       state: normalizeCell(row[mapping.originState]).toUpperCase() || 'NA',
+      postalCode: mapping.originPostalCode ? normalizeCell(row[mapping.originPostalCode]) || undefined : undefined,
     },
     destination: {
+      facilityName: mapping.destinationFacility ? normalizeCell(row[mapping.destinationFacility]) || undefined : undefined,
+      address: mapping.destinationAddress ? normalizeCell(row[mapping.destinationAddress]) || undefined : undefined,
       city: normalizeCell(row[mapping.destinationCity]) || 'Unknown',
       state: normalizeCell(row[mapping.destinationState]).toUpperCase() || 'NA',
+      postalCode: mapping.destinationPostalCode ? normalizeCell(row[mapping.destinationPostalCode]) || undefined : undefined,
     },
+    direction: mapping.direction ? parseLoadDirection(row[mapping.direction]) : "OUTBOUND",
+    pickupWindowStart: mapping.pickupWindowStart ? normalizeCell(row[mapping.pickupWindowStart]) || undefined : undefined,
+    pickupWindowEnd: mapping.pickupWindowEnd ? normalizeCell(row[mapping.pickupWindowEnd]) || undefined : undefined,
+    deliveryWindowStart: mapping.deliveryWindowStart ? normalizeCell(row[mapping.deliveryWindowStart]) || undefined : undefined,
+    deliveryWindowEnd: mapping.deliveryWindowEnd ? normalizeCell(row[mapping.deliveryWindowEnd]) || undefined : undefined,
     mode: parseMode(row[mapping.mode]),
     equipmentType: parseEquipmentType(row[mapping.equipmentType]),
-    targetBuyRate: mapping.targetBuyRate ? Number(row[mapping.targetBuyRate]) || undefined : undefined,
-    targetSellRate: mapping.targetSellRate ? Number(row[mapping.targetSellRate]) || undefined : undefined,
+    weightLbs: mapping.weightLbs ? parseNumberCell(row[mapping.weightLbs]) : undefined,
+    weightUnit: mapping.weightUnit ? parseWeightUnit(row[mapping.weightUnit]) : "LB",
+    unitCount: mapping.unitCount ? parseNumberCell(row[mapping.unitCount]) : undefined,
+    unitType: mapping.unitType ? parseUnitType(row[mapping.unitType]) : undefined,
+    handlingUnitCount: mapping.handlingUnitCount ? parseNumberCell(row[mapping.handlingUnitCount]) : undefined,
+    handlingUnitType: mapping.handlingUnitType ? parseHandlingUnitType(row[mapping.handlingUnitType]) : undefined,
+    commodity: mapping.commodity ? normalizeCell(row[mapping.commodity]) || undefined : undefined,
+    skuRefs: mapping.skuRefs ? parseListCell(row[mapping.skuRefs]) : undefined,
+    poNumber: mapping.poNumber ? normalizeCell(row[mapping.poNumber]) || undefined : undefined,
+    bolNumber: mapping.bolNumber ? normalizeCell(row[mapping.bolNumber]) || undefined : undefined,
+    customerReference: mapping.customerReference ? normalizeCell(row[mapping.customerReference]) || undefined : undefined,
+    handlingRequirements: mapping.handlingRequirements ? parseListCell(row[mapping.handlingRequirements]) : undefined,
+    specialInstructions: mapping.specialInstructions ? normalizeCell(row[mapping.specialInstructions]) || undefined : undefined,
+    hazmat: mapping.hazmat ? parseBoolean(row[mapping.hazmat]) : undefined,
+    temperatureControlled: mapping.temperatureControlled ? parseBoolean(row[mapping.temperatureControlled]) : undefined,
+    targetBuyRate: mapping.targetBuyRate ? parseNumberCell(row[mapping.targetBuyRate]) : undefined,
+    targetSellRate: mapping.targetSellRate ? parseNumberCell(row[mapping.targetSellRate]) : undefined,
+    marginTarget: mapping.marginTarget ? parseNumberCell(row[mapping.marginTarget]) : undefined,
+    fuelSurcharge: mapping.fuelSurcharge ? parseNumberCell(row[mapping.fuelSurcharge]) : undefined,
+    accessorialEstimate: mapping.accessorialEstimate ? parseNumberCell(row[mapping.accessorialEstimate]) : undefined,
+    lumperEstimate: mapping.lumperEstimate ? parseNumberCell(row[mapping.lumperEstimate]) : undefined,
+    detentionRatePerHour: mapping.detentionRatePerHour ? parseNumberCell(row[mapping.detentionRatePerHour]) : undefined,
     source: 'manual',
   };
 };

@@ -1,9 +1,9 @@
 /**
- * API base URL - uses /api for all environments
- * Vite dev server proxies /api requests to http://localhost:4000
- * In production, API and frontend are on same origin
+ * API base URL.
+ * Local Vite uses /api through its proxy. Hosted SIL can point this at
+ * api.encompax.io or a Cloud Run URL through VITE_API_BASE_URL.
  */
-const API_BASE = '/api';
+const API_BASE = (import.meta.env.VITE_API_BASE_URL ?? '/api').replace(/\/$/, '');
 
 export async function fetchDatasources() {
  const res = await fetch(`${API_BASE}/datasources`);
@@ -31,7 +31,7 @@ export async function createDatasource(payload: {
 
 // ── SIL (Shipment Intelligence Layer) ────────────────────────────────────────
 
-const SIL_BASE = '/api/sil';
+const SIL_BASE = `${API_BASE}/sil`;
 
 export async function fetchSilMetrics(from?: string, to?: string) {
   const params = new URLSearchParams();
@@ -66,7 +66,7 @@ export async function fetchSilWorkerStatus() {
   return res.json();
 }
 
-const SHIPMENT_INTELLIGENCE_BASE = "/api/shipment-intelligence";
+const SHIPMENT_INTELLIGENCE_BASE = `${API_BASE}/shipment-intelligence`;
 
 async function fetchShipmentIntelligence(path: string) {
   const res = await fetch(`${SHIPMENT_INTELLIGENCE_BASE}${path}`);

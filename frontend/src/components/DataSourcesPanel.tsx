@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   createDatasource,
+  createTransportationLoad,
   fetchDatasources,
   fetchUploadPreview,
   importUploadCarriers,
@@ -36,17 +37,151 @@ const sourceTypeOptions = [
   { value: "carrier_network", label: "Carrier Network", route: "Bid Scoring" },
 ];
 
-const manualFieldTemplates = [
-  "customer_name",
-  "origin",
-  "destination",
-  "pickup_window",
-  "delivery_window",
-  "mode",
-  "equipment_type",
-  "target_buy_rate",
-  "target_sell_rate",
+type ManualLoadForm = {
+  customerName: string;
+  customerId: string;
+  direction: "OUTBOUND" | "INBOUND" | "TRANSFER";
+  originFacility: string;
+  originAddress: string;
+  originCity: string;
+  originState: string;
+  originPostalCode: string;
+  destinationFacility: string;
+  destinationAddress: string;
+  destinationCity: string;
+  destinationState: string;
+  destinationPostalCode: string;
+  pickupWindowStart: string;
+  pickupWindowEnd: string;
+  deliveryWindowStart: string;
+  deliveryWindowEnd: string;
+  mode: "PARCEL" | "LTL" | "FTL" | "INTERMODAL" | "AIR" | "OCEAN";
+  equipmentType: "DRY_VAN" | "REEFER" | "FLATBED" | "BOX_TRUCK" | "SPRINTER" | "CONTAINER" | "PARCEL";
+  weightLbs: string;
+  weightUnit: "LB" | "KG";
+  unitCount: string;
+  unitType: "EA" | "CASE" | "CARTON" | "PALLET" | "TOTE";
+  handlingUnitCount: string;
+  handlingUnitType: "PALLET" | "SKID" | "CARTON" | "TOTE" | "ROLL" | "DRUM";
+  commodity: string;
+  skuRefs: string;
+  poNumber: string;
+  bolNumber: string;
+  customerReference: string;
+  handlingRequirements: string;
+  specialInstructions: string;
+  targetBuyRate: string;
+  targetSellRate: string;
+  marginTarget: string;
+  fuelSurcharge: string;
+  accessorialEstimate: string;
+  lumperEstimate: string;
+  detentionRatePerHour: string;
+  hazmat: boolean;
+  temperatureControlled: boolean;
+};
+
+const initialManualLoadForm: ManualLoadForm = {
+  customerName: "",
+  customerId: "",
+  direction: "OUTBOUND",
+  originFacility: "",
+  originAddress: "",
+  originCity: "",
+  originState: "",
+  originPostalCode: "",
+  destinationFacility: "",
+  destinationAddress: "",
+  destinationCity: "",
+  destinationState: "",
+  destinationPostalCode: "",
+  pickupWindowStart: "",
+  pickupWindowEnd: "",
+  deliveryWindowStart: "",
+  deliveryWindowEnd: "",
+  mode: "LTL",
+  equipmentType: "DRY_VAN",
+  weightLbs: "",
+  weightUnit: "LB",
+  unitCount: "",
+  unitType: "CASE",
+  handlingUnitCount: "",
+  handlingUnitType: "PALLET",
+  commodity: "",
+  skuRefs: "",
+  poNumber: "",
+  bolNumber: "",
+  customerReference: "",
+  handlingRequirements: "",
+  specialInstructions: "",
+  targetBuyRate: "",
+  targetSellRate: "",
+  marginTarget: "",
+  fuelSurcharge: "",
+  accessorialEstimate: "",
+  lumperEstimate: "",
+  detentionRatePerHour: "",
+  hazmat: false,
+  temperatureControlled: false,
+};
+
+const loadMappingFields = [
+  ["customerName", "Customer"],
+  ["customerId", "Customer ID"],
+  ["direction", "Direction"],
+  ["originFacility", "Origin Facility"],
+  ["originAddress", "Origin Address"],
+  ["originCity", "Origin City"],
+  ["originState", "Origin State"],
+  ["originPostalCode", "Origin Postal"],
+  ["destinationFacility", "Destination Facility"],
+  ["destinationAddress", "Destination Address"],
+  ["destinationCity", "Destination City"],
+  ["destinationState", "Destination State"],
+  ["destinationPostalCode", "Destination Postal"],
+  ["pickupWindowStart", "Pickup Start"],
+  ["pickupWindowEnd", "Pickup End"],
+  ["deliveryWindowStart", "Delivery Start"],
+  ["deliveryWindowEnd", "Delivery End"],
+  ["mode", "Mode"],
+  ["equipmentType", "Equipment"],
+  ["weightLbs", "Weight"],
+  ["weightUnit", "Weight Unit"],
+  ["unitCount", "Units"],
+  ["unitType", "Unit Type"],
+  ["handlingUnitCount", "Handling Units"],
+  ["handlingUnitType", "Handling Unit Type"],
+  ["commodity", "Commodity"],
+  ["skuRefs", "SKUs"],
+  ["poNumber", "PO Number"],
+  ["bolNumber", "BOL Number"],
+  ["customerReference", "Customer Ref"],
+  ["handlingRequirements", "Handling Requirements"],
+  ["specialInstructions", "Special Instructions"],
+  ["targetBuyRate", "Target Buy"],
+  ["targetSellRate", "Target Sell"],
+  ["marginTarget", "Margin Target"],
+  ["fuelSurcharge", "Fuel"],
+  ["accessorialEstimate", "Accessorials"],
+  ["lumperEstimate", "Lumper"],
+  ["detentionRatePerHour", "Detention / Hr"],
+  ["hazmat", "Hazmat"],
+  ["temperatureControlled", "Temp Controlled"],
 ];
+
+const parseNumberInput = (value: string) => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
+};
+
+const parseListInput = (value: string) =>
+  value
+    .split(/[;,|]/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+
+const autoMap = (headers: string[], patterns: RegExp[]) =>
+  headers.find((header) => patterns.some((pattern) => pattern.test(header))) ?? "";
 
 export default function DataSourcesPanel() {
   const [items, setItems] = useState<DataSource[]>([]);
@@ -65,6 +200,8 @@ export default function DataSourcesPanel() {
     owner: "Transportation",
     cadence: "Weekly",
   });
+  const [manualLoad, setManualLoad] = useState<ManualLoadForm>(initialManualLoadForm);
+  const [manualStatus, setManualStatus] = useState<string | null>(null);
 
   async function load() {
     try {
@@ -109,6 +246,108 @@ export default function DataSourcesPanel() {
     }
   }
 
+  function updateManualLoad<K extends keyof ManualLoadForm>(key: K, value: ManualLoadForm[K]) {
+    setManualLoad((current) => ({ ...current, [key]: value }));
+    setManualStatus(null);
+  }
+
+  const manualQualityChecks = useMemo(() => {
+    const checks: string[] = [];
+    if (!manualLoad.customerName.trim()) checks.push("Customer name is required before a governed load can be created.");
+    if (!manualLoad.originCity.trim() || !manualLoad.originState.trim()) checks.push("Origin city and state are required.");
+    if (!manualLoad.destinationCity.trim() || !manualLoad.destinationState.trim()) checks.push("Destination city and state are required.");
+    if (!manualLoad.pickupWindowStart || !manualLoad.deliveryWindowStart) {
+      checks.push("Pickup and delivery windows are recommended for appointment and service-risk visibility.");
+    }
+    if (!manualLoad.weightLbs || !manualLoad.handlingUnitCount) {
+      checks.push("Weight and handling units are recommended for BOL, manifest, and carrier fit checks.");
+    }
+    if (!manualLoad.targetBuyRate || !manualLoad.targetSellRate) {
+      checks.push("Buy and sell targets are recommended for broker margin governance.");
+    }
+    if (manualLoad.direction === "INBOUND") {
+      checks.push("Inbound loads can feed receiving and inventory once product/SKU details are confirmed.");
+    }
+    return checks;
+  }, [manualLoad]);
+
+  async function handleCreateManualLoad(event: React.FormEvent) {
+    event.preventDefault();
+    const customerName = manualLoad.customerName.trim();
+    const originCity = manualLoad.originCity.trim();
+    const originState = manualLoad.originState.trim();
+    const destinationCity = manualLoad.destinationCity.trim();
+    const destinationState = manualLoad.destinationState.trim();
+
+    if (!customerName || !originCity || !originState || !destinationCity || !destinationState) {
+      setManualStatus("Customer, origin, and destination are required before creating a load.");
+      return;
+    }
+
+    const payload = {
+      customerName,
+      customerId:
+        manualLoad.customerId.trim() ||
+        customerName
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, "-")
+          .replace(/^-|-$/g, ""),
+      direction: manualLoad.direction,
+      origin: {
+        facilityName: manualLoad.originFacility.trim() || undefined,
+        address: manualLoad.originAddress.trim() || undefined,
+        city: originCity,
+        state: originState.toUpperCase(),
+        postalCode: manualLoad.originPostalCode.trim() || undefined,
+      },
+      destination: {
+        facilityName: manualLoad.destinationFacility.trim() || undefined,
+        address: manualLoad.destinationAddress.trim() || undefined,
+        city: destinationCity,
+        state: destinationState.toUpperCase(),
+        postalCode: manualLoad.destinationPostalCode.trim() || undefined,
+      },
+      pickupWindowStart: manualLoad.pickupWindowStart || undefined,
+      pickupWindowEnd: manualLoad.pickupWindowEnd || undefined,
+      deliveryWindowStart: manualLoad.deliveryWindowStart || undefined,
+      deliveryWindowEnd: manualLoad.deliveryWindowEnd || undefined,
+      mode: manualLoad.mode,
+      equipmentType: manualLoad.equipmentType,
+      weightLbs: parseNumberInput(manualLoad.weightLbs),
+      weightUnit: manualLoad.weightUnit,
+      unitCount: parseNumberInput(manualLoad.unitCount),
+      unitType: manualLoad.unitType,
+      handlingUnitCount: parseNumberInput(manualLoad.handlingUnitCount),
+      handlingUnitType: manualLoad.handlingUnitType,
+      commodity: manualLoad.commodity.trim() || undefined,
+      skuRefs: parseListInput(manualLoad.skuRefs),
+      poNumber: manualLoad.poNumber.trim() || undefined,
+      bolNumber: manualLoad.bolNumber.trim() || undefined,
+      customerReference: manualLoad.customerReference.trim() || undefined,
+      handlingRequirements: parseListInput(manualLoad.handlingRequirements),
+      specialInstructions: manualLoad.specialInstructions.trim() || undefined,
+      hazmat: manualLoad.hazmat,
+      temperatureControlled: manualLoad.temperatureControlled,
+      targetBuyRate: parseNumberInput(manualLoad.targetBuyRate),
+      targetSellRate: parseNumberInput(manualLoad.targetSellRate),
+      marginTarget: parseNumberInput(manualLoad.marginTarget),
+      fuelSurcharge: parseNumberInput(manualLoad.fuelSurcharge),
+      accessorialEstimate: parseNumberInput(manualLoad.accessorialEstimate),
+      lumperEstimate: parseNumberInput(manualLoad.lumperEstimate),
+      detentionRatePerHour: parseNumberInput(manualLoad.detentionRatePerHour),
+      source: "manual",
+    };
+
+    try {
+      setManualStatus("Creating SIL load...");
+      const result = await createTransportationLoad(payload);
+      setManualStatus(`Created load ${result.load?.loadId ?? "record"} and recorded workflow evidence.`);
+      setManualLoad(initialManualLoadForm);
+    } catch (err) {
+      setManualStatus(err instanceof Error ? err.message : "Manual load creation failed");
+    }
+  }
+
   async function handleUpload() {
     if (!selectedSourceId || !file) return;
 
@@ -121,34 +360,66 @@ export default function DataSourcesPanel() {
         setPreview(previewResult);
         const headers = previewResult.headers ?? [];
         setMapping({
-          customerName: headers.find((header: string) => /customer|account|shipper/i.test(header)) ?? headers[0] ?? "",
-          originCity: headers.find((header: string) => /origin.*city|pickup.*city|from.*city/i.test(header)) ?? "",
-          originState: headers.find((header: string) => /origin.*state|pickup.*state|from.*state/i.test(header)) ?? "",
-          destinationCity: headers.find((header: string) => /dest.*city|delivery.*city|to.*city/i.test(header)) ?? "",
-          destinationState: headers.find((header: string) => /dest.*state|delivery.*state|to.*state/i.test(header)) ?? "",
-          mode: headers.find((header: string) => /^mode$|transport.*mode/i.test(header)) ?? "",
-          equipmentType: headers.find((header: string) => /equipment|trailer/i.test(header)) ?? "",
-          targetBuyRate: headers.find((header: string) => /buy|cost|carrier.*rate/i.test(header)) ?? "",
-          targetSellRate: headers.find((header: string) => /sell|revenue|customer.*rate/i.test(header)) ?? "",
-          carrierName: headers.find((header: string) => /carrier|vendor|provider/i.test(header)) ?? "",
-          mcNumber: headers.find((header: string) => /^mc|mc.*number/i.test(header)) ?? "",
-          dotNumber: headers.find((header: string) => /^dot|dot.*number/i.test(header)) ?? "",
-          insuranceStatus: headers.find((header: string) => /insurance/i.test(header)) ?? "",
-          safetyStatus: headers.find((header: string) => /safety/i.test(header)) ?? "",
-          creditStatus: headers.find((header: string) => /credit/i.test(header)) ?? "",
-          serviceScore: headers.find((header: string) => /service.*score|score/i.test(header)) ?? "",
-          onTimeRate: headers.find((header: string) => /on.*time|ontime|otp/i.test(header)) ?? "",
-          falloffRate: headers.find((header: string) => /falloff|fall.*off|cancel/i.test(header)) ?? "",
-          preferred: headers.find((header: string) => /preferred|primary/i.test(header)) ?? "",
-          blocked: headers.find((header: string) => /blocked|do.*not.*use|dnu/i.test(header)) ?? "",
-          originRegion: headers.find((header: string) => /origin.*region|origin.*state|from.*state|lane.*origin/i.test(header)) ?? "",
-          destinationRegion: headers.find((header: string) => /dest.*region|dest.*state|to.*state|lane.*dest/i.test(header)) ?? "",
-          lowRate: headers.find((header: string) => /low.*rate|min.*rate/i.test(header)) ?? "",
-          medianRate: headers.find((header: string) => /median.*rate|market.*rate|avg.*rate|average.*rate/i.test(header)) ?? "",
-          highRate: headers.find((header: string) => /high.*rate|max.*rate/i.test(header)) ?? "",
-          averageTransitDays: headers.find((header: string) => /transit.*day|avg.*day/i.test(header)) ?? "",
-          transitVarianceDays: headers.find((header: string) => /variance.*day|transit.*variance/i.test(header)) ?? "",
-          sampleSize: headers.find((header: string) => /sample|volume|count/i.test(header)) ?? "",
+          customerName: autoMap(headers, [/customer|account|shipper/i]) || headers[0] || "",
+          customerId: autoMap(headers, [/customer.*id|account.*id/i]),
+          direction: autoMap(headers, [/direction|inbound|outbound/i]),
+          originFacility: autoMap(headers, [/origin.*facility|pickup.*facility|shipper.*name/i]),
+          originAddress: autoMap(headers, [/origin.*address|pickup.*address|shipper.*address/i]),
+          originCity: autoMap(headers, [/origin.*city|pickup.*city|from.*city/i]),
+          originState: autoMap(headers, [/origin.*state|pickup.*state|from.*state/i]),
+          originPostalCode: autoMap(headers, [/origin.*postal|origin.*zip|pickup.*zip/i]),
+          destinationFacility: autoMap(headers, [/dest.*facility|delivery.*facility|consignee.*name/i]),
+          destinationAddress: autoMap(headers, [/dest.*address|delivery.*address|consignee.*address/i]),
+          destinationCity: autoMap(headers, [/dest.*city|delivery.*city|to.*city/i]),
+          destinationState: autoMap(headers, [/dest.*state|delivery.*state|to.*state/i]),
+          destinationPostalCode: autoMap(headers, [/dest.*postal|dest.*zip|delivery.*zip/i]),
+          pickupWindowStart: autoMap(headers, [/pickup.*start|pickup.*window|ready.*time/i]),
+          pickupWindowEnd: autoMap(headers, [/pickup.*end|pickup.*close/i]),
+          deliveryWindowStart: autoMap(headers, [/delivery.*start|delivery.*window/i]),
+          deliveryWindowEnd: autoMap(headers, [/delivery.*end|delivery.*close/i]),
+          mode: autoMap(headers, [/^mode$|transport.*mode|service.*level/i]),
+          equipmentType: autoMap(headers, [/equipment|trailer/i]),
+          weightLbs: autoMap(headers, [/weight|gross/i]),
+          weightUnit: autoMap(headers, [/weight.*unit/i]),
+          unitCount: autoMap(headers, [/unit.*count|quantity|qty/i]),
+          unitType: autoMap(headers, [/unit.*type|package.*type/i]),
+          handlingUnitCount: autoMap(headers, [/handling.*unit|pallet.*count|skid.*count/i]),
+          handlingUnitType: autoMap(headers, [/handling.*type|pallet|skid/i]),
+          commodity: autoMap(headers, [/commodity|description|material/i]),
+          skuRefs: autoMap(headers, [/sku|item/i]),
+          poNumber: autoMap(headers, [/po|purchase.*order/i]),
+          bolNumber: autoMap(headers, [/bol|bill.*lading/i]),
+          customerReference: autoMap(headers, [/customer.*ref|reference/i]),
+          handlingRequirements: autoMap(headers, [/handling.*requirement|requirement/i]),
+          specialInstructions: autoMap(headers, [/instruction|notes/i]),
+          hazmat: autoMap(headers, [/hazmat|hazard/i]),
+          temperatureControlled: autoMap(headers, [/temp|temperature|reefer/i]),
+          targetBuyRate: autoMap(headers, [/buy|cost|carrier.*rate/i]),
+          targetSellRate: autoMap(headers, [/sell|revenue|customer.*rate/i]),
+          marginTarget: autoMap(headers, [/margin/i]),
+          fuelSurcharge: autoMap(headers, [/fuel/i]),
+          accessorialEstimate: autoMap(headers, [/accessorial/i]),
+          lumperEstimate: autoMap(headers, [/lumper/i]),
+          detentionRatePerHour: autoMap(headers, [/detention/i]),
+          carrierName: autoMap(headers, [/carrier|vendor|provider/i]),
+          mcNumber: autoMap(headers, [/^mc|mc.*number/i]),
+          dotNumber: autoMap(headers, [/^dot|dot.*number/i]),
+          insuranceStatus: autoMap(headers, [/insurance/i]),
+          safetyStatus: autoMap(headers, [/safety/i]),
+          creditStatus: autoMap(headers, [/credit/i]),
+          serviceScore: autoMap(headers, [/service.*score|score/i]),
+          onTimeRate: autoMap(headers, [/on.*time|ontime|otp/i]),
+          falloffRate: autoMap(headers, [/falloff|fall.*off|cancel/i]),
+          preferred: autoMap(headers, [/preferred|primary/i]),
+          blocked: autoMap(headers, [/blocked|do.*not.*use|dnu/i]),
+          originRegion: autoMap(headers, [/origin.*region|origin.*state|from.*state|lane.*origin/i]),
+          destinationRegion: autoMap(headers, [/dest.*region|dest.*state|to.*state|lane.*dest/i]),
+          lowRate: autoMap(headers, [/low.*rate|min.*rate/i]),
+          medianRate: autoMap(headers, [/median.*rate|market.*rate|avg.*rate|average.*rate/i]),
+          highRate: autoMap(headers, [/high.*rate|max.*rate/i]),
+          averageTransitDays: autoMap(headers, [/transit.*day|avg.*day/i]),
+          transitVarianceDays: autoMap(headers, [/variance.*day|transit.*variance/i]),
+          sampleSize: autoMap(headers, [/sample|volume|count/i]),
         });
       }
       setFile(null);
@@ -304,14 +575,290 @@ export default function DataSourcesPanel() {
           </div>
 
           {activeMode === "manual" && (
-            <div className="manual-field-grid">
-              {manualFieldTemplates.map((field) => (
-                <label key={field}>
-                  {field.replaceAll("_", " ")}
-                  <input placeholder={`Map ${field}`} />
+            <form className="manual-load-builder" onSubmit={handleCreateManualLoad}>
+              <div className="manual-section">
+                <div>
+                  <p className="transport-eyebrow">Load Identity</p>
+                  <h4>Shipment Record</h4>
+                </div>
+                <div className="manual-field-grid">
+                  <label>
+                    Customer Name
+                    <input value={manualLoad.customerName} onChange={(event) => updateManualLoad("customerName", event.target.value)} />
+                  </label>
+                  <label>
+                    Customer ID
+                    <input value={manualLoad.customerId} onChange={(event) => updateManualLoad("customerId", event.target.value)} />
+                  </label>
+                  <label>
+                    Direction
+                    <select value={manualLoad.direction} onChange={(event) => updateManualLoad("direction", event.target.value as ManualLoadForm["direction"])}>
+                      <option value="OUTBOUND">Outbound</option>
+                      <option value="INBOUND">Inbound</option>
+                      <option value="TRANSFER">Transfer</option>
+                    </select>
+                  </label>
+                  <label>
+                    Mode
+                    <select value={manualLoad.mode} onChange={(event) => updateManualLoad("mode", event.target.value as ManualLoadForm["mode"])}>
+                      <option value="PARCEL">Small Parcel</option>
+                      <option value="LTL">LTL</option>
+                      <option value="FTL">Truckload</option>
+                      <option value="INTERMODAL">Intermodal</option>
+                      <option value="AIR">Air</option>
+                      <option value="OCEAN">Ocean</option>
+                    </select>
+                  </label>
+                  <label>
+                    Equipment
+                    <select
+                      value={manualLoad.equipmentType}
+                      onChange={(event) => updateManualLoad("equipmentType", event.target.value as ManualLoadForm["equipmentType"])}
+                    >
+                      <option value="DRY_VAN">Dry Van</option>
+                      <option value="REEFER">Reefer</option>
+                      <option value="FLATBED">Flatbed</option>
+                      <option value="BOX_TRUCK">Box Truck</option>
+                      <option value="SPRINTER">Sprinter</option>
+                      <option value="CONTAINER">Container</option>
+                      <option value="PARCEL">Parcel</option>
+                    </select>
+                  </label>
+                </div>
+              </div>
+
+              <div className="manual-section two-column">
+                <div>
+                  <p className="transport-eyebrow">Origin</p>
+                  <div className="manual-field-grid compact">
+                    <label>
+                      Facility
+                      <input value={manualLoad.originFacility} onChange={(event) => updateManualLoad("originFacility", event.target.value)} />
+                    </label>
+                    <label>
+                      Address
+                      <input value={manualLoad.originAddress} onChange={(event) => updateManualLoad("originAddress", event.target.value)} />
+                    </label>
+                    <label>
+                      City
+                      <input value={manualLoad.originCity} onChange={(event) => updateManualLoad("originCity", event.target.value)} />
+                    </label>
+                    <label>
+                      State
+                      <input value={manualLoad.originState} onChange={(event) => updateManualLoad("originState", event.target.value)} />
+                    </label>
+                    <label>
+                      Postal
+                      <input value={manualLoad.originPostalCode} onChange={(event) => updateManualLoad("originPostalCode", event.target.value)} />
+                    </label>
+                  </div>
+                </div>
+                <div>
+                  <p className="transport-eyebrow">Destination</p>
+                  <div className="manual-field-grid compact">
+                    <label>
+                      Facility
+                      <input value={manualLoad.destinationFacility} onChange={(event) => updateManualLoad("destinationFacility", event.target.value)} />
+                    </label>
+                    <label>
+                      Address
+                      <input value={manualLoad.destinationAddress} onChange={(event) => updateManualLoad("destinationAddress", event.target.value)} />
+                    </label>
+                    <label>
+                      City
+                      <input value={manualLoad.destinationCity} onChange={(event) => updateManualLoad("destinationCity", event.target.value)} />
+                    </label>
+                    <label>
+                      State
+                      <input value={manualLoad.destinationState} onChange={(event) => updateManualLoad("destinationState", event.target.value)} />
+                    </label>
+                    <label>
+                      Postal
+                      <input value={manualLoad.destinationPostalCode} onChange={(event) => updateManualLoad("destinationPostalCode", event.target.value)} />
+                    </label>
+                  </div>
+                </div>
+              </div>
+
+              <div className="manual-section">
+                <p className="transport-eyebrow">Freight Detail</p>
+                <div className="manual-field-grid">
+                  <label>
+                    Pickup Start
+                    <input type="datetime-local" value={manualLoad.pickupWindowStart} onChange={(event) => updateManualLoad("pickupWindowStart", event.target.value)} />
+                  </label>
+                  <label>
+                    Pickup End
+                    <input type="datetime-local" value={manualLoad.pickupWindowEnd} onChange={(event) => updateManualLoad("pickupWindowEnd", event.target.value)} />
+                  </label>
+                  <label>
+                    Delivery Start
+                    <input type="datetime-local" value={manualLoad.deliveryWindowStart} onChange={(event) => updateManualLoad("deliveryWindowStart", event.target.value)} />
+                  </label>
+                  <label>
+                    Delivery End
+                    <input type="datetime-local" value={manualLoad.deliveryWindowEnd} onChange={(event) => updateManualLoad("deliveryWindowEnd", event.target.value)} />
+                  </label>
+                  <label>
+                    Weight
+                    <input type="number" min="0" value={manualLoad.weightLbs} onChange={(event) => updateManualLoad("weightLbs", event.target.value)} />
+                  </label>
+                  <label>
+                    Weight Unit
+                    <select value={manualLoad.weightUnit} onChange={(event) => updateManualLoad("weightUnit", event.target.value as ManualLoadForm["weightUnit"])}>
+                      <option value="LB">LB</option>
+                      <option value="KG">KG</option>
+                    </select>
+                  </label>
+                  <label>
+                    Units
+                    <input type="number" min="0" value={manualLoad.unitCount} onChange={(event) => updateManualLoad("unitCount", event.target.value)} />
+                  </label>
+                  <label>
+                    Unit Type
+                    <select value={manualLoad.unitType} onChange={(event) => updateManualLoad("unitType", event.target.value as ManualLoadForm["unitType"])}>
+                      <option value="EA">Each</option>
+                      <option value="CASE">Case</option>
+                      <option value="CARTON">Carton</option>
+                      <option value="PALLET">Pallet</option>
+                      <option value="TOTE">Tote</option>
+                    </select>
+                  </label>
+                  <label>
+                    Handling Units
+                    <input
+                      type="number"
+                      min="0"
+                      value={manualLoad.handlingUnitCount}
+                      onChange={(event) => updateManualLoad("handlingUnitCount", event.target.value)}
+                    />
+                  </label>
+                  <label>
+                    Handling Unit Type
+                    <select
+                      value={manualLoad.handlingUnitType}
+                      onChange={(event) => updateManualLoad("handlingUnitType", event.target.value as ManualLoadForm["handlingUnitType"])}
+                    >
+                      <option value="PALLET">Pallet</option>
+                      <option value="SKID">Skid</option>
+                      <option value="CARTON">Carton</option>
+                      <option value="TOTE">Tote</option>
+                      <option value="ROLL">Roll</option>
+                      <option value="DRUM">Drum</option>
+                    </select>
+                  </label>
+                  <label>
+                    Commodity
+                    <input value={manualLoad.commodity} onChange={(event) => updateManualLoad("commodity", event.target.value)} />
+                  </label>
+                  <label>
+                    SKUs
+                    <input value={manualLoad.skuRefs} onChange={(event) => updateManualLoad("skuRefs", event.target.value)} placeholder="SKU-1001, SKU-1002" />
+                  </label>
+                </div>
+              </div>
+
+              <div className="manual-section">
+                <p className="transport-eyebrow">Commercial and Documents</p>
+                <div className="manual-field-grid">
+                  <label>
+                    PO Number
+                    <input value={manualLoad.poNumber} onChange={(event) => updateManualLoad("poNumber", event.target.value)} />
+                  </label>
+                  <label>
+                    BOL Number
+                    <input value={manualLoad.bolNumber} onChange={(event) => updateManualLoad("bolNumber", event.target.value)} />
+                  </label>
+                  <label>
+                    Customer Reference
+                    <input value={manualLoad.customerReference} onChange={(event) => updateManualLoad("customerReference", event.target.value)} />
+                  </label>
+                  <label>
+                    Target Buy
+                    <input type="number" min="0" value={manualLoad.targetBuyRate} onChange={(event) => updateManualLoad("targetBuyRate", event.target.value)} />
+                  </label>
+                  <label>
+                    Target Sell
+                    <input type="number" min="0" value={manualLoad.targetSellRate} onChange={(event) => updateManualLoad("targetSellRate", event.target.value)} />
+                  </label>
+                  <label>
+                    Margin Target
+                    <input type="number" min="0" value={manualLoad.marginTarget} onChange={(event) => updateManualLoad("marginTarget", event.target.value)} />
+                  </label>
+                  <label>
+                    Fuel
+                    <input type="number" min="0" value={manualLoad.fuelSurcharge} onChange={(event) => updateManualLoad("fuelSurcharge", event.target.value)} />
+                  </label>
+                  <label>
+                    Accessorials
+                    <input type="number" min="0" value={manualLoad.accessorialEstimate} onChange={(event) => updateManualLoad("accessorialEstimate", event.target.value)} />
+                  </label>
+                  <label>
+                    Lumper
+                    <input type="number" min="0" value={manualLoad.lumperEstimate} onChange={(event) => updateManualLoad("lumperEstimate", event.target.value)} />
+                  </label>
+                  <label>
+                    Detention / Hr
+                    <input
+                      type="number"
+                      min="0"
+                      value={manualLoad.detentionRatePerHour}
+                      onChange={(event) => updateManualLoad("detentionRatePerHour", event.target.value)}
+                    />
+                  </label>
+                </div>
+                <div className="manual-checkbox-row">
+                  <label>
+                    <input type="checkbox" checked={manualLoad.hazmat} onChange={(event) => updateManualLoad("hazmat", event.target.checked)} />
+                    Hazmat
+                  </label>
+                  <label>
+                    <input
+                      type="checkbox"
+                      checked={manualLoad.temperatureControlled}
+                      onChange={(event) => updateManualLoad("temperatureControlled", event.target.checked)}
+                    />
+                    Temperature controlled
+                  </label>
+                </div>
+                <label className="intake-wide-field">
+                  Handling Requirements
+                  <textarea
+                    rows={2}
+                    value={manualLoad.handlingRequirements}
+                    onChange={(event) => updateManualLoad("handlingRequirements", event.target.value)}
+                    placeholder="Dock appointment required; liftgate; no stack"
+                  />
                 </label>
-              ))}
-            </div>
+                <label className="intake-wide-field">
+                  Special Instructions
+                  <textarea
+                    rows={3}
+                    value={manualLoad.specialInstructions}
+                    onChange={(event) => updateManualLoad("specialInstructions", event.target.value)}
+                  />
+                </label>
+              </div>
+
+              <div className="data-quality-queue">
+                <div>
+                  <p className="transport-eyebrow">Error Correction Queue</p>
+                  <h4>Guided Completeness Checks</h4>
+                </div>
+                {manualQualityChecks.map((check) => (
+                  <div key={check} className="quality-card">
+                    {check}
+                  </div>
+                ))}
+              </div>
+
+              <div className="intake-actions">
+                <button className="btn btn-primary" type="submit">
+                  Create SIL Load
+                </button>
+                {manualStatus && <p className="ops-note">{manualStatus}</p>}
+              </div>
+            </form>
           )}
 
           {activeMode === "file" && (
@@ -362,17 +909,7 @@ export default function DataSourcesPanel() {
                     </span>
                   </div>
                   <div className="manual-field-grid">
-                    {[
-                      ["customerName", "Customer"],
-                      ["originCity", "Origin City"],
-                      ["originState", "Origin State"],
-                      ["destinationCity", "Destination City"],
-                      ["destinationState", "Destination State"],
-                      ["mode", "Mode"],
-                      ["equipmentType", "Equipment"],
-                      ["targetBuyRate", "Target Buy"],
-                      ["targetSellRate", "Target Sell"],
-                    ].map(([field, label]) => (
+                    {loadMappingFields.map(([field, label]) => (
                       <label key={field}>
                         {label}
                         <select
