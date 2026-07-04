@@ -1,4 +1,4 @@
-﻿FROM node:20-alpine AS builder
+FROM node:20-alpine AS builder
 
 WORKDIR /app
 
@@ -8,7 +8,8 @@ RUN npm ci
 COPY tsconfig.json ./
 COPY config ./config
 COPY src ./src
-COPY prisma ./prisma
+COPY prisma/schema.prisma ./prisma/schema.prisma
+COPY prisma/migrations ./prisma/migrations
 
 RUN npx prisma generate
 RUN npm run build
@@ -26,9 +27,12 @@ COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/config ./config
 COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
 COPY --from=builder /app/node_modules/@prisma ./node_modules/@prisma
-COPY prisma ./prisma
+COPY prisma/schema.prisma ./prisma/schema.prisma
+COPY prisma/migrations ./prisma/migrations
 
 EXPOSE 4000
 
 CMD ["sh", "-c", "npx prisma migrate deploy && node dist/src/server.js"]
+
+
 
