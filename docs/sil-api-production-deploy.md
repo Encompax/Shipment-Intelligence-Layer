@@ -8,7 +8,7 @@ SIL frontend hosting and SIL backend API should deploy separately:
 
 ## Current Boundary
 
-The backend currently uses Prisma with SQLite. This is acceptable for demo smoke testing, but Cloud Run filesystem state is not durable enough for real customer data. Before production customer use, move SIL operational records to Firestore or Cloud SQL/Postgres.
+The backend keeps Prisma/SQLite available for local demos and staged operational tables. Customer-facing records now have a Firestore-first path when `SIL_FIRESTORE_PRIMARY_ENABLED=true`: workspace profile, selected products, governance signals, workflow events, and shipment document metadata. Dense operational logistics history can still move to Cloud SQL/Postgres later when reporting and joins demand it.
 
 ## Backend Deploy
 
@@ -23,6 +23,9 @@ Useful environment values:
 ```text
 ALLOWED_ORIGINS=https://sil.encompax.io,http://localhost:5173
 ENCOMPAX_API_BASE_URL=https://api.encompax.io/api
+SIL_FIRESTORE_ENABLED=true
+SIL_FIRESTORE_PRIMARY_ENABLED=true
+SIL_FIRESTORE_PROJECT_ID=encompax-prod
 ```
 
 ## Frontend Build

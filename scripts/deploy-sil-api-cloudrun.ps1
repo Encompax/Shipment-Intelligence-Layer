@@ -6,6 +6,7 @@
   [string]$AllowedOrigins = "https://sil.encompax.io,http://localhost:5173",
   [string]$EncompaxApiBaseUrl = "https://api.encompax.io/api",
   [string]$SilFirestoreEnabled = "true",
+  [string]$SilFirestorePrimaryEnabled = "true",
   [string]$DatabaseUrl = "file:/tmp/sil-dev.db"
 )
 
@@ -21,6 +22,7 @@ $envFile = Join-Path $env:TEMP "sil-cloudrun-env-$ServiceName.yaml"
 ALLOWED_ORIGINS: "$AllowedOrigins"
 ENCOMPAX_API_BASE_URL: "$EncompaxApiBaseUrl"
 SIL_FIRESTORE_ENABLED: "$SilFirestoreEnabled"
+SIL_FIRESTORE_PRIMARY_ENABLED: "$SilFirestorePrimaryEnabled"
 SIL_FIRESTORE_PROJECT_ID: "$ProjectId"
 DATABASE_URL: "$DatabaseUrl"
 "@ | Set-Content -Path $envFile -Encoding UTF8

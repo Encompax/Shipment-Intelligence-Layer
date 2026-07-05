@@ -15,6 +15,16 @@ import {
   mirrorSilWorkflowEventToFirestore,
 } from "./firestoreAuditMirror";
 import {
+  getFirestoreSilWorkspace,
+  listFirestoreSilGovernanceSignalEnvelopes,
+  listFirestoreSilShipmentDocuments,
+  listFirestoreSilWorkflowEvents,
+  upsertFirestoreSilGovernanceSignal,
+  upsertFirestoreSilShipmentDocument,
+  upsertFirestoreSilWorkspace,
+  upsertFirestoreSilWorkflowEvent,
+} from "./firestorePrimaryStore";
+import {
   BidState,
   BrokerageLoadState,
   SilBid,
@@ -774,6 +784,9 @@ export async function updateSilStopAppointment(input: {
 }
 
 export async function listSilShipmentDocuments(filters?: { workspaceId?: string; shipmentId?: string; loadId?: string }) {
+  const firestoreDocuments = await listFirestoreSilShipmentDocuments(filters);
+  if (firestoreDocuments?.length) return firestoreDocuments;
+
   await seedSilPersistence();
   await ensureSilDocumentTable();
   const rows = await prisma.$queryRaw<Array<{ data: string }>>`
@@ -811,6 +824,7 @@ export async function persistSilShipmentDocument(input: Omit<SilShipmentDocument
       "data" = excluded."data",
       "updatedAt" = excluded."updatedAt"
   `;
+  await upsertFirestoreSilShipmentDocument(document);
 
   const event = await persistSilWorkflowEvent({
     eventId: makeId("sil_evt_document_uploaded"),
@@ -1646,6 +1660,9 @@ export async function listSilGovernanceSignals(filters?: { workspaceId?: string 
 }
 
 export async function listSilGovernanceSignalEnvelopes(filters?: { workspaceId?: string; status?: string }) {
+  const firestoreSignals = await listFirestoreSilGovernanceSignalEnvelopes(filters);
+  if (firestoreSignals?.length) return firestoreSignals;
+
   await seedSilPersistence();
   const records = await prisma.silGovernanceSignalRecord.findMany({
     where: {
@@ -1678,6 +1695,7 @@ export async function updateSilGovernanceSignalStatus(signalId: string, status: 
     signal: withWorkspace(fromRecord<SilGovernanceSignalDraft>(record)),
   };
   await mirrorSilGovernanceSignalToFirestore(envelope);
+  await upsertFirestoreSilGovernanceSignal(envelope);
   return envelope;
 }
 
@@ -1704,6 +1722,12 @@ export async function persistSilGovernanceSignal(signal: SilGovernanceSignalDraf
     },
   });
   await mirrorSilGovernanceSignalToFirestore({
+    signalId: id,
+    status: record.status,
+    updatedAt: record.updatedAt.toISOString(),
+    signal: scopedSignal,
+  });
+  await upsertFirestoreSilGovernanceSignal({
     signalId: id,
     status: record.status,
     updatedAt: record.updatedAt.toISOString(),
@@ -1738,10 +1762,14 @@ export async function persistSilWorkflowEvent(event: SilWorkflowEvent) {
     },
   });
   await mirrorSilWorkflowEventToFirestore(scopedEvent);
+  await upsertFirestoreSilWorkflowEvent(scopedEvent);
   return scopedEvent;
 }
 
 export async function listPersistedWorkflowEvents(filters?: { loadId?: string; shipmentId?: string; bidId?: string; workspaceId?: string }) {
+  const firestoreEvents = await listFirestoreSilWorkflowEvents(filters);
+  if (firestoreEvents?.length) return firestoreEvents;
+
   await seedSilPersistence();
   const records = await prisma.silWorkflowEventRecord.findMany({
     where: {
@@ -1823,6 +1851,9 @@ export async function listSilLeanRecords(filters?: { organization?: string; temp
 }
 
 export async function getSilWorkspace(workspaceId = defaultWorkspace.workspaceId!) {
+  const firestoreWorkspace = await getFirestoreSilWorkspace(workspaceId);
+  if (firestoreWorkspace) return firestoreWorkspace;
+
   await seedSilPersistence();
   const records = await prisma.$queryRaw<Array<{ data: string }>>`
     SELECT "data" FROM "SilWorkspaceRecord" WHERE "workspaceId" = ${workspaceId} LIMIT 1
@@ -1869,6 +1900,7 @@ export async function upsertSilWorkspace(input: SilWorkspacePayload) {
       "data" = excluded."data",
       "updatedAt" = excluded."updatedAt"
   `;
+  await upsertFirestoreSilWorkspace(workspace);
 
   const event = await persistSilWorkflowEvent({
     eventId: makeId("sil_evt_workspace_updated"),

@@ -1,5 +1,5 @@
 ﻿import { FieldValue } from "firebase-admin/firestore";
-import { getSilFirestore } from "../../lib/firestore";
+import { getSilFirestore, getSilFirestoreRootCollection } from "../../lib/firestore";
 import { logger } from "../../lib/logger";
 import { SilGovernanceSignalDraft, SilWorkflowEvent } from "./types";
 
@@ -22,7 +22,7 @@ export async function mirrorSilGovernanceSignalToFirestore(envelope: SilGovernan
 
   try {
     await db
-      .collection("silWorkspaces")
+      .collection(getSilFirestoreRootCollection())
       .doc(workspaceId)
       .collection("governanceSignals")
       .doc(safeDocumentId(envelope.signalId))
@@ -48,7 +48,7 @@ export async function mirrorSilWorkflowEventToFirestore(event: SilWorkflowEvent)
 
   try {
     await db
-      .collection("silWorkspaces")
+      .collection(getSilFirestoreRootCollection())
       .doc(workspaceId)
       .collection("workflowEvents")
       .doc(safeDocumentId(event.eventId))
