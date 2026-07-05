@@ -461,17 +461,18 @@ export async function seedSilPersistence() {
     ),
   ]);
 
-  const existingWorkspace = await prisma.$queryRaw<Array<{ workspaceId: string }>>`
-    SELECT "workspaceId" FROM "SilWorkspaceRecord" WHERE "workspaceId" = ${defaultWorkspace.workspaceId!} LIMIT 1
+  await prisma.$executeRaw`
+    INSERT INTO "SilWorkspaceRecord" ("id", "workspaceId", "organization", "ownerEmail", "status", "data", "updatedAt")
+    VALUES (${makeId("sil_workspace")}, ${defaultWorkspace.workspaceId!}, ${defaultWorkspace.organization}, ${
+      defaultWorkspace.ownerEmail ?? null
+    }, ${defaultWorkspace.status ?? "TRIAL"}, ${json(defaultWorkspace)}, ${new Date()})
+    ON CONFLICT("workspaceId") DO UPDATE SET
+      "organization" = excluded."organization",
+      "ownerEmail" = excluded."ownerEmail",
+      "status" = excluded."status",
+      "data" = excluded."data",
+      "updatedAt" = excluded."updatedAt"
   `;
-  if (existingWorkspace.length === 0) {
-    await prisma.$executeRaw`
-      INSERT INTO "SilWorkspaceRecord" ("id", "workspaceId", "organization", "ownerEmail", "status", "data", "updatedAt")
-      VALUES (${makeId("sil_workspace")}, ${defaultWorkspace.workspaceId!}, ${defaultWorkspace.organization}, ${
-        defaultWorkspace.ownerEmail ?? null
-      }, ${defaultWorkspace.status ?? "TRIAL"}, ${json(defaultWorkspace)}, ${new Date()})
-    `;
-  }
 
   seeded = true;
 }
