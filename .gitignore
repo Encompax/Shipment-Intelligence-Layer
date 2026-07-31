@@ -119,6 +119,7 @@ dist
 
 # Firebase cache directory
 .firebase/
+firepit-log.txt
 
 # TernJS port file
 .tern-port

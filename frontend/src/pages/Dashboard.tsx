@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 import {
   PANEL_CONFIG,
   PANEL_GROUPS,
@@ -9,6 +9,22 @@ import EncompaxMark from "../components/EncompaxMark";
 import SILLogo from "../components/SILLogo";
 
 type TabKey = "overview" | PanelKey;
+type DashboardProps = {
+  currentUserName: string;
+  currentUserEmail: string;
+  workspaceName: string;
+  organizationName: string;
+  onSignOut: () => Promise<void>;
+};
+
+type ShellAction = {
+  key: string;
+  label: string;
+  meta: string;
+  keywords: string;
+  href?: string;
+  tab?: TabKey;
+};
 
 const CURRENT_USER_PERMISSIONS: string[] = [
   "transportation:view",
@@ -33,8 +49,16 @@ const hasPermission = (panel: PanelConfig) =>
   panel.requiredPermissions.length === 0 ||
   panel.requiredPermissions.every((p) => CURRENT_USER_PERMISSIONS.includes(p));
 
-const Dashboard: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<TabKey>("transportationCommand");
+const Dashboard: React.FC<DashboardProps> = ({
+  currentUserName,
+  currentUserEmail,
+  workspaceName,
+  organizationName,
+  onSignOut,
+}) => {
+  const [activeTab, setActiveTab] = useState<TabKey>("overview");
+  const [shellSearch, setShellSearch] = useState("");
+  const [shellSearchOpen, setShellSearchOpen] = useState(false);
 
   const visiblePanels = PANEL_CONFIG.filter(hasPermission);
 
@@ -45,6 +69,71 @@ const Dashboard: React.FC = () => {
 
   const topbarTitle =
     activeTab === "overview" ? "Overview" : (activePanel?.label ?? "Dashboard");
+
+  const shellActions = useMemo<ShellAction[]>(
+    () => [
+      {
+        key: "workspace",
+        label: "Encompax workspace",
+        meta: "Signed-in profile and module access",
+        href: "https://www.encompax.com/workspace.html",
+        keywords: "encompax workspace dashboard profile packages support",
+      },
+      {
+        key: "resources",
+        label: "Resource library",
+        meta: "Guides and rollout learning",
+        href: "https://www.encompax.com/resources.html",
+        keywords: "resources guides library tutorials onboarding",
+      },
+      {
+        key: "help",
+        label: "Support center",
+        meta: "Help and business contacts",
+        href: "https://www.encompax.com/help.html",
+        keywords: "help support faq business contacts",
+      },
+      {
+        key: "overview",
+        label: "SIL overview",
+        meta: "Return to operations overview",
+        tab: "overview",
+        keywords: "overview home sil operations visibility",
+      },
+      ...visiblePanels.map((panel) => ({
+        key: panel.key,
+        label: panel.label,
+        meta: panel.group,
+        tab: panel.key,
+        keywords: `${panel.label} ${panel.group} sil panel module`,
+      })),
+    ],
+    [visiblePanels]
+  );
+
+  const filteredShellActions = useMemo(() => {
+    const query = shellSearch.trim().toLowerCase();
+    if (!query) {
+      return shellActions.slice(0, 7);
+    }
+    return shellActions
+      .filter((item) =>
+        `${item.label} ${item.meta} ${item.keywords}`.toLowerCase().includes(query)
+      )
+      .slice(0, 8);
+  }, [shellActions, shellSearch]);
+
+  const runShellAction = (action: ShellAction) => {
+    setShellSearch("");
+    setShellSearchOpen(false);
+    if (action.tab) {
+      setActiveTab(action.tab);
+      return;
+    }
+    if (action.href) {
+      window.location.assign(action.href);
+    }
+  };
 
   const renderContent = () => {
     if (activeTab === "overview") {
@@ -62,7 +151,7 @@ const Dashboard: React.FC = () => {
               <SILLogo size={34} />
               <div>
                 <span>Workspace</span>
-                <strong>Shipment Operations</strong>
+                <strong>{workspaceName}</strong>
               </div>
             </div>
           </section>
@@ -196,18 +285,90 @@ const Dashboard: React.FC = () => {
       {/* ── Main ─────────────────────────────────────────────────────── */}
       <div className="main-content">
         <header className="topbar">
-          <div className="topbar-breadcrumb">
-            <span className="topbar-parent-brand">
-              <EncompaxMark size={18} />
-              <span>Encompax</span>
-            </span>
-            <span className="topbar-separator">/</span>
-            <span className="topbar-app-name">Shipment Intelligence Layer</span>
-            <span className="topbar-separator">/</span>
-            <h1 className="topbar-title">{topbarTitle}</h1>
+          <div className="topbar-shell-intro">
+            <div className="topbar-breadcrumb">
+              <span className="topbar-parent-brand">
+                <EncompaxMark size={18} />
+                <span>Encompax Workspace Shell</span>
+              </span>
+              <span className="topbar-separator">/</span>
+              <span className="topbar-app-name">Shipment Intelligence Layer</span>
+              <span className="topbar-separator">/</span>
+              <h1 className="topbar-title">{topbarTitle}</h1>
+            </div>
+            <p className="topbar-shell-copy">
+              Governed shipment operations under the signed-in Encompax profile.
+            </p>
           </div>
           <div className="topbar-meta">
-            <span className="topbar-org">Shipment Operations</span>
+            <div className="topbar-utility">
+              <div className="topbar-link-row">
+                <a href="https://www.encompax.com/workspace.html">Workspace</a>
+                <a href="https://www.encompax.com/resources.html">Resources</a>
+                <a href="https://www.encompax.com/help.html">Help</a>
+              </div>
+              <div className="topbar-search-shell">
+                <div className="topbar-search-caption">
+                  <strong>Encompax search shell</strong>
+                  <span>Search workspace, resources, help, and SIL routes.</span>
+                </div>
+                <label className="topbar-search-field" htmlFor="silShellSearch">
+                  <span>Search</span>
+                  <input
+                    id="silShellSearch"
+                    type="search"
+                    value={shellSearch}
+                    placeholder="Search workspace, resources, help, and SIL routes"
+                    onFocus={() => setShellSearchOpen(true)}
+                    onBlur={() => window.setTimeout(() => setShellSearchOpen(false), 120)}
+                    onChange={(event) => {
+                      setShellSearch(event.target.value);
+                      setShellSearchOpen(true);
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key === "Escape") {
+                        setShellSearchOpen(false);
+                        setShellSearch("");
+                      }
+                      if (event.key === "Enter" && filteredShellActions.length) {
+                        event.preventDefault();
+                        runShellAction(filteredShellActions[0]);
+                      }
+                    }}
+                  />
+                </label>
+                {shellSearchOpen ? (
+                  <div className="topbar-search-results">
+                    {filteredShellActions.length ? (
+                      filteredShellActions.map((action) => (
+                        <button
+                          key={action.key}
+                          type="button"
+                          className="topbar-search-result"
+                          onMouseDown={(event) => {
+                            event.preventDefault();
+                            runShellAction(action);
+                          }}
+                        >
+                          <strong>{action.label}</strong>
+                          <span>{action.meta}</span>
+                        </button>
+                      ))
+                    ) : (
+                      <div className="topbar-search-empty">No matching routes yet.</div>
+                    )}
+                  </div>
+                ) : null}
+              </div>
+            </div>
+            <span className="topbar-org">{organizationName || workspaceName}</span>
+            <div className="topbar-user">
+              <span className="topbar-user-name">{currentUserName}</span>
+              <span className="topbar-user-email">{currentUserEmail}</span>
+            </div>
+            <button type="button" className="topbar-signout" onClick={() => void onSignOut()}>
+              Sign out
+            </button>
           </div>
         </header>
 

@@ -3,7 +3,25 @@
  * Local Vite uses /api through its proxy. Hosted SIL can point this at
  * api.encompax.io or a Cloud Run URL through VITE_API_BASE_URL.
  */
+import { auth } from "../lib/firebase";
+
 const API_BASE = (import.meta.env.VITE_API_BASE_URL ?? '/api').replace(/\/$/, '');
+
+async function apiFetch(input: RequestInfo | URL, init: RequestInit = {}) {
+  const headers = new Headers(init.headers ?? {});
+  const token = auth.currentUser ? await auth.currentUser.getIdToken() : null;
+
+  if (token) {
+    headers.set("Authorization", `Bearer ${token}`);
+  }
+
+  return window.fetch(input, {
+    ...init,
+    headers,
+  });
+}
+
+const fetch = apiFetch;
 
 async function readJsonResponse(res: Response, label: string) {
   const text = await res.text();
