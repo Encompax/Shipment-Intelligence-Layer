@@ -1,4 +1,4 @@
-// Only owners can see/modify their objects; expand for org roles later.
+// Shared Encompax production rules. Keep aligned with Encompax-core.
 rules_version = '2';
 service cloud.firestore {
  match /databases/{db}/documents {
@@ -6,12 +6,47 @@ service cloud.firestore {
    function isOwner(resource) {
      return isAuth() && resource.data.ownerId == request.auth.uid
    }
+   function isWorkspaceAdmin() {
+     return isAuth() && request.auth.token.admin == true
+   }
+   function hasValidInitialModuleAccess() {
+     let access = request.resource.data.get("moduleAccess", {});
+     return access.keys().hasOnly(["sil", "marengo", "kardia", "iris", "fusion", "agents"])
+       && access.get("sil", "pending") in ["pending", "requested", "planned"]
+       && access.get("marengo", "pending") in ["pending", "requested", "planned"]
+       && access.get("kardia", "pending") in ["pending", "requested", "planned"]
+       && access.get("iris", "pending") in ["pending", "requested", "planned"]
+       && access.get("fusion", "pending") in ["pending", "requested", "planned"]
+       && access.get("agents", "pending") in ["pending", "requested", "planned"];
+   }
    match /users/{uid} {
-     allow read, write: if request.auth.uid == uid;
+     allow read: if isAuth() && (request.auth.uid == uid || isWorkspaceAdmin());
+     allow create: if isAuth()
+       && request.auth.uid == uid
+       && request.resource.data.uid == request.auth.uid
+       && hasValidInitialModuleAccess();
+     allow update: if isAuth() && (
+       isWorkspaceAdmin()
+       || request.auth.uid == uid
+         && request.resource.data.uid == resource.data.uid
+         && !request.resource.data.diff(resource.data).affectedKeys().hasAny(["moduleAccess", "uid"])
+     );
+     allow delete: if isWorkspaceAdmin();
+   }
+   match /site_config/{docId} {
+     allow read: if true;
+     allow write: if isWorkspaceAdmin();
+   }
+   match /workspace_catalog/{docId} {
+     allow read: if isAuth();
+     allow write: if isWorkspaceAdmin();
+   }
+   match /moduleLaunchCodes/{codeId} {
+     allow read, write: if false;
    }
    match /{colName}/{docId} {
-     allow read, update, delete: if isOwner(resource);
-     allow create: if isAuth();
+     allow read, update, delete: if colName != "moduleLaunchCodes" && isOwner(resource);
+     allow create: if colName != "moduleLaunchCodes" && isAuth();
    }
  }
 }

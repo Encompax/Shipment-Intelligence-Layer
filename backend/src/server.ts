@@ -15,6 +15,8 @@ import { registerFulfillmentRoutes } from "./routes/fulfillment-transactions";
 import { registerInventoryMovementRoutes } from "./routes/inventory-movements";
 import { registerCycleCountRoutes } from "./routes/cycle-count-transactions";
 import { registerShipmentIntelligenceRoutes } from "./routes/shipment-intelligence";
+import { requireSilAuth } from "./middleware/requireSilAuth";
+import { registerEncompaxAuthRoutes } from "./routes/encompax-auth";
 
 const app = express();
 
@@ -47,6 +49,8 @@ app.use(fileUpload({
 
 // Register all route families
 registerHealthRoutes(app);
+registerEncompaxAuthRoutes(app);
+app.use("/api", requireSilAuth);
 registerDatasourceRoutes(app);
 registerJobRoutes(app);
 registerUploadRoutes(app);

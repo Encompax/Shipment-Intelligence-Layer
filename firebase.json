@@ -1,4 +1,7 @@
 {
+  "firestore": {
+    "rules": "infra/firestore.rules"
+  },
   "hosting": {
     "target": "sil",
     "public": "frontend/dist",
@@ -8,6 +11,13 @@
       "**/node_modules/**"
     ],
     "rewrites": [
+      {
+        "source": "/api/**",
+        "run": {
+          "serviceId": "encompax-sil-api",
+          "region": "us-central1"
+        }
+      },
       {
         "source": "**",
         "destination": "/index.html"

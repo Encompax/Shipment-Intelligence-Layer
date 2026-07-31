@@ -3,7 +3,7 @@
   [string]$Region = "us-central1",
   [string]$ServiceName = "encompax-sil-api",
   [string]$ImageName = "encompax-sil-api",
-  [string]$AllowedOrigins = "https://sil.encompax.io,http://localhost:5173",
+  [string]$AllowedOrigins = "https://sil.encompax.io,https://www.encompax.com,https://encompax.com,http://localhost:5173",
   [string]$EncompaxApiBaseUrl = "https://api.encompax.io/api",
   [string]$SilFirestoreEnabled = "true",
   [string]$SilFirestorePrimaryEnabled = "true",
@@ -21,6 +21,7 @@ $envFile = Join-Path $env:TEMP "sil-cloudrun-env-$ServiceName.yaml"
 @"
 ALLOWED_ORIGINS: "$AllowedOrigins"
 ENCOMPAX_API_BASE_URL: "$EncompaxApiBaseUrl"
+SIL_AUTH_REQUIRED: "true"
 SIL_FIRESTORE_ENABLED: "$SilFirestoreEnabled"
 SIL_FIRESTORE_PRIMARY_ENABLED: "$SilFirestorePrimaryEnabled"
 SIL_FIRESTORE_PROJECT_ID: "$ProjectId"
