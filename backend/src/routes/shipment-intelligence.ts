@@ -30,6 +30,10 @@ import {
 import { buildSilAgentActivityReadiness } from "../services/shipmentIntelligence/agentActivityService";
 import { buildSilPersistenceReadiness } from "../services/shipmentIntelligence/persistenceReadinessService";
 import {
+  buildMarengoForecastInput,
+  sendForecastInputToMarengo,
+} from "../services/shipmentIntelligence/marengoBridge";
+import {
   listWorkflowEvents,
   seedWorkflowEvents,
 } from "../services/shipmentIntelligence/workflowEventService";
@@ -263,6 +267,35 @@ export function registerShipmentIntelligenceRoutes(app: Express) {
           item.equipmentType === load.equipmentType
       ) ?? null,
     });
+  });
+
+  router.post("/loads/:loadId/marengo-signal", async (req: Request, res: Response) => {
+    const workspaceId = requestWorkspaceId(req);
+    const [loads, shipments, carriers, lanes, bids] = await Promise.all([
+      listSilLoads({ workspaceId }),
+      listSilShipments({ workspaceId }),
+      listSilCarriers({ workspaceId }),
+      listSilLanes({ workspaceId }),
+      listSilBids({ workspaceId }),
+    ]);
+    const load = loads.find((item) => item.loadId === req.params.loadId);
+    if (!load) return res.status(404).json({ error: "Load not found" });
+    const shipment = shipments.find((item) => item.loadId === load.loadId);
+    const bid = bids.find((item) => item.loadId === load.loadId && item.status === "AWARDED")
+      ?? bids.find((item) => item.loadId === load.loadId);
+    const carrier = carriers.find((item) => item.carrierId === (shipment?.carrierId ?? bid?.carrierId));
+    const lane = await findLaneForLoad(load);
+    const signal = buildMarengoForecastInput({
+      load,
+      shipment,
+      bid,
+      carrier,
+      lane,
+      eventId: typeof req.body?.eventId === "string" ? req.body.eventId : undefined,
+    });
+    const authorization = req.headers.authorization ?? "";
+    const result = await sendForecastInputToMarengo(signal, authorization);
+    res.status(result.sent ? 200 : 502).json({ signal, bridge: result });
   });
 
   router.get("/loads/:loadId/transitions", async (req: Request, res: Response) => {
