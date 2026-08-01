@@ -33,6 +33,7 @@ import {
   buildMarengoForecastInput,
   sendForecastInputToMarengo,
 } from "../services/shipmentIntelligence/marengoBridge";
+import { sendShipmentExceptionToKardia } from "../services/shipmentIntelligence/kardiaBridge";
 import {
   listWorkflowEvents,
   seedWorkflowEvents,
@@ -602,8 +603,12 @@ export function registerShipmentIntelligenceRoutes(app: Express) {
     }
 
     let marengoDelivery: Awaited<ReturnType<typeof publishLoadToMarengo>> | null = null;
+    let kardiaDelivery: Awaited<ReturnType<typeof sendShipmentExceptionToKardia>> | null = null;
+    const lifecycleLoad = result.shipment.loadId
+      ? (await listSilLoads({ workspaceId })).find((item) => item.loadId === result.shipment.loadId)
+      : undefined;
     if (MARENGO_AUTO_SHIPMENT_STATES.has(result.shipment.state) && result.shipment.loadId) {
-      const load = (await listSilLoads({ workspaceId })).find((item) => item.loadId === result.shipment.loadId);
+      const load = lifecycleLoad;
       if (load) {
         try {
           marengoDelivery = await publishLoadToMarengo(load, req.headers.authorization ?? "");
@@ -619,6 +624,13 @@ export function registerShipmentIntelligenceRoutes(app: Express) {
         }
       }
     }
+    if (result.shipment.state === "EXCEPTION" && lifecycleLoad) {
+      try {
+        kardiaDelivery = await sendShipmentExceptionToKardia({ load: lifecycleLoad, shipment: result.shipment, authorization: req.headers.authorization ?? "" });
+      } catch (error) {
+        kardiaDelivery = { sent: false, status: 502, response: { error: error instanceof Error ? error.message : "Kardia publication failed" } };
+      }
+    }
 
     res.json({
       ...result,
@@ -628,6 +640,7 @@ export function registerShipmentIntelligenceRoutes(app: Express) {
       documentPacketReady,
       documentGovernanceSignal,
       marengoDelivery,
+      kardiaDelivery,
     });
   });
 
