@@ -88,6 +88,8 @@ import {
 
 export function registerShipmentIntelligenceRoutes(app: Express) {
   const router = Router();
+  const MARENGO_AUTO_TRANSITIONS = new Set(["CARRIER_SELECTED", "DISPATCHED", "IN_TRANSIT", "DELIVERED"]);
+  const MARENGO_AUTO_SHIPMENT_STATES = new Set(["DISPATCHED", "IN_TRANSIT", "DELIVERED", "EXCEPTION"]);
   seedWorkflowEvents();
   seedSilPersistence().catch((error) => {
     console.error("SIL persistence seed failed", error);
@@ -122,6 +124,29 @@ export function registerShipmentIntelligenceRoutes(app: Express) {
         item.mode === load.mode &&
         item.equipmentType === load.equipmentType
     );
+  };
+
+  const publishLoadToMarengo = async (load: Awaited<ReturnType<typeof listSilLoads>>[number], authorization: string) => {
+    const [shipments, carriers, lanes, bids] = await Promise.all([
+      listSilShipments({ workspaceId: load.workspaceId }),
+      listSilCarriers({ workspaceId: load.workspaceId }),
+      listSilLanes({ workspaceId: load.workspaceId }),
+      listSilBids({ workspaceId: load.workspaceId }),
+    ]);
+    const shipment = shipments.find((item) => item.loadId === load.loadId);
+    const bid = bids.find((item) => item.loadId === load.loadId && item.status === "AWARDED")
+      ?? bids.find((item) => item.loadId === load.loadId);
+    const carrier = carriers.find((item) => item.carrierId === (shipment?.carrierId ?? bid?.carrierId));
+    const lane = lanes.find(
+      (item) =>
+        item.originRegion === load.origin.state &&
+        item.destinationRegion === load.destination.state &&
+        item.mode === load.mode &&
+        item.equipmentType === load.equipmentType
+    );
+    const signal = buildMarengoForecastInput({ load, shipment, bid, carrier, lane });
+    const bridge = await sendForecastInputToMarengo(signal, authorization);
+    return { signal, bridge };
   };
 
   const buildGeneratedGovernanceSignals = async (workspaceId?: string) => {
@@ -271,31 +296,11 @@ export function registerShipmentIntelligenceRoutes(app: Express) {
 
   router.post("/loads/:loadId/marengo-signal", async (req: Request, res: Response) => {
     const workspaceId = requestWorkspaceId(req);
-    const [loads, shipments, carriers, lanes, bids] = await Promise.all([
-      listSilLoads({ workspaceId }),
-      listSilShipments({ workspaceId }),
-      listSilCarriers({ workspaceId }),
-      listSilLanes({ workspaceId }),
-      listSilBids({ workspaceId }),
-    ]);
+    const loads = await listSilLoads({ workspaceId });
     const load = loads.find((item) => item.loadId === req.params.loadId);
     if (!load) return res.status(404).json({ error: "Load not found" });
-    const shipment = shipments.find((item) => item.loadId === load.loadId);
-    const bid = bids.find((item) => item.loadId === load.loadId && item.status === "AWARDED")
-      ?? bids.find((item) => item.loadId === load.loadId);
-    const carrier = carriers.find((item) => item.carrierId === (shipment?.carrierId ?? bid?.carrierId));
-    const lane = await findLaneForLoad(load);
-    const signal = buildMarengoForecastInput({
-      load,
-      shipment,
-      bid,
-      carrier,
-      lane,
-      eventId: typeof req.body?.eventId === "string" ? req.body.eventId : undefined,
-    });
-    const authorization = req.headers.authorization ?? "";
-    const result = await sendForecastInputToMarengo(signal, authorization);
-    res.status(result.sent ? 200 : 502).json({ signal, bridge: result });
+    const result = await publishLoadToMarengo(load, req.headers.authorization ?? "");
+    res.status(result.bridge.sent ? 200 : 502).json(result);
   });
 
   router.get("/loads/:loadId/transitions", async (req: Request, res: Response) => {
@@ -331,7 +336,23 @@ export function registerShipmentIntelligenceRoutes(app: Express) {
     }
     await persistSilWorkflowEvent({ ...result.event, workspaceId: load.workspaceId });
 
-    res.status(result.accepted ? 200 : 409).json(result);
+    let marengoDelivery: Awaited<ReturnType<typeof publishLoadToMarengo>> | null = null;
+    if (result.accepted && MARENGO_AUTO_TRANSITIONS.has(result.nextState)) {
+      try {
+        marengoDelivery = await publishLoadToMarengo(load, req.headers.authorization ?? "");
+      } catch (error) {
+        marengoDelivery = {
+          signal: buildMarengoForecastInput({ load }),
+          bridge: {
+            sent: false,
+            status: 502,
+            response: { error: error instanceof Error ? error.message : "Marengo publication failed" },
+          },
+        };
+      }
+    }
+
+    res.status(result.accepted ? 200 : 409).json({ ...result, marengoDelivery });
   });
 
   router.get("/shipments", async (req: Request, res: Response) => {
@@ -580,6 +601,25 @@ export function registerShipmentIntelligenceRoutes(app: Express) {
       });
     }
 
+    let marengoDelivery: Awaited<ReturnType<typeof publishLoadToMarengo>> | null = null;
+    if (MARENGO_AUTO_SHIPMENT_STATES.has(result.shipment.state) && result.shipment.loadId) {
+      const load = (await listSilLoads({ workspaceId })).find((item) => item.loadId === result.shipment.loadId);
+      if (load) {
+        try {
+          marengoDelivery = await publishLoadToMarengo(load, req.headers.authorization ?? "");
+        } catch (error) {
+          marengoDelivery = {
+            signal: buildMarengoForecastInput({ load, shipment: result.shipment }),
+            bridge: {
+              sent: false,
+              status: 502,
+              response: { error: error instanceof Error ? error.message : "Marengo publication failed" },
+            },
+          };
+        }
+      }
+    }
+
     res.json({
       ...result,
       readiness: dispatchReadiness,
@@ -587,6 +627,7 @@ export function registerShipmentIntelligenceRoutes(app: Express) {
       documentRequirements,
       documentPacketReady,
       documentGovernanceSignal,
+      marengoDelivery,
     });
   });
 
@@ -902,14 +943,28 @@ export function registerShipmentIntelligenceRoutes(app: Express) {
     });
 
     let shipmentResult: Awaited<ReturnType<typeof createSilShipmentFromAward>> | null = null;
+    let marengoDelivery: Awaited<ReturnType<typeof publishLoadToMarengo>> | null = null;
     if (decision === "AWARDED" && updatedBid) {
       await updateSilLoadStatus(load.loadId, "CARRIER_SELECTED");
+      load.status = "CARRIER_SELECTED";
       shipmentResult = await createSilShipmentFromAward({
         load,
         bid: updatedBid,
         carrier,
         actor: req.body?.actor,
       });
+      try {
+        marengoDelivery = await publishLoadToMarengo(load, req.headers.authorization ?? "");
+      } catch (error) {
+        marengoDelivery = {
+          signal: buildMarengoForecastInput({ load, shipment: shipmentResult.shipment }),
+          bridge: {
+            sent: false,
+            status: 502,
+            response: { error: error instanceof Error ? error.message : "Marengo publication failed" },
+          },
+        };
+      }
     }
 
     const overrideEvent =
@@ -940,7 +995,7 @@ export function registerShipmentIntelligenceRoutes(app: Express) {
           })
         : null;
 
-    res.json({ bid: updatedBid, score, readiness, governanceSignal, event, overrideEvent, shipmentResult });
+    res.json({ bid: updatedBid, score, readiness, governanceSignal, event, overrideEvent, shipmentResult, marengoDelivery });
   });
 
   router.get("/matching/recommendations", async (req: Request, res: Response) => {
