@@ -1473,6 +1473,53 @@ td {
   font-weight: var(--font-weight-semibold);
 }
 
+.transport-assistant-launcher {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid rgba(20, 184, 166, 0.28);
+  border-radius: var(--radius-lg);
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.transport-assistant-launcher > div {
+  display: grid;
+  gap: 2px;
+}
+
+.transport-assistant-launcher span {
+  color: var(--color-info);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-bold);
+  text-transform: uppercase;
+}
+
+.transport-assistant-launcher strong {
+  color: var(--color-text-primary);
+  font-size: var(--font-size-sm);
+}
+
+.transport-assistant-launcher button {
+  min-height: 38px;
+  padding: 0 var(--space-4);
+  border: 1px solid var(--color-primary);
+  border-radius: var(--radius-md);
+  background: var(--color-primary);
+  color: #fff;
+  font-weight: var(--font-weight-semibold);
+  cursor: pointer;
+}
+
+.transport-assistant-launcher button:disabled {
+  border-color: var(--color-border);
+  background: var(--color-bg-muted);
+  color: var(--color-text-muted);
+  cursor: not-allowed;
+}
+
 .transport-metrics {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
@@ -3334,6 +3381,13 @@ td {
   .transport-inline-form:first-child,
   .transport-inline-form:last-child {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 620px) {
+  .transport-assistant-launcher {
+    align-items: stretch;
+    flex-direction: column;
   }
 }
 

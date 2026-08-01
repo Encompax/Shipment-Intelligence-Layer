@@ -1382,6 +1382,19 @@ const TransportationCommandPanel: React.FC = () => {
           <span>Move</span>
           <span>Govern</span>
         </div>
+        <div className="transport-assistant-launcher">
+          <div>
+            <span>SIL Assistant</span>
+            <strong>{selectedLoad ? `Ready for ${selectedLoad.loadId}` : "Select a load to begin"}</strong>
+          </div>
+          <button
+            type="button"
+            disabled={!selectedLoad}
+            onClick={() => document.getElementById("sil-load-assistant")?.scrollIntoView({ behavior: "smooth", block: "center" })}
+          >
+            Open assistant
+          </button>
+        </div>
       </section>
 
       <section className="transport-metrics">

@@ -292,8 +292,8 @@ const ProductAlignmentPanel: React.FC = () => {
         <div className="suite-brand-stack">
           <SILLogo size={42} />
           <div>
-            <span>Current workspace</span>
-            <strong>{workspace.workspaceName}</strong>
+            <span>Current module</span>
+            <strong>Shipment Intelligence Layer</strong>
           </div>
         </div>
       </section>

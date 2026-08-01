@@ -110,7 +110,7 @@ export default function SilLoadAssistant({ loadId, currentState, allowedTransiti
   }
 
   return (
-    <section className="sil-assistant" aria-label="SIL operations assistant">
+    <section className="sil-assistant" id="sil-load-assistant" aria-label="SIL operations assistant">
       <div className="sil-assistant-heading">
         <div>
           <span>SIL Assistant</span>
