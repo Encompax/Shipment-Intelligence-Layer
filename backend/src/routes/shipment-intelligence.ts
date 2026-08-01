@@ -34,6 +34,7 @@ import {
   sendForecastInputToMarengo,
 } from "../services/shipmentIntelligence/marengoBridge";
 import { sendShipmentExceptionToKardia } from "../services/shipmentIntelligence/kardiaBridge";
+import { publishFreightMarginExposureToIris } from "../services/shipmentIntelligence/irisBridge";
 import {
   listWorkflowEvents,
   seedWorkflowEvents,
@@ -604,6 +605,7 @@ export function registerShipmentIntelligenceRoutes(app: Express) {
 
     let marengoDelivery: Awaited<ReturnType<typeof publishLoadToMarengo>> | null = null;
     let kardiaDelivery: Awaited<ReturnType<typeof sendShipmentExceptionToKardia>> | null = null;
+    let irisDelivery: Awaited<ReturnType<typeof publishFreightMarginExposureToIris>> | null = null;
     const lifecycleLoad = result.shipment.loadId
       ? (await listSilLoads({ workspaceId })).find((item) => item.loadId === result.shipment.loadId)
       : undefined;
@@ -631,6 +633,10 @@ export function registerShipmentIntelligenceRoutes(app: Express) {
         kardiaDelivery = { sent: false, status: 502, response: { error: error instanceof Error ? error.message : "Kardia publication failed" } };
       }
     }
+    if (MARENGO_AUTO_SHIPMENT_STATES.has(result.shipment.state) && lifecycleLoad) {
+      try { irisDelivery = await publishFreightMarginExposureToIris({ load: lifecycleLoad, shipment: result.shipment, authorization: req.headers.authorization ?? "" }); }
+      catch (error) { irisDelivery = { sent: false, status: 502, response: { error: error instanceof Error ? error.message : "Iris publication failed" } }; }
+    }
 
     res.json({
       ...result,
@@ -641,6 +647,7 @@ export function registerShipmentIntelligenceRoutes(app: Express) {
       documentGovernanceSignal,
       marengoDelivery,
       kardiaDelivery,
+      irisDelivery,
     });
   });
 
