@@ -34,6 +34,14 @@ test("SIL agent explains and proposes only valid load transitions", () => {
   );
 });
 
+test("SIL assistant responds in context and drafts without executing", () => {
+  const response = agent.assistLoad(load, "What should happen next?");
+  assert.match(response.response, /valid next states/i);
+  assert.equal(response.actionDraft.nextState, "READY_TO_POST");
+  assert.match(response.authority, /operator submits proposals/i);
+  assert.equal(response.agent.mayOverrideGovernance, false);
+});
+
 test("SIL publishes with bearer identity and consumes the central decision feed", async () => {
   const originalFetch = global.fetch;
   const calls = [];

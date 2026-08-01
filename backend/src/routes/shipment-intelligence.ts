@@ -29,7 +29,7 @@ import {
   sendSignalToEncompaxPlatformOverview,
 } from "../services/shipmentIntelligence/encompaxPlatformBridge";
 import { buildSilAgentActivityReadiness } from "../services/shipmentIntelligence/agentActivityService";
-import { explainLoad, proposeLoadTransition, SIL_SUPPORT_AGENT_CONTRACT } from "../services/shipmentIntelligence/silSupportAgent";
+import { assistLoad, explainLoad, proposeLoadTransition, SIL_SUPPORT_AGENT_CONTRACT } from "../services/shipmentIntelligence/silSupportAgent";
 import { AuthenticatedSilRequest } from "../middleware/requireSilAuth";
 import { buildSilPersistenceReadiness } from "../services/shipmentIntelligence/persistenceReadinessService";
 import {
@@ -333,6 +333,17 @@ export function registerShipmentIntelligenceRoutes(app: Express) {
       .find((item) => item.loadId === req.params.loadId);
     if (!load) return res.status(404).json({ error: "Load not found" });
     res.json(explainLoad(load));
+  });
+
+  router.post("/loads/:loadId/agent/messages", async (req: Request, res: Response) => {
+    const load = (await listSilLoads({ workspaceId: requestWorkspaceId(req) }))
+      .find((item) => item.loadId === req.params.loadId);
+    if (!load) return res.status(404).json({ error: "Load not found" });
+    try {
+      res.json(assistLoad(load, String(req.body?.message || "")));
+    } catch (error) {
+      res.status(400).json({ error: error instanceof Error ? error.message : "Invalid operator message" });
+    }
   });
 
   router.post("/loads/:loadId/agent/proposals", async (req: Request, res: Response) => {

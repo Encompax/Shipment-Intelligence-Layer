@@ -29,6 +29,53 @@ export function explainLoad(load: SilLoad) {
   };
 }
 
+export function assistLoad(load: SilLoad, operatorMessage: string) {
+  const message = operatorMessage.trim();
+  if (message.length < 2) throw new Error("An operator message is required.");
+  if (message.length > 2000) throw new Error("Operator messages cannot exceed 2000 characters.");
+
+  const allowedTransitions = getAllowedLoadTransitions(load.status);
+  const normalized = message.toLowerCase();
+  let response = `Load ${load.loadId} is currently ${load.status}. I can help review its evidence, risks, and governed next step.`;
+  let actionDraft: { nextState: BrokerageLoadState; rationale: string } | null = null;
+
+  if (/risk|exception|hold|problem|delay/.test(normalized)) {
+    response = `Review dispatch readiness, carrier coverage, appointment constraints, and customer impact before releasing ${load.loadId}. Any material exception should be published for Encompax review.`;
+  } else if (/carrier|bid|rate|margin|cost/.test(normalized)) {
+    response = `Compare carrier readiness and the buy-versus-sell position for ${load.loadId}. Preserve the selected bid, margin evidence, and any override reason before proposing an award or dispatch action.`;
+  } else if (/next|status|move|transition|propose/.test(normalized)) {
+    response = allowedTransitions.length
+      ? `The valid next states from ${load.status} are ${allowedTransitions.join(", ")}. I can draft the first valid transition, but an operator must submit it and Encompax must approve execution.`
+      : `Load ${load.loadId} has no further lifecycle transition available from ${load.status}.`;
+    if (allowedTransitions[0]) {
+      actionDraft = {
+        nextState: allowedTransitions[0],
+        rationale: `Operator review requested progression of ${load.loadId} from ${load.status} to ${allowedTransitions[0]}.`,
+      };
+    }
+  } else if (/idea|improve|optimi|recommend|help/.test(normalized)) {
+    response = `A useful improvement review for ${load.loadId} is to confirm data completeness, carrier response quality, margin protection, and exception ownership. I can turn a selected lifecycle recommendation into a draft for human review.`;
+  }
+
+  return {
+    agent: SIL_SUPPORT_AGENT_CONTRACT,
+    loadId: load.loadId,
+    response,
+    evidence: [
+      `State: ${load.status}`,
+      `Customer: ${load.customerId}`,
+      `Route: ${load.origin.city}, ${load.origin.state} to ${load.destination.city}, ${load.destination.state}`,
+    ],
+    suggestedPrompts: [
+      "What risks should I review?",
+      "Explain the valid next action",
+      "Suggest an operational improvement",
+    ],
+    actionDraft,
+    authority: "Advisory only. The operator submits proposals and Encompax authorizes execution.",
+  };
+}
+
 export function proposeLoadTransition(load: SilLoad, nextState: BrokerageLoadState, rationale: string) {
   const allowedTransitions = getAllowedLoadTransitions(load.status);
   if (!allowedTransitions.includes(nextState)) {

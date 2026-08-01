@@ -1392,7 +1392,7 @@ const TransportationCommandPanel: React.FC = () => {
             disabled={!selectedLoad}
             onClick={() => document.getElementById("sil-load-assistant")?.scrollIntoView({ behavior: "smooth", block: "center" })}
           >
-            Open assistant
+            Open assistant workspace
           </button>
         </div>
       </section>

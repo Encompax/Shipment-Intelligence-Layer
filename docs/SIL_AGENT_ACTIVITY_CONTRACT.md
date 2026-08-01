@@ -50,6 +50,7 @@ The current support agent is a deterministic `MANUAL` advisory implementation. I
 ```text
 GET  /api/shipment-intelligence/agent/contract
 GET  /api/shipment-intelligence/loads/:loadId/agent/explanation
+POST /api/shipment-intelligence/loads/:loadId/agent/messages
 POST /api/shipment-intelligence/loads/:loadId/agent/proposals
 GET  /api/shipment-intelligence/agent/governance-decisions
 POST /api/shipment-intelligence/loads/:loadId/agent/execute
@@ -61,6 +62,6 @@ A proposal validates the load state transition, stores its evidence envelope, an
 
 ## Operator Surfaces
 
-The web workspace exposes this contract through a compact assistant attached to the selected load. It can explain the current state, prepare a transition proposal, show the latest governance disposition, and execute only after approval. The UI does not receive provider credentials or decide whether execution is permitted.
+The web workspace exposes this contract through a compact operator conversation and action workspace attached to the selected load. It accepts questions and improvement ideas, responds with load-context evidence, and can prepare a transition draft. Drafting never submits a proposal. The operator reviews and submits separately, sees the latest governance disposition, and can execute only after approval. The UI does not receive provider credentials or decide whether execution is permitted.
 
 A future mobile client should reuse the same authenticated endpoints and evidence envelope rather than introducing a separate agent or governance path. Device-specific capabilities may change presentation and notifications, but identity, organization scope, proposals, decisions, and execution authorization remain server-owned.
