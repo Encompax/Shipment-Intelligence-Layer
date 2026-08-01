@@ -542,6 +542,11 @@ export type SilGovernanceSignalDraft = {
 };
 
 export type SilMarengoForecastInput = {
+  contractVersion: "1.0";
+  signalType: "shipment_operations_forecast_input";
+  eventId: string;
+  occurredAt: string;
+  source: "shipment_intelligence_layer";
   loadId?: string;
   shipmentId?: string;
   laneId?: string;
@@ -561,4 +566,5 @@ export type SilMarengoForecastInput = {
   falloffRate?: number;
   serviceScore?: number;
   appointmentMissCount?: number;
+  evidenceRefs?: string[];
 };

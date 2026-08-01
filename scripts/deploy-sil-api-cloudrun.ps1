@@ -5,6 +5,7 @@
   [string]$ImageName = "encompax-sil-api",
   [string]$AllowedOrigins = "https://sil.encompax.io,https://www.encompax.com,https://encompax.com,http://localhost:5173",
   [string]$EncompaxApiBaseUrl = "https://api.encompax.io/api",
+  [string]$MarengoApiBaseUrl = "https://marengo.encompax.io",
   [string]$SilFirestoreEnabled = "true",
   [string]$SilFirestorePrimaryEnabled = "true",
   [string]$DatabaseUrl = "file:/tmp/sil-dev.db"
@@ -21,6 +22,7 @@ $envFile = Join-Path $env:TEMP "sil-cloudrun-env-$ServiceName.yaml"
 @"
 ALLOWED_ORIGINS: "$AllowedOrigins"
 ENCOMPAX_API_BASE_URL: "$EncompaxApiBaseUrl"
+MARENGO_API_BASE: "$MarengoApiBaseUrl"
 SIL_AUTH_REQUIRED: "true"
 SIL_FIRESTORE_ENABLED: "$SilFirestoreEnabled"
 SIL_FIRESTORE_PRIMARY_ENABLED: "$SilFirestorePrimaryEnabled"
