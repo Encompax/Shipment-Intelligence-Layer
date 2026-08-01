@@ -123,6 +123,41 @@ export async function fetchSilAgentActivityReadiness() {
   return fetchShipmentIntelligence("/agent-activity/readiness");
 }
 
+export async function fetchSilAgentContract() {
+  return fetchShipmentIntelligence("/agent/contract");
+}
+
+export async function fetchSilLoadExplanation(loadId: string) {
+  return fetchShipmentIntelligence(`/loads/${encodeURIComponent(loadId)}/agent/explanation`);
+}
+
+export async function proposeSilLoadTransition(loadId: string, nextState: string, rationale: string) {
+  const res = await fetch(`${SHIPMENT_INTELLIGENCE_BASE}/loads/${encodeURIComponent(loadId)}/agent/proposals`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ nextState, rationale }),
+  });
+  return readJsonResponse(res, "SIL agent proposal error");
+}
+
+export async function fetchSilGovernanceDecisions() {
+  return fetchShipmentIntelligence("/agent/governance-decisions");
+}
+
+export async function executeApprovedSilLoadTransition(
+  loadId: string,
+  signalId: string,
+  nextState: string,
+  evidence: string[] = []
+) {
+  const res = await fetch(`${SHIPMENT_INTELLIGENCE_BASE}/loads/${encodeURIComponent(loadId)}/agent/execute`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ signalId, nextState, evidence }),
+  });
+  return readJsonResponse(res, "SIL governed execution error");
+}
+
 export async function updateSilWorkspace(payload: Record<string, unknown>) {
   const res = await fetch(`${SHIPMENT_INTELLIGENCE_BASE}/workspace`, {
     method: "PUT",
