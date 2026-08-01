@@ -175,6 +175,15 @@ export async function transitionLoad(loadId: string, payload: {
   return res.json();
 }
 
+export async function publishLoadToMarengo(loadId: string) {
+  const res = await fetch(`${SHIPMENT_INTELLIGENCE_BASE}/loads/${encodeURIComponent(loadId)}/marengo-signal`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({}),
+  });
+  return readJsonResponse(res, "Marengo signal delivery failed");
+}
+
 export async function fetchTransportationShipments() {
   return fetchShipmentIntelligence("/shipments");
 }

@@ -22,7 +22,11 @@ export function buildMarengoForecastInput(input: {
   return {
     contractVersion: "1.0",
     signalType: "shipment_operations_forecast_input",
-    eventId: input.eventId || `sil-load-${load.loadId}-${load.status.toLowerCase()}`,
+    eventId:
+      input.eventId ||
+      (shipment
+        ? `sil-shipment-${shipment.shipmentId}-${shipment.state.toLowerCase()}`
+        : `sil-load-${load.loadId}-${load.status.toLowerCase()}`),
     occurredAt: new Date().toISOString(),
     source: "shipment_intelligence_layer",
     loadId: load.loadId,

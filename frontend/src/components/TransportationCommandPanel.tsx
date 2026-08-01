@@ -29,6 +29,7 @@ import {
   recordLoadBoardTenderResponse,
   sendLoadBoardPostingInvites,
   transitionLoad,
+  publishLoadToMarengo,
   updateLoadBoardBidCommercials,
   updateLoadBoardPostingVisibility,
   updateShipmentStopAppointment,
@@ -409,6 +410,8 @@ const TransportationCommandPanel: React.FC = () => {
   const [selectedLoadId, setSelectedLoadId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [actionStatus, setActionStatus] = useState<string | null>(null);
+  const [marengoStatus, setMarengoStatus] = useState<string | null>(null);
+  const [marengoPublishing, setMarengoPublishing] = useState(false);
   const [loading, setLoading] = useState(true);
   const [readinessOverrideReason, setReadinessOverrideReason] = useState("");
   const [readinessOverrideRole, setReadinessOverrideRole] = useState("OPERATIONS_MANAGER");
@@ -807,8 +810,33 @@ const TransportationCommandPanel: React.FC = () => {
       setAllowedTransitions([]);
       setWorkflowEvents((current) => [result.event, ...current]);
       setActionStatus(result.warnings?.length ? result.warnings.join(" ") : `Load moved to ${nextState}.`);
+      if (result.marengoDelivery) {
+        setMarengoStatus(
+          result.marengoDelivery.bridge?.sent
+            ? `Marengo received ${result.marengoDelivery.signal?.eventId ?? "the lifecycle signal"}.`
+            : result.marengoDelivery.bridge?.response?.error ?? "The lifecycle change completed, but Marengo delivery failed."
+        );
+      }
     } catch (err) {
       setActionStatus(err instanceof Error ? err.message : "Load transition failed");
+    }
+  }
+
+  async function handleMarengoPublish() {
+    if (!selectedLoad) return;
+    try {
+      setMarengoPublishing(true);
+      setMarengoStatus("Publishing the selected load to Marengo...");
+      const result = await publishLoadToMarengo(selectedLoad.loadId);
+      setMarengoStatus(
+        result.bridge?.response?.created === false
+          ? "Marengo already has this load state; no duplicate was created."
+          : `Marengo received ${result.signal?.eventId ?? "the operational signal"}.`
+      );
+    } catch (err) {
+      setMarengoStatus(err instanceof Error ? err.message : "Marengo publication failed.");
+    } finally {
+      setMarengoPublishing(false);
     }
   }
 
@@ -941,7 +969,7 @@ const TransportationCommandPanel: React.FC = () => {
       }
 
       setActionStatus(`${decision.replaceAll("_", " ")} carrier bid...`);
-      await decideLoadBoardBid(bidId, {
+      const result = await decideLoadBoardBid(bidId, {
         decision,
         actor: "operator",
         actorRole: options?.overrideReadiness ? readinessOverrideRole : undefined,
@@ -952,6 +980,13 @@ const TransportationCommandPanel: React.FC = () => {
           ...(options?.overrideReadiness ? [`Override reason: ${readinessOverrideReason.trim()}`] : []),
         ],
       });
+      if (result.marengoDelivery) {
+        setMarengoStatus(
+          result.marengoDelivery.bridge?.sent
+            ? `Marengo received ${result.marengoDelivery.signal?.eventId ?? "the carrier-selection signal"}.`
+            : result.marengoDelivery.bridge?.response?.error ?? "The carrier was selected, but Marengo delivery failed."
+        );
+      }
       await refreshTransportationData(selectedLoad?.loadId);
       if (options?.overrideReadiness) setReadinessOverrideReason("");
       setActionStatus(
@@ -1227,6 +1262,13 @@ const TransportationCommandPanel: React.FC = () => {
       if (result.overrideEvent) {
         setWorkflowEvents((current) => [result.overrideEvent, ...current]);
         setReadinessOverrideReason("");
+      }
+      if (result.marengoDelivery) {
+        setMarengoStatus(
+          result.marengoDelivery.bridge?.sent
+            ? `Marengo received ${result.marengoDelivery.signal?.eventId ?? "the shipment signal"}.`
+            : result.marengoDelivery.bridge?.response?.error ?? "Shipment progress completed, but Marengo delivery failed."
+        );
       }
       setActionStatus(
         result.documentGovernanceSignal
@@ -2074,6 +2116,25 @@ const TransportationCommandPanel: React.FC = () => {
                     {allowedTransitions.length === 0 && <small>No transitions available.</small>}
                   </div>
                   {actionStatus && <p className="ops-note">{actionStatus}</p>}
+                </div>
+
+                <div className="ops-card">
+                  <div className="ops-card-header">
+                    <span>Marengo Planning Signal</span>
+                    <strong>Cross-module</strong>
+                  </div>
+                  <p className="ops-note">Publish the selected load state into the organization-scoped Marengo planning stream.</p>
+                  <div className="ops-action-row">
+                    <button
+                      className="btn btn-primary btn-sm"
+                      type="button"
+                      onClick={handleMarengoPublish}
+                      disabled={marengoPublishing}
+                    >
+                      {marengoPublishing ? "Publishing..." : "Send to Marengo"}
+                    </button>
+                  </div>
+                  {marengoStatus && <p className="ops-note" role="status">{marengoStatus}</p>}
                 </div>
 
                 <div className="ops-card">
