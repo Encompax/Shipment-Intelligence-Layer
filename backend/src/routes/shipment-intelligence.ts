@@ -25,9 +25,12 @@ import {
 } from "../services/shipmentIntelligence/operationsOverviewService";
 import {
   buildEncompaxPlatformOverviewPayload,
+  listEncompaxModuleDecisions,
   sendSignalToEncompaxPlatformOverview,
 } from "../services/shipmentIntelligence/encompaxPlatformBridge";
 import { buildSilAgentActivityReadiness } from "../services/shipmentIntelligence/agentActivityService";
+import { explainLoad, proposeLoadTransition, SIL_SUPPORT_AGENT_CONTRACT } from "../services/shipmentIntelligence/silSupportAgent";
+import { AuthenticatedSilRequest } from "../middleware/requireSilAuth";
 import { buildSilPersistenceReadiness } from "../services/shipmentIntelligence/persistenceReadinessService";
 import {
   buildMarengoForecastInput,
@@ -97,8 +100,12 @@ export function registerShipmentIntelligenceRoutes(app: Express) {
     console.error("SIL persistence seed failed", error);
   });
 
-  const requestWorkspaceId = (req: Request) =>
-    (req.query.workspaceId as string | undefined) ?? (req.body?.workspaceId as string | undefined);
+  const requestWorkspaceId = (req: Request) => {
+    const authenticatedScope = (req as AuthenticatedSilRequest).silAuth?.orgScope;
+    if (authenticatedScope) return authenticatedScope;
+    if (process.env.NODE_ENV === "production") throw new Error("Authenticated organization scope is required.");
+    return (req.query.workspaceId as string | undefined) ?? (req.body?.workspaceId as string | undefined);
+  };
 
   const readinessOverrideError = (body: Record<string, unknown> | undefined) => {
     if (!body?.overrideReadiness) return null;
@@ -220,7 +227,7 @@ export function registerShipmentIntelligenceRoutes(app: Express) {
   });
 
   router.get("/workspace", async (req: Request, res: Response) => {
-    const workspace = await getSilWorkspace(req.query.workspace as string | undefined);
+    const workspace = await getSilWorkspace(requestWorkspaceId(req));
     res.json({ workspace });
   });
 
@@ -241,7 +248,7 @@ export function registerShipmentIntelligenceRoutes(app: Express) {
       return res.status(400).json({ error: `Missing required workspace fields: ${missing.join(", ")}` });
     }
 
-    const result = await upsertSilWorkspace(req.body);
+    const result = await upsertSilWorkspace({ ...req.body, workspaceId: requestWorkspaceId(req) });
     res.json(result);
   });
 
@@ -315,6 +322,96 @@ export function registerShipmentIntelligenceRoutes(app: Express) {
       currentState: load.status,
       allowedTransitions: getAllowedLoadTransitions(load.status),
     });
+  });
+
+  router.get("/agent/contract", (_req: Request, res: Response) => {
+    res.json({ agent: SIL_SUPPORT_AGENT_CONTRACT });
+  });
+
+  router.get("/loads/:loadId/agent/explanation", async (req: Request, res: Response) => {
+    const load = (await listSilLoads({ workspaceId: requestWorkspaceId(req) }))
+      .find((item) => item.loadId === req.params.loadId);
+    if (!load) return res.status(404).json({ error: "Load not found" });
+    res.json(explainLoad(load));
+  });
+
+  router.post("/loads/:loadId/agent/proposals", async (req: Request, res: Response) => {
+    const load = (await listSilLoads({ workspaceId: requestWorkspaceId(req) }))
+      .find((item) => item.loadId === req.params.loadId);
+    if (!load) return res.status(404).json({ error: "Load not found" });
+    try {
+      const proposal = proposeLoadTransition(load, req.body?.nextState as BrokerageLoadState, String(req.body?.rationale || ""));
+      const persisted = await persistSilGovernanceSignal(proposal.signal, "READY_FOR_ENCOMPAX");
+      const bridge = await sendSignalToEncompaxPlatformOverview(
+        persisted.signalId,
+        persisted.signal,
+        req.headers.authorization ?? ""
+      );
+      await updateSilGovernanceSignalStatus(
+        persisted.signalId,
+        bridge.sent ? "SENT_TO_ENCOMPAX" : "ENCOMPAX_SEND_FAILED"
+      );
+      res.status(bridge.sent ? 202 : 502).json({ ...proposal, signalId: persisted.signalId, bridge });
+    } catch (error) {
+      res.status(400).json({ error: error instanceof Error ? error.message : "Invalid agent proposal" });
+    }
+  });
+
+  router.get("/agent/governance-decisions", async (req: Request, res: Response) => {
+    try {
+      const decisions = await listEncompaxModuleDecisions(req.headers.authorization ?? "");
+      res.json({ count: decisions.length, decisions });
+    } catch (error) {
+      res.status(502).json({ error: error instanceof Error ? error.message : "Decision feed unavailable" });
+    }
+  });
+
+  router.post("/loads/:loadId/agent/execute", async (req: Request, res: Response) => {
+    const workspaceId = requestWorkspaceId(req);
+    const load = (await listSilLoads({ workspaceId })).find((item) => item.loadId === req.params.loadId);
+    if (!load) return res.status(404).json({ error: "Load not found" });
+    const signalId = String(req.body?.signalId || "").trim();
+    const nextState = req.body?.nextState as BrokerageLoadState | undefined;
+    if (!signalId || !nextState) return res.status(400).json({ error: "signalId and nextState are required" });
+
+    try {
+      const localEnvelope = (await listSilGovernanceSignalEnvelopes({ workspaceId }))
+        .find((item) => item.signalId === signalId);
+      if (!localEnvelope) return res.status(404).json({ error: "SIL_AGENT_PROPOSAL_NOT_FOUND" });
+      if (localEnvelope.status === "EXECUTED") {
+        return res.status(409).json({ error: "SIL_AGENT_PROPOSAL_ALREADY_EXECUTED" });
+      }
+      const decisions = await listEncompaxModuleDecisions(req.headers.authorization ?? "");
+      const authorization = decisions.find((item) => item.event.signalId === signalId);
+      const payload = authorization?.event.payload || {};
+      const proposedLoadId = payload?.affectedEntities?.loads?.[0];
+      const proposedState = payload?.metrics?.proposedState;
+      if (!authorization?.mayExecute || authorization.disposition !== "EXECUTE_ALLOWED") {
+        return res.status(409).json({ error: "ENCOMPAX_APPROVAL_REQUIRED", signalId, disposition: authorization?.disposition || "HOLD" });
+      }
+      if (proposedLoadId !== load.loadId || proposedState !== nextState) {
+        return res.status(403).json({ error: "APPROVAL_DOES_NOT_MATCH_PROPOSED_ACTION" });
+      }
+
+      const result = transitionLoadState({
+        load,
+        nextState,
+        actor: `sil-agent:${(req as AuthenticatedSilRequest).silAuth?.uid || "local"}`,
+        evidence: Array.isArray(req.body?.evidence) ? req.body.evidence : [],
+      });
+      if (!result.accepted) return res.status(409).json(result);
+      await updateSilLoadStatus(load.loadId, result.nextState);
+      await persistSilWorkflowEvent({
+        ...result.event,
+        workspaceId,
+        source: "ENCOMPAX",
+        evidence: [...result.event.evidence, `Encompax approval: ${signalId}`],
+      });
+      await updateSilGovernanceSignalStatus(signalId, "EXECUTED");
+      res.json({ ...result, governanceDecision: authorization });
+    } catch (error) {
+      res.status(502).json({ error: error instanceof Error ? error.message : "Governed execution failed" });
+    }
   });
 
   router.post("/loads/:loadId/transition", async (req: Request, res: Response) => {
@@ -1332,7 +1429,7 @@ export function registerShipmentIntelligenceRoutes(app: Express) {
     const record = records.find((item) => item.signalId === signalId);
     if (!record) return res.status(404).json({ error: "SIL governance signal not found" });
 
-    const result = await sendSignalToEncompaxPlatformOverview(signalId, record.signal);
+    const result = await sendSignalToEncompaxPlatformOverview(signalId, record.signal, req.headers.authorization ?? "");
     const status = result.sent ? "SENT_TO_ENCOMPAX" : "ENCOMPAX_SEND_FAILED";
     const updated = await updateSilGovernanceSignalStatus(signalId, status);
 
@@ -1358,7 +1455,11 @@ export function registerShipmentIntelligenceRoutes(app: Express) {
       bridge: Awaited<ReturnType<typeof sendSignalToEncompaxPlatformOverview>>;
     }> = [];
     for (const record of readySignals) {
-      const bridge = await sendSignalToEncompaxPlatformOverview(record.signalId, record.signal);
+      const bridge = await sendSignalToEncompaxPlatformOverview(
+        record.signalId,
+        record.signal,
+        req.headers.authorization ?? ""
+      );
       const status = bridge.sent ? "SENT_TO_ENCOMPAX" : "ENCOMPAX_SEND_FAILED";
       const updated = await updateSilGovernanceSignalStatus(record.signalId, status);
       results.push({ signalId: record.signalId, success: bridge.sent, updated, bridge });

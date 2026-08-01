@@ -42,3 +42,25 @@ SIL prepares operational packets for:
 - market-rate review
 
 Those packets can be routed to Encompax Core for governed review before execution.
+
+## Support Agent Transport
+
+The current support agent is a deterministic `MANUAL` advisory implementation. It proves the interaction contract without calling an external model:
+
+```text
+GET  /api/shipment-intelligence/agent/contract
+GET  /api/shipment-intelligence/loads/:loadId/agent/explanation
+POST /api/shipment-intelligence/loads/:loadId/agent/proposals
+GET  /api/shipment-intelligence/agent/governance-decisions
+POST /api/shipment-intelligence/loads/:loadId/agent/execute
+```
+
+All production requests require a verified Firebase bearer token. The backend reloads the Encompax profile, requires active SIL access, and derives the workspace from `orgScope`; browser-supplied workspace identifiers cannot change tenant scope.
+
+A proposal validates the load state transition, stores its evidence envelope, and publishes it to Platform Overview with `X-Encompax-Module: sil`. Execution requires a matching load, proposed state, and central `EXECUTE_ALLOWED` disposition. The local proposal is then marked `EXECUTED` to prevent replay. Conditional, missing, rejected, or unavailable decisions remain held.
+
+## Operator Surfaces
+
+The web workspace exposes this contract through a compact assistant attached to the selected load. It can explain the current state, prepare a transition proposal, show the latest governance disposition, and execute only after approval. The UI does not receive provider credentials or decide whether execution is permitted.
+
+A future mobile client should reuse the same authenticated endpoints and evidence envelope rather than introducing a separate agent or governance path. Device-specific capabilities may change presentation and notifications, but identity, organization scope, proposals, decisions, and execution authorization remain server-owned.

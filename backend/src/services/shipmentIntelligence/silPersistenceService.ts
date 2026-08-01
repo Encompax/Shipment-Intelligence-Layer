@@ -52,6 +52,7 @@ const fromRecord = <T>(record: { data: string }) => JSON.parse(record.data) as T
 
 const signalId = (signal: SilGovernanceSignalDraft) =>
   [
+    signal.workspaceId ?? DEFAULT_WORKSPACE_ID,
     signal.sourceModule.toLowerCase(),
     signal.signalType.toLowerCase(),
     signal.affectedEntities.loads?.[0] ?? signal.affectedEntities.shipments?.[0] ?? "general",

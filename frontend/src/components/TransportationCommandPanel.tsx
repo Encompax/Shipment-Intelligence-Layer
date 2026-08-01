@@ -38,6 +38,7 @@ import {
   uploadShipmentDocument,
 } from "../api/client";
 import EncompaxMark from "./EncompaxMark";
+import SilLoadAssistant from "./SilLoadAssistant";
 
 type Load = {
   loadId: string;
@@ -1570,6 +1571,13 @@ const TransportationCommandPanel: React.FC = () => {
                   <strong>{selectedPosting ? `${selectedPosting.status} / ${selectedPosting.visibility ?? "INVITED"}` : "Not posted"}</strong>
                 </div>
               </div>
+
+              <SilLoadAssistant
+                loadId={selectedLoad.loadId}
+                currentState={selectedLoad.status}
+                allowedTransitions={allowedTransitions}
+                onExecuted={() => refreshTransportationData(selectedLoad.loadId)}
+              />
 
               <div className="transport-inline-actions">
                 <form className="transport-inline-form" onSubmit={handleCreatePosting}>

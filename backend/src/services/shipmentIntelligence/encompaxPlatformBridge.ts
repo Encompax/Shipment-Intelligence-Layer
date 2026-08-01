@@ -29,6 +29,23 @@ export type EncompaxBridgeResult = {
   error?: string;
 };
 
+export type EncompaxModuleDecision = {
+  event: {
+    id: string;
+    signalId: string;
+    status: string;
+    sourceModule: string;
+    updatedAt: string;
+    payload?: {
+      affectedEntities?: { loads?: string[] };
+      metrics?: { proposedState?: string };
+    };
+  };
+  disposition: "EXECUTE_ALLOWED" | "CONDITIONAL" | "HOLD";
+  mayExecute: boolean;
+  conditions: string | null;
+};
+
 const defaultApiBase = "http://localhost:4000/api";
 
 function apiBaseUrl() {
@@ -65,7 +82,8 @@ export function buildEncompaxPlatformOverviewPayload(
 
 export async function sendSignalToEncompaxPlatformOverview(
   signalId: string,
-  signal: SilGovernanceSignalDraft
+  signal: SilGovernanceSignalDraft,
+  authorization: string
 ): Promise<EncompaxBridgeResult> {
   const payload = buildEncompaxPlatformOverviewPayload(signalId, signal);
   const endpoint = `${apiBaseUrl()}/platform-overview/intake`;
@@ -75,6 +93,8 @@ export async function sendSignalToEncompaxPlatformOverview(
       method: "POST",
       headers: {
         "Content-Type": "application/json",
+        Authorization: authorization,
+        "X-Encompax-Module": "sil",
       },
       body: JSON.stringify(payload),
     });
@@ -103,4 +123,14 @@ export async function sendSignalToEncompaxPlatformOverview(
       error: error instanceof Error ? error.message : "Unknown Encompax bridge error",
     };
   }
+}
+
+export async function listEncompaxModuleDecisions(authorization: string): Promise<EncompaxModuleDecision[]> {
+  const endpoint = `${apiBaseUrl()}/platform-overview/module-decisions`;
+  const response = await fetch(endpoint, {
+    headers: { Authorization: authorization, "X-Encompax-Module": "sil" },
+  });
+  if (!response.ok) throw new Error(`Encompax decision feed returned ${response.status}`);
+  const body = await response.json() as { decisions?: EncompaxModuleDecision[] };
+  return Array.isArray(body.decisions) ? body.decisions : [];
 }
