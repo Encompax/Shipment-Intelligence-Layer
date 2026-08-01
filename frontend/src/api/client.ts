@@ -131,6 +131,15 @@ export async function fetchSilLoadExplanation(loadId: string) {
   return fetchShipmentIntelligence(`/loads/${encodeURIComponent(loadId)}/agent/explanation`);
 }
 
+export async function sendSilAssistantMessage(loadId: string, message: string) {
+  const res = await fetch(`${SHIPMENT_INTELLIGENCE_BASE}/loads/${encodeURIComponent(loadId)}/agent/messages`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ message }),
+  });
+  return readJsonResponse(res, "SIL assistant message error");
+}
+
 export async function proposeSilLoadTransition(loadId: string, nextState: string, rationale: string) {
   const res = await fetch(`${SHIPMENT_INTELLIGENCE_BASE}/loads/${encodeURIComponent(loadId)}/agent/proposals`, {
     method: "POST",

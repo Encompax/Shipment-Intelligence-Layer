@@ -4,6 +4,7 @@ import {
   fetchSilGovernanceDecisions,
   fetchSilLoadExplanation,
   proposeSilLoadTransition,
+  sendSilAssistantMessage,
 } from "../api/client";
 
 type Props = {
@@ -14,6 +15,13 @@ type Props = {
 };
 
 type Proposal = { signalId: string; nextState: string };
+type ConversationMessage = { id: string; role: "operator" | "assistant"; text: string; evidence?: string[] };
+
+const starterPrompts = [
+  "What risks should I review?",
+  "Explain the valid next action",
+  "Suggest an operational improvement",
+];
 
 export default function SilLoadAssistant({ loadId, currentState, allowedTransitions, onExecuted }: Props) {
   const [summary, setSummary] = useState("");
@@ -23,6 +31,8 @@ export default function SilLoadAssistant({ loadId, currentState, allowedTransiti
   const [disposition, setDisposition] = useState("NOT_SUBMITTED");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [operatorInput, setOperatorInput] = useState("");
+  const [conversation, setConversation] = useState<ConversationMessage[]>([]);
 
   useEffect(() => {
     setSummary("");
@@ -31,6 +41,12 @@ export default function SilLoadAssistant({ loadId, currentState, allowedTransiti
     setMessage(null);
     setNextState(allowedTransitions[0] || "");
     setRationale("");
+    setOperatorInput("");
+    setConversation([{
+      id: `welcome-${loadId}`,
+      role: "assistant",
+      text: `I am ready to help review ${loadId}. Ask about operational risk, lifecycle options, or improvement ideas.`,
+    }]);
   }, [loadId]);
 
   useEffect(() => {
@@ -48,6 +64,34 @@ export default function SilLoadAssistant({ loadId, currentState, allowedTransiti
       setSummary(result.summary || "No explanation is available.");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Explanation unavailable");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function sendMessage(text = operatorInput) {
+    const trimmed = text.trim();
+    if (!trimmed || busy) return;
+    const operatorEntry: ConversationMessage = { id: `operator-${Date.now()}`, role: "operator", text: trimmed };
+    setConversation((current) => [...current, operatorEntry]);
+    setOperatorInput("");
+    setBusy(true);
+    setMessage(null);
+    try {
+      const result = await sendSilAssistantMessage(loadId, trimmed);
+      setConversation((current) => [...current, {
+        id: `assistant-${Date.now()}`,
+        role: "assistant",
+        text: result.response || "No advisory response is available.",
+        evidence: result.evidence || [],
+      }]);
+      if (result.actionDraft && allowedTransitions.includes(result.actionDraft.nextState)) {
+        setNextState(result.actionDraft.nextState);
+        setRationale(result.actionDraft.rationale || "");
+        setMessage("A transition draft was prepared below. Review it before submitting.");
+      }
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Assistant response unavailable");
     } finally {
       setBusy(false);
     }
@@ -114,17 +158,58 @@ export default function SilLoadAssistant({ loadId, currentState, allowedTransiti
       <div className="sil-assistant-heading">
         <div>
           <span>SIL Assistant</span>
-          <strong>Load action support</strong>
+          <strong>Operator support workspace</strong>
         </div>
-        <span className={`sil-assistant-status status-${disposition.toLowerCase()}`}>{statusLabel}</span>
+        <div className="sil-assistant-badges">
+          <span className="sil-assistant-provider">Manual advisory</span>
+          <span className={`sil-assistant-status status-${disposition.toLowerCase()}`}>{statusLabel}</span>
+        </div>
       </div>
 
-      <p className="sil-assistant-summary">
-        {summary || `Review ${loadId} in ${currentState} and prepare a governed next action.`}
-      </p>
+      <div className="sil-assistant-conversation" aria-live="polite">
+        {conversation.map((entry) => (
+          <article key={entry.id} className={`sil-assistant-message-row ${entry.role}`}>
+            <span>{entry.role === "operator" ? "You" : "SIL Assistant"}</span>
+            <p>{entry.text}</p>
+            {entry.evidence?.length ? <small>{entry.evidence.join(" | ")}</small> : null}
+          </article>
+        ))}
+      </div>
+
+      <div className="sil-assistant-prompts">
+        {starterPrompts.map((prompt) => (
+          <button type="button" key={prompt} onClick={() => void sendMessage(prompt)} disabled={busy}>{prompt}</button>
+        ))}
+      </div>
+
+      <div className="sil-assistant-editor">
+        <textarea
+          value={operatorInput}
+          onChange={(event) => setOperatorInput(event.target.value)}
+          placeholder={`Ask about ${loadId}, share an idea, or request a draft action...`}
+          maxLength={2000}
+          disabled={busy}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" && !event.shiftKey) {
+              event.preventDefault();
+              void sendMessage();
+            }
+          }}
+        />
+        <button type="button" className="btn btn-primary btn-sm" onClick={() => void sendMessage()} disabled={busy || !operatorInput.trim()}>
+          Send
+        </button>
+      </div>
+
+      <div className="sil-assistant-action-heading">
+        <div>
+          <span>Governed action draft</span>
+          <strong>{summary || `Review ${loadId} in ${currentState} before proposing a transition.`}</strong>
+        </div>
+        <button type="button" className="btn btn-sm" onClick={explain} disabled={busy}>Refresh evidence</button>
+      </div>
 
       <div className="sil-assistant-controls">
-        <button type="button" className="btn btn-sm" onClick={explain} disabled={busy}>Explain</button>
         <select value={nextState} onChange={(event) => setNextState(event.target.value)} disabled={busy || !allowedTransitions.length}>
           {!allowedTransitions.length && <option value="">No transition available</option>}
           {allowedTransitions.map((state) => <option key={state} value={state}>{state.replaceAll("_", " ")}</option>)}
