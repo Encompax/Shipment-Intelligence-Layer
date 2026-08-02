@@ -29,7 +29,7 @@ import {
   sendSignalToEncompaxPlatformOverview,
 } from "../services/shipmentIntelligence/encompaxPlatformBridge";
 import { buildSilAgentActivityReadiness } from "../services/shipmentIntelligence/agentActivityService";
-import { assistLoad, explainLoad, proposeLoadTransition, SIL_SUPPORT_AGENT_CONTRACT } from "../services/shipmentIntelligence/silSupportAgent";
+import { assistLoad, assistWorkspace, explainLoad, proposeLoadTransition, SIL_SUPPORT_AGENT_CONTRACT } from "../services/shipmentIntelligence/silSupportAgent";
 import { createHash } from "crypto";
 import { runOpenAiSilAssistant } from "../services/shipmentIntelligence/openaiSilAgent";
 import { AuthenticatedSilRequest } from "../middleware/requireSilAuth";
@@ -328,6 +328,73 @@ export function registerShipmentIntelligenceRoutes(app: Express) {
 
   router.get("/agent/contract", (_req: Request, res: Response) => {
     res.json({ agent: SIL_SUPPORT_AGENT_CONTRACT });
+  });
+
+  router.post("/agent/messages", async (req: Request, res: Response) => {
+    const authenticatedRequest = req as AuthenticatedSilRequest;
+    const workspaceId = requestWorkspaceId(req);
+    const message = String(req.body?.message || "");
+    const requestedLoadId = String(req.body?.loadId || "").trim();
+
+    try {
+      const load = requestedLoadId
+        ? (await listSilLoads({ workspaceId })).find((item) => item.loadId === requestedLoadId)
+        : undefined;
+      if (requestedLoadId && !load) return res.status(404).json({ error: "Load not found" });
+
+      const fallback = load ? assistLoad(load, message) : assistWorkspace(message);
+      const profile = authenticatedRequest.silAuth?.profile ?? {};
+      const role = String(profile.role ?? profile.accountRole ?? "OPERATOR").toUpperCase();
+      const uid = authenticatedRequest.silAuth?.uid;
+      const safetyIdentifier = uid
+        ? createHash("sha256").update(uid).digest("hex").slice(0, 64)
+        : undefined;
+      const provider = await runOpenAiSilAssistant({
+        operatorMessage: message,
+        safetyIdentifier,
+        context: {
+          orgScope: workspaceId || "",
+          workspaceId: load?.workspaceId || workspaceId || "",
+          operatorRole: role,
+          loadId: load?.loadId,
+          loadState: load?.status,
+          availableTransitions: load ? getAllowedLoadTransitions(load.status) : [],
+          governanceStatus: null,
+          loadSummary: load ? {
+            customerId: load.customerId,
+            customerName: load.customerName,
+            origin: load.origin,
+            destination: load.destination,
+            mode: load.mode,
+            equipmentType: load.equipmentType,
+            pickupWindowStart: load.pickupWindowStart,
+            deliveryWindowEnd: load.deliveryWindowEnd,
+            weightLbs: load.weightLbs,
+            commodity: load.commodity,
+            status: load.status,
+            targetSellRate: load.targetSellRate,
+            targetBuyRate: load.targetBuyRate,
+            marginTarget: load.marginTarget,
+          } : undefined,
+        },
+      });
+
+      if (!provider.ok) return res.json({ ...fallback, providerFallback: provider.errorCode });
+
+      return res.json({
+        ...fallback,
+        agent: { ...SIL_SUPPORT_AGENT_CONTRACT, provider: "OPENAI", modelRef: provider.model },
+        response: provider.result.response,
+        evidence: provider.result.evidence,
+        suggestedPrompts: provider.result.suggestedPrompts,
+        actionDraft: provider.result.actionDraft
+          ? { nextState: provider.result.actionDraft.transition, rationale: provider.result.actionDraft.rationale }
+          : null,
+        providerMetadata: { responseId: provider.responseId, promptVersion: provider.promptVersion },
+      });
+    } catch (error) {
+      res.status(400).json({ error: error instanceof Error ? error.message : "Invalid operator message" });
+    }
   });
 
   router.get("/loads/:loadId/agent/explanation", async (req: Request, res: Response) => {

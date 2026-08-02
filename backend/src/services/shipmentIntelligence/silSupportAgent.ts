@@ -76,6 +76,28 @@ export function assistLoad(load: SilLoad, operatorMessage: string) {
   };
 }
 
+export function assistWorkspace(operatorMessage: string) {
+  const message = operatorMessage.trim();
+  if (message.length < 2) throw new Error("An operator message is required.");
+  if (message.length > 2000) throw new Error("Operator messages cannot exceed 2000 characters.");
+
+  return {
+    agent: SIL_SUPPORT_AGENT_CONTRACT,
+    response: "I can explain SIL workflows, help identify operational risks, and organize an idea before you attach it to a load. Select a load when you need evidence-specific guidance or a governed action draft.",
+    evidence: [
+      "Workspace context: Shipment Intelligence Layer",
+      "Authority: advisory only",
+    ],
+    suggestedPrompts: [
+      "How does transportation workflow move through SIL?",
+      "What should I review today?",
+      "Help me organize an operations improvement idea",
+    ],
+    actionDraft: null,
+    authority: "Advisory only. Load-specific proposals require selected context and Encompax authorization.",
+  };
+}
+
 export function proposeLoadTransition(load: SilLoad, nextState: BrokerageLoadState, rationale: string) {
   const allowedTransitions = getAllowedLoadTransitions(load.status);
   if (!allowedTransitions.includes(nextState)) {

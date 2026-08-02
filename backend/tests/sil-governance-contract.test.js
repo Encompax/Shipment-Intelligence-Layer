@@ -42,6 +42,13 @@ test("SIL assistant responds in context and drafts without executing", () => {
   assert.equal(response.agent.mayOverrideGovernance, false);
 });
 
+test("SIL workspace assistant supports general questions without drafting execution", () => {
+  const response = agent.assistWorkspace("Help me understand SIL operations");
+  assert.match(response.response, /SIL workflows/i);
+  assert.equal(response.actionDraft, null);
+  assert.match(response.authority, /load-specific proposals/i);
+});
+
 test("SIL publishes with bearer identity and consumes the central decision feed", async () => {
   const originalFetch = global.fetch;
   const calls = [];
