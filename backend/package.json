@@ -28,6 +28,7 @@
         "express": "^5.1.0",
         "express-fileupload": "^1.5.0",
         "firebase-admin": "^14.2.0",
+        "openai": "^7.3.0",
         "prisma": "^5.19.1",
         "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
     },
