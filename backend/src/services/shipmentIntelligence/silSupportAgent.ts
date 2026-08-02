@@ -2,11 +2,12 @@ import { getAllowedLoadTransitions } from "./loadLifecycleService";
 import { BrokerageLoadState, SilGovernanceSignalDraft, SilLoad } from "./types";
 
 export const SIL_SUPPORT_AGENT_CONTRACT = {
-  contractVersion: "1.0",
-  agentId: "sil_support_v1",
+  contractVersion: "1.1",
+  responseContractVersion: "encompax.module-agent.response.v1",
+  agentId: process.env.MODULE_AGENT_SIL_ID?.trim() || "sil_manager_v1",
   displayName: "SIL Operations Assistant",
   provider: "MANUAL",
-  modelRef: null,
+  modelRef: process.env.MODULE_AGENT_SIL_MODEL?.trim() || null,
   capabilityMode: "ADVISORY",
   mayRequestCouncilReview: true,
   mayOverrideGovernance: false,
@@ -37,7 +38,14 @@ export function assistLoad(load: SilLoad, operatorMessage: string) {
   const allowedTransitions = getAllowedLoadTransitions(load.status);
   const normalized = message.toLowerCase();
   let response = `Load ${load.loadId} is currently ${load.status}. I can help review its evidence, risks, and governed next step.`;
-  let actionDraft: { nextState: BrokerageLoadState; rationale: string } | null = null;
+  let actionDraft: {
+    actionType: "LOAD_STATUS_TRANSITION";
+    targetId: string;
+    rationale: string;
+    parameters: { nextState: BrokerageLoadState };
+    status: "draft";
+    requiredDisposition: "EXECUTE_ALLOWED";
+  } | null = null;
 
   if (/risk|exception|hold|problem|delay/.test(normalized)) {
     response = `Review dispatch readiness, carrier coverage, appointment constraints, and customer impact before releasing ${load.loadId}. Any material exception should be published for Encompax review.`;
@@ -49,8 +57,12 @@ export function assistLoad(load: SilLoad, operatorMessage: string) {
       : `Load ${load.loadId} has no further lifecycle transition available from ${load.status}.`;
     if (allowedTransitions[0]) {
       actionDraft = {
-        nextState: allowedTransitions[0],
+        actionType: "LOAD_STATUS_TRANSITION",
+        targetId: load.loadId,
         rationale: `Operator review requested progression of ${load.loadId} from ${load.status} to ${allowedTransitions[0]}.`,
+        parameters: { nextState: allowedTransitions[0] },
+        status: "draft",
+        requiredDisposition: "EXECUTE_ALLOWED",
       };
     }
   } else if (/idea|improve|optimi|recommend|help/.test(normalized)) {
@@ -58,6 +70,7 @@ export function assistLoad(load: SilLoad, operatorMessage: string) {
   }
 
   return {
+    contractVersion: "encompax.module-agent.response.v1",
     agent: SIL_SUPPORT_AGENT_CONTRACT,
     loadId: load.loadId,
     response,
@@ -72,6 +85,11 @@ export function assistLoad(load: SilLoad, operatorMessage: string) {
       "Suggest an operational improvement",
     ],
     actionDraft,
+    provider: "MANUAL",
+    model: null,
+    agentId: SIL_SUPPORT_AGENT_CONTRACT.agentId,
+    governanceStatus: actionDraft ? "DRAFT" : "ADVISORY",
+    requiresApproval: Boolean(actionDraft),
     authority: "Advisory only. The operator submits proposals and Encompax authorizes execution.",
   };
 }
@@ -82,6 +100,7 @@ export function assistWorkspace(operatorMessage: string) {
   if (message.length > 2000) throw new Error("Operator messages cannot exceed 2000 characters.");
 
   return {
+    contractVersion: "encompax.module-agent.response.v1",
     agent: SIL_SUPPORT_AGENT_CONTRACT,
     response: "I can explain SIL workflows, help identify operational risks, and organize an idea before you attach it to a load. Select a load when you need evidence-specific guidance or a governed action draft.",
     evidence: [
@@ -94,6 +113,11 @@ export function assistWorkspace(operatorMessage: string) {
       "Help me organize an operations improvement idea",
     ],
     actionDraft: null,
+    provider: "MANUAL",
+    model: null,
+    agentId: SIL_SUPPORT_AGENT_CONTRACT.agentId,
+    governanceStatus: "ADVISORY",
+    requiresApproval: false,
     authority: "Advisory only. Load-specific proposals require selected context and Encompax authorization.",
   };
 }
