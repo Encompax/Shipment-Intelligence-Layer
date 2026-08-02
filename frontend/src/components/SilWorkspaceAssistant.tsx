@@ -15,7 +15,7 @@ type ConversationMessage = {
   evidence?: string[];
 };
 
-type ActionDraft = { nextState: string; rationale: string };
+type ActionDraft = { rationale: string; parameters: { nextState?: string } };
 
 const starterPrompts = [
   "What should I review today?",
@@ -142,7 +142,7 @@ export default function SilWorkspaceAssistant({ onOpenTransportation }: { onOpen
         <div className="sil-workspace-draft">
           <div>
             <span>Governed action draft</span>
-            <strong>{actionDraft.nextState.replaceAll("_", " ")}</strong>
+            <strong>{(actionDraft.parameters.nextState || "Review required").replaceAll("_", " ")}</strong>
             <p>{actionDraft.rationale}</p>
           </div>
           <button type="button" className="btn btn-primary btn-sm" onClick={onOpenTransportation}>

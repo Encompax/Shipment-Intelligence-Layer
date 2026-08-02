@@ -381,15 +381,29 @@ export function registerShipmentIntelligenceRoutes(app: Express) {
 
       if (!provider.ok) return res.json({ ...fallback, providerFallback: provider.errorCode });
 
+      const actionDraft = provider.result.actionDraft
+        ? {
+            actionType: "LOAD_STATUS_TRANSITION",
+            targetId: load?.loadId || "",
+            rationale: provider.result.actionDraft.rationale,
+            parameters: { nextState: provider.result.actionDraft.transition },
+            status: "draft",
+            requiredDisposition: "EXECUTE_ALLOWED",
+          }
+        : null;
       return res.json({
         ...fallback,
         agent: { ...SIL_SUPPORT_AGENT_CONTRACT, provider: "OPENAI", modelRef: provider.model },
+        contractVersion: "encompax.module-agent.response.v1",
         response: provider.result.response,
         evidence: provider.result.evidence,
         suggestedPrompts: provider.result.suggestedPrompts,
-        actionDraft: provider.result.actionDraft
-          ? { nextState: provider.result.actionDraft.transition, rationale: provider.result.actionDraft.rationale }
-          : null,
+        actionDraft,
+        provider: "OPENAI",
+        model: provider.model,
+        agentId: SIL_SUPPORT_AGENT_CONTRACT.agentId,
+        governanceStatus: actionDraft ? "DRAFT" : "ADVISORY",
+        requiresApproval: Boolean(actionDraft),
         providerMetadata: { responseId: provider.responseId, promptVersion: provider.promptVersion },
       });
     } catch (error) {
@@ -462,15 +476,25 @@ export function registerShipmentIntelligenceRoutes(app: Express) {
           provider: "OPENAI",
           modelRef: provider.model,
         },
+        contractVersion: "encompax.module-agent.response.v1",
         response: provider.result.response,
         evidence: provider.result.evidence,
         suggestedPrompts: provider.result.suggestedPrompts,
         actionDraft: provider.result.actionDraft
           ? {
-              nextState: provider.result.actionDraft.transition,
+              actionType: "LOAD_STATUS_TRANSITION",
+              targetId: load.loadId,
               rationale: provider.result.actionDraft.rationale,
+              parameters: { nextState: provider.result.actionDraft.transition },
+              status: "draft",
+              requiredDisposition: "EXECUTE_ALLOWED",
             }
           : null,
+        provider: "OPENAI",
+        model: provider.model,
+        agentId: SIL_SUPPORT_AGENT_CONTRACT.agentId,
+        governanceStatus: provider.result.actionDraft ? "DRAFT" : "ADVISORY",
+        requiresApproval: Boolean(provider.result.actionDraft),
         providerMetadata: {
           responseId: provider.responseId,
           promptVersion: provider.promptVersion,

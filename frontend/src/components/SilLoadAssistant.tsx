@@ -88,8 +88,9 @@ export default function SilLoadAssistant({ loadId, currentState, allowedTransiti
         text: result.response || "No advisory response is available.",
         evidence: result.evidence || [],
       }]);
-      if (result.actionDraft && allowedTransitions.includes(result.actionDraft.nextState)) {
-        setNextState(result.actionDraft.nextState);
+      const draftedState = result.actionDraft?.parameters?.nextState;
+      if (draftedState && allowedTransitions.includes(draftedState)) {
+        setNextState(draftedState);
         setRationale(result.actionDraft.rationale || "");
         setMessage("A transition draft was prepared below. Review it before submitting.");
       }

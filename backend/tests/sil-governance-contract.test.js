@@ -37,7 +37,10 @@ test("SIL agent explains and proposes only valid load transitions", () => {
 test("SIL assistant responds in context and drafts without executing", () => {
   const response = agent.assistLoad(load, "What should happen next?");
   assert.match(response.response, /valid next states/i);
-  assert.equal(response.actionDraft.nextState, "READY_TO_POST");
+  assert.equal(response.contractVersion, "encompax.module-agent.response.v1");
+  assert.equal(response.actionDraft.parameters.nextState, "READY_TO_POST");
+  assert.equal(response.actionDraft.requiredDisposition, "EXECUTE_ALLOWED");
+  assert.equal(response.requiresApproval, true);
   assert.match(response.authority, /operator submits proposals/i);
   assert.equal(response.agent.mayOverrideGovernance, false);
 });
@@ -46,6 +49,8 @@ test("SIL workspace assistant supports general questions without drafting execut
   const response = agent.assistWorkspace("Help me understand SIL operations");
   assert.match(response.response, /SIL workflows/i);
   assert.equal(response.actionDraft, null);
+  assert.equal(response.governanceStatus, "ADVISORY");
+  assert.equal(response.requiresApproval, false);
   assert.match(response.authority, /load-specific proposals/i);
 });
 
