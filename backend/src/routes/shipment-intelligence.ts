@@ -30,6 +30,8 @@ import {
 } from "../services/shipmentIntelligence/encompaxPlatformBridge";
 import { buildSilAgentActivityReadiness } from "../services/shipmentIntelligence/agentActivityService";
 import { assistLoad, explainLoad, proposeLoadTransition, SIL_SUPPORT_AGENT_CONTRACT } from "../services/shipmentIntelligence/silSupportAgent";
+import { createHash } from "crypto";
+import { runOpenAiSilAssistant } from "../services/shipmentIntelligence/openaiSilAgent";
 import { AuthenticatedSilRequest } from "../middleware/requireSilAuth";
 import { buildSilPersistenceReadiness } from "../services/shipmentIntelligence/persistenceReadinessService";
 import {
@@ -336,11 +338,77 @@ export function registerShipmentIntelligenceRoutes(app: Express) {
   });
 
   router.post("/loads/:loadId/agent/messages", async (req: Request, res: Response) => {
-    const load = (await listSilLoads({ workspaceId: requestWorkspaceId(req) }))
+    const authenticatedRequest = req as AuthenticatedSilRequest;
+    const workspaceId = requestWorkspaceId(req);
+    const load = (await listSilLoads({ workspaceId }))
       .find((item) => item.loadId === req.params.loadId);
     if (!load) return res.status(404).json({ error: "Load not found" });
     try {
-      res.json(assistLoad(load, String(req.body?.message || "")));
+      const message = String(req.body?.message || "");
+      const fallback = assistLoad(load, message);
+      const profile = authenticatedRequest.silAuth?.profile ?? {};
+      const role = String(profile.role ?? profile.accountRole ?? "OPERATOR").toUpperCase();
+      const uid = authenticatedRequest.silAuth?.uid;
+      const safetyIdentifier = uid
+        ? createHash("sha256").update(uid).digest("hex").slice(0, 64)
+        : undefined;
+      const provider = await runOpenAiSilAssistant({
+        operatorMessage: message,
+        safetyIdentifier,
+        context: {
+          orgScope: workspaceId || "",
+          workspaceId: load.workspaceId || workspaceId || "",
+          operatorRole: role,
+          loadId: load.loadId,
+          loadState: load.status,
+          availableTransitions: getAllowedLoadTransitions(load.status),
+          governanceStatus: null,
+          loadSummary: {
+            customerId: load.customerId,
+            customerName: load.customerName,
+            origin: load.origin,
+            destination: load.destination,
+            mode: load.mode,
+            equipmentType: load.equipmentType,
+            pickupWindowStart: load.pickupWindowStart,
+            pickupWindowEnd: load.pickupWindowEnd,
+            deliveryWindowStart: load.deliveryWindowStart,
+            deliveryWindowEnd: load.deliveryWindowEnd,
+            weightLbs: load.weightLbs,
+            commodity: load.commodity,
+            status: load.status,
+            targetSellRate: load.targetSellRate,
+            targetBuyRate: load.targetBuyRate,
+            marginTarget: load.marginTarget,
+          },
+        },
+      });
+
+      if (!provider.ok) {
+        return res.json({ ...fallback, providerFallback: provider.errorCode });
+      }
+
+      return res.json({
+        ...fallback,
+        agent: {
+          ...SIL_SUPPORT_AGENT_CONTRACT,
+          provider: "OPENAI",
+          modelRef: provider.model,
+        },
+        response: provider.result.response,
+        evidence: provider.result.evidence,
+        suggestedPrompts: provider.result.suggestedPrompts,
+        actionDraft: provider.result.actionDraft
+          ? {
+              nextState: provider.result.actionDraft.transition,
+              rationale: provider.result.actionDraft.rationale,
+            }
+          : null,
+        providerMetadata: {
+          responseId: provider.responseId,
+          promptVersion: provider.promptVersion,
+        },
+      });
     } catch (error) {
       res.status(400).json({ error: error instanceof Error ? error.message : "Invalid operator message" });
     }
