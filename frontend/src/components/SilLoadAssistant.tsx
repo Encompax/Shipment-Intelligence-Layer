@@ -33,6 +33,7 @@ export default function SilLoadAssistant({ loadId, currentState, allowedTransiti
   const [message, setMessage] = useState<string | null>(null);
   const [operatorInput, setOperatorInput] = useState("");
   const [conversation, setConversation] = useState<ConversationMessage[]>([]);
+  const [providerLabel, setProviderLabel] = useState("Assistant ready");
 
   useEffect(() => {
     setSummary("");
@@ -47,6 +48,7 @@ export default function SilLoadAssistant({ loadId, currentState, allowedTransiti
       role: "assistant",
       text: `I am ready to help review ${loadId}. Ask about operational risk, lifecycle options, or improvement ideas.`,
     }]);
+    setProviderLabel("Assistant ready");
   }, [loadId]);
 
   useEffect(() => {
@@ -79,6 +81,7 @@ export default function SilLoadAssistant({ loadId, currentState, allowedTransiti
     setMessage(null);
     try {
       const result = await sendSilAssistantMessage(loadId, trimmed);
+      setProviderLabel(result.agent?.provider === "OPENAI" ? (result.agent.modelRef || "OpenAI") : "Manual fallback");
       setConversation((current) => [...current, {
         id: `assistant-${Date.now()}`,
         role: "assistant",
@@ -161,7 +164,7 @@ export default function SilLoadAssistant({ loadId, currentState, allowedTransiti
           <strong>Operator support workspace</strong>
         </div>
         <div className="sil-assistant-badges">
-          <span className="sil-assistant-provider">Manual advisory</span>
+          <span className="sil-assistant-provider">{providerLabel}</span>
           <span className={`sil-assistant-status status-${disposition.toLowerCase()}`}>{statusLabel}</span>
         </div>
       </div>

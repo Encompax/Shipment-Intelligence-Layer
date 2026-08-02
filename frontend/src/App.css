@@ -1241,6 +1241,79 @@ td {
   cursor: pointer;
 }
 
+.sil-workspace-assistant {
+  min-height: 430px;
+}
+
+.sil-workspace-context {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.sil-workspace-context label {
+  display: grid;
+  gap: var(--space-2);
+  width: min(100%, 620px);
+}
+
+.sil-workspace-context label > span {
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  text-transform: uppercase;
+}
+
+.sil-workspace-context select {
+  min-height: 42px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-default);
+  color: var(--color-text-primary);
+}
+
+.sil-workspace-draft {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-4);
+  border: 1px solid rgba(14, 165, 233, 0.28);
+  border-radius: var(--radius-md);
+  background: rgba(240, 249, 255, 0.72);
+}
+
+.sil-workspace-draft > div {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.sil-workspace-draft span {
+  color: var(--color-info);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-bold);
+  text-transform: uppercase;
+}
+
+.sil-workspace-draft p {
+  margin: 0;
+  color: var(--color-text-secondary);
+}
+
+@media (max-width: 760px) {
+  .sil-workspace-context {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .sil-workspace-draft {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}
+
 .intake-alert {
   padding: var(--space-3) var(--space-4);
   border: 1px solid rgba(220, 38, 38, 0.24);

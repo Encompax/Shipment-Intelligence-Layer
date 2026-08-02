@@ -12,9 +12,9 @@ export type SilAssistantScopedContext = {
   orgScope: string;
   workspaceId: string;
   operatorRole: string;
-  loadId: string;
-  loadState: string;
-  loadSummary: Record<string, unknown>;
+  loadId?: string;
+  loadState?: string;
+  loadSummary?: Record<string, unknown>;
   availableTransitions: string[];
   governanceStatus?: Record<string, unknown> | null;
 };
@@ -61,6 +61,8 @@ You are the Shipment Intelligence Layer (SIL) assistant inside Encompax.
 
 Support the operator by explaining the supplied load context, identifying
 evidence, and proposing a permitted next transition when appropriate.
+When no load context is supplied, support module-level questions about SIL
+workflows, operating concepts, risks, and navigation without drafting an action.
 
 Governance boundaries:
 - Treat the supplied organization-scoped context as authoritative.
@@ -197,7 +199,8 @@ export async function runOpenAiSilAssistant(
     // Defense in depth: reject any transition that was not server-authorized.
     if (
       result.actionDraft &&
-      !input.context.availableTransitions.includes(result.actionDraft.transition)
+      (!input.context.loadId ||
+        !input.context.availableTransitions.includes(result.actionDraft.transition))
     ) {
       result.actionDraft = null;
     }

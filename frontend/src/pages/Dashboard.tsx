@@ -7,6 +7,7 @@ import {
 } from "../config/panels";
 import EncompaxMark from "../components/EncompaxMark";
 import SILLogo from "../components/SILLogo";
+import SilWorkspaceAssistant from "../components/SilWorkspaceAssistant";
 
 type TabKey = "overview" | PanelKey;
 type DashboardProps = {
@@ -155,6 +156,8 @@ const Dashboard: React.FC<DashboardProps> = ({
               </div>
             </div>
           </section>
+
+          <SilWorkspaceAssistant onOpenTransportation={() => setActiveTab("transportationCommand")} />
 
           <section className="overview-route-grid">
             {[
