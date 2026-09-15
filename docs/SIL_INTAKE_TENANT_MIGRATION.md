@@ -34,10 +34,15 @@ name/route collisions.
 
 ## Remaining Limits
 
-These changes address intake isolation, not durable storage. Upload bytes and
-SQLite records are still local to the API instance. `/api/jobs` remains an in-memory
-queue placeholder. Persistent object storage and a managed system of record are
-still required before relying on a multi-instance customer upload workflow.
+In Firestore-primary mode, intake sources, upload receipts, queued job requests,
+loads, carriers, lanes, and market-rate observations now use organization-scoped
+Firestore collections. Original file bytes use the private `SIL_UPLOAD_BUCKET`.
+See [durable intake rollout](SIL_DURABLE_INTAKE.md) before deploying this mode.
+Existing local records are not automatically copied or reassigned.
+
+Local development still uses SQLite/file uploads and an in-memory job placeholder.
+The cloud job queue persists requests but does not run a connector worker.
+Postings, bids, shipments, appointments, and LEAN records remain instance-local.
 
 The broader SIL domain endpoints have separate authorization and persistence
 responsibilities. This patch does not certify all of SIL for customer production.

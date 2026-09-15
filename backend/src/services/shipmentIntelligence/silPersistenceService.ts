@@ -43,6 +43,9 @@ import {
   ShipmentState,
 } from "./types";
 
+import { isFirestorePrimaryEnabled } from "../../lib/firestore";
+import { getDurableRecord, listDurableRecords, saveDurableRecord, updateDurableLoadStatus } from './durableOperationalStore';
+import { intakeCollection } from '../intake/intakeStore';
 let seeded = false;
 const DEFAULT_WORKSPACE_ID = "workspace-shipment-operations";
 
@@ -479,21 +482,28 @@ export async function seedSilPersistence() {
 }
 
 export async function listSilLoads(filters?: { workspaceId?: string }) {
+  if (isFirestorePrimaryEnabled()) return listDurableRecords<SilLoad>('loads', filters?.workspaceId);
   await seedSilPersistence();
   const records = await prisma.silLoadRecord.findMany({ orderBy: { updatedAt: "desc" } });
   return records.map((record) => withWorkspace(fromRecord<SilLoad>(record))).filter((record) => matchesWorkspace(record, filters?.workspaceId));
 }
 
-export async function getSilLoad(loadId: string) {
+export async function getSilLoad(loadId: string, workspaceId?: string) {
+  if (isFirestorePrimaryEnabled()) return getDurableRecord<SilLoad>('loads', loadId, workspaceId);
   await seedSilPersistence();
   const record = await prisma.silLoadRecord.findUnique({ where: { loadId } });
-  return record ? withWorkspace(fromRecord<SilLoad>(record)) : null;
+  const load = record ? withWorkspace(fromRecord<SilLoad>(record)) : null;
+  return load && matchesWorkspace(load, workspaceId) ? load : null;
 }
 
-export async function updateSilLoadStatus(loadId: string, status: BrokerageLoadState) {
-  const load = await getSilLoad(loadId);
+export async function updateSilLoadStatus(loadId: string, status: BrokerageLoadState, workspaceId?: string) {
+  const load = await getSilLoad(loadId, workspaceId);
   if (!load) return null;
   const updatedLoad = withWorkspace({ ...load, status });
+  if (isFirestorePrimaryEnabled()) {
+    await updateDurableLoadStatus(loadId, load.workspaceId!, status);
+    return updatedLoad;
+  }
   await prisma.silLoadRecord.update({
     where: { loadId },
     data: { status, data: json(updatedLoad) },
@@ -502,7 +512,8 @@ export async function updateSilLoadStatus(loadId: string, status: BrokerageLoadS
 }
 
 export async function createSilLoad(input: Partial<SilLoad> & Pick<SilLoad, "customerId" | "origin" | "destination" | "mode" | "equipmentType">) {
-  await seedSilPersistence();
+  if (isFirestorePrimaryEnabled()) intakeCollection(input.workspaceId!, 'loads');
+  if (!isFirestorePrimaryEnabled()) await seedSilPersistence();
   const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;
   const loadId =
     input.loadId ??
@@ -551,7 +562,7 @@ export async function createSilLoad(input: Partial<SilLoad> & Pick<SilLoad, "cus
     source: input.source ?? "manual",
   };
 
-  await prisma.silLoadRecord.create({
+  if (!isFirestorePrimaryEnabled()) await prisma.silLoadRecord.create({
     data: {
       loadId: load.loadId,
       customerId: load.customerId,
@@ -561,7 +572,7 @@ export async function createSilLoad(input: Partial<SilLoad> & Pick<SilLoad, "cus
     },
   });
 
-  const event = await persistSilWorkflowEvent({
+  const eventDraft: SilWorkflowEvent = {
     eventId: makeId("sil_evt_load_created"),
     eventType: "LOAD_CREATED",
     occurredAt: new Date().toISOString(),
@@ -572,7 +583,9 @@ export async function createSilLoad(input: Partial<SilLoad> & Pick<SilLoad, "cus
     nextState: load.status,
     summary: `Load created for ${load.customerName ?? load.customerId}.`,
     evidence: ["Manual load creation", `Mode: ${load.mode}`, `Equipment: ${load.equipmentType}`],
-  });
+  };
+  if (isFirestorePrimaryEnabled()) await saveDurableRecord('loads', load.loadId, load, true, eventDraft);
+  const event = isFirestorePrimaryEnabled() ? eventDraft : await persistSilWorkflowEvent(eventDraft);
 
   return { load, event };
 }
@@ -996,13 +1009,15 @@ export async function updateSilShipmentProgress(input: {
 }
 
 export async function listSilCarriers(filters?: { workspaceId?: string }) {
+  if (isFirestorePrimaryEnabled()) return (await listDurableRecords<SilCarrierProfile>('carriers', filters?.workspaceId)).sort((a, b) => a.carrierName.localeCompare(b.carrierName));
   await seedSilPersistence();
   const records = await prisma.silCarrierRecord.findMany({ orderBy: { carrierName: "asc" } });
   return records.map((record) => withWorkspace(fromRecord<SilCarrierProfile>(record))).filter((record) => matchesWorkspace(record, filters?.workspaceId));
 }
 
 export async function upsertSilCarrier(input: Partial<SilCarrierProfile> & Pick<SilCarrierProfile, "carrierName">) {
-  await seedSilPersistence();
+  if (isFirestorePrimaryEnabled()) intakeCollection(input.workspaceId!, 'carriers');
+  if (!isFirestorePrimaryEnabled()) await seedSilPersistence();
   const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;
   const carrier: SilCarrierProfile = {
     workspaceId,
@@ -1021,7 +1036,7 @@ export async function upsertSilCarrier(input: Partial<SilCarrierProfile> & Pick<
   };
   const status = carrier.blocked ? "BLOCKED" : carrier.creditStatus ?? "UNKNOWN";
 
-  await prisma.silCarrierRecord.upsert({
+  if (!isFirestorePrimaryEnabled()) await prisma.silCarrierRecord.upsert({
     where: { carrierId: carrier.carrierId },
     update: {
       carrierName: carrier.carrierName,
@@ -1036,7 +1051,7 @@ export async function upsertSilCarrier(input: Partial<SilCarrierProfile> & Pick<
     },
   });
 
-  const event = await persistSilWorkflowEvent({
+  const eventDraft: SilWorkflowEvent = {
     eventId: makeId("sil_evt_carrier_profile_updated"),
     eventType: "CARRIER_PROFILE_UPDATED",
     occurredAt: new Date().toISOString(),
@@ -1046,19 +1061,24 @@ export async function upsertSilCarrier(input: Partial<SilCarrierProfile> & Pick<
     carrierId: carrier.carrierId,
     summary: `Carrier profile updated for ${carrier.carrierName}.`,
     evidence: [`Credit: ${carrier.creditStatus}`, `Safety: ${carrier.safetyStatus}`, `Preferred: ${carrier.preferred}`],
-  });
+  };
+  if (isFirestorePrimaryEnabled()) await saveDurableRecord('carriers', carrier.carrierId, carrier, false, eventDraft);
+  const event = isFirestorePrimaryEnabled() ? eventDraft : await persistSilWorkflowEvent(eventDraft);
 
   return { carrier, event };
 }
 
 export async function listSilLanes(filters?: { workspaceId?: string }) {
+  if (isFirestorePrimaryEnabled()) return (await listDurableRecords<SilLaneProfile>('lanes', filters?.workspaceId))
+    .sort((a, b) => a.originRegion.localeCompare(b.originRegion) || a.destinationRegion.localeCompare(b.destinationRegion));
   await seedSilPersistence();
   const records = await prisma.silLaneRecord.findMany({ orderBy: [{ origin: "asc" }, { destination: "asc" }] });
   return records.map((record) => withWorkspace(fromRecord<SilLaneProfile>(record))).filter((record) => matchesWorkspace(record, filters?.workspaceId));
 }
 
 export async function upsertSilLane(input: Partial<SilLaneProfile> & Pick<SilLaneProfile, "originRegion" | "destinationRegion" | "mode" | "equipmentType">) {
-  await seedSilPersistence();
+  if (isFirestorePrimaryEnabled()) intakeCollection(input.workspaceId!, 'lanes');
+  if (!isFirestorePrimaryEnabled()) await seedSilPersistence();
   const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;
   const laneId =
     input.laneId ??
@@ -1087,7 +1107,8 @@ export async function upsertSilLane(input: Partial<SilLaneProfile> & Pick<SilLan
     workspaceId
   );
 
-  await prisma.silLaneRecord.upsert({
+  if (isFirestorePrimaryEnabled()) await saveDurableRecord('lanes', lane.laneId, lane);
+  else await prisma.silLaneRecord.upsert({
     where: { laneId: lane.laneId },
     update: {
       origin: lane.originRegion,
@@ -1117,7 +1138,7 @@ export async function listSilPostings(filters?: { workspaceId?: string }) {
 
 export async function createSilPosting(input: Partial<SilLoadPosting> & Pick<SilLoadPosting, "loadId">) {
   await seedSilPersistence();
-  const load = await getSilLoad(input.loadId);
+  const load = await getSilLoad(input.loadId, input.workspaceId);
   const workspaceId = input.workspaceId ?? load?.workspaceId ?? DEFAULT_WORKSPACE_ID;
   const posting: SilLoadPosting = {
     workspaceId,
@@ -1146,7 +1167,7 @@ export async function createSilPosting(input: Partial<SilLoadPosting> & Pick<Sil
     },
   });
 
-  await updateSilLoadStatus(posting.loadId, posting.status === "POSTED" ? "POSTED" : "READY_TO_POST");
+  await updateSilLoadStatus(posting.loadId, posting.status === "POSTED" ? "POSTED" : "READY_TO_POST", posting.workspaceId);
 
   const event = await persistSilWorkflowEvent({
     eventId: makeId("sil_evt_load_posted"),
@@ -1359,7 +1380,7 @@ export async function listSilBids(filters?: { workspaceId?: string }) {
 
 export async function createSilBid(input: Partial<SilBid> & Pick<SilBid, "loadId" | "carrierId" | "bidRate">) {
   await seedSilPersistence();
-  const load = await getSilLoad(input.loadId);
+  const load = await getSilLoad(input.loadId, input.workspaceId);
   const workspaceId = input.workspaceId ?? load?.workspaceId ?? DEFAULT_WORKSPACE_ID;
   let postingId = input.postingId;
   if (!postingId) {
@@ -1615,13 +1636,15 @@ export async function updateSilBidStatus(bidId: string, status: BidState) {
 }
 
 export async function listSilMarketRates(filters?: { workspaceId?: string }) {
+  if (isFirestorePrimaryEnabled()) return (await listDurableRecords<SilMarketRateObservation>('marketRates', filters?.workspaceId)).sort((a, b) => b.observedAt.localeCompare(a.observedAt));
   await seedSilPersistence();
   const records = await prisma.silMarketRateRecord.findMany({ orderBy: { observedAt: "desc" } });
   return records.map((record) => withWorkspace(fromRecord<SilMarketRateObservation>(record))).filter((record) => matchesWorkspace(record, filters?.workspaceId));
 }
 
 export async function createSilMarketRate(input: Partial<SilMarketRateObservation> & Pick<SilMarketRateObservation, "laneId" | "source" | "medianRate" | "currency">) {
-  await seedSilPersistence();
+  if (isFirestorePrimaryEnabled()) intakeCollection(input.workspaceId!, 'marketRates');
+  if (!isFirestorePrimaryEnabled()) await seedSilPersistence();
   const observation = withWorkspace<SilMarketRateObservation>({
     observationId: input.observationId ?? makeId("sil_market_rate"),
     workspaceId: input.workspaceId,
@@ -1635,7 +1658,8 @@ export async function createSilMarketRate(input: Partial<SilMarketRateObservatio
     observedAt: input.observedAt ?? new Date().toISOString(),
   });
 
-  await prisma.silMarketRateRecord.upsert({
+  if (isFirestorePrimaryEnabled()) await saveDurableRecord('marketRates', observation.observationId, observation);
+  else await prisma.silMarketRateRecord.upsert({
     where: { observationId: observation.observationId },
     update: {
       laneId: observation.laneId,
@@ -1739,6 +1763,11 @@ export async function persistSilGovernanceSignal(signal: SilGovernanceSignalDraf
 }
 
 export async function persistSilWorkflowEvent(event: SilWorkflowEvent) {
+  if (isFirestorePrimaryEnabled()) {
+    intakeCollection(event.workspaceId!, 'workflowEvents');
+    await upsertFirestoreSilWorkflowEvent(event);
+    return event;
+  }
   await seedSilPersistence();
   const scopedEvent = withWorkspace(event);
   await prisma.silWorkflowEventRecord.upsert({
@@ -1770,7 +1799,7 @@ export async function persistSilWorkflowEvent(event: SilWorkflowEvent) {
 
 export async function listPersistedWorkflowEvents(filters?: { loadId?: string; shipmentId?: string; bidId?: string; workspaceId?: string }) {
   const firestoreEvents = await listFirestoreSilWorkflowEvents(filters);
-  if (firestoreEvents?.length) return firestoreEvents;
+  if (firestoreEvents !== null) return firestoreEvents;
 
   await seedSilPersistence();
   const records = await prisma.silWorkflowEventRecord.findMany({

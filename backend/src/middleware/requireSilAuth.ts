@@ -36,16 +36,29 @@ export async function requireSilAuth(req: AuthenticatedSilRequest, res: Response
   }
 
   try {
-    const decoded = await getSilFirebaseAdminAuth().verifyIdToken(match[1]);
-    const snapshot = await getFirestore(getSilFirebaseAdminAuth().app).doc(`users/${decoded.uid}`).get();
+    const decoded = await getSilFirebaseAdminAuth().verifyIdToken(match[1], true);
+    const db = getFirestore(getSilFirebaseAdminAuth().app);
+    const snapshot = await db.doc(`users/${decoded.uid}`).get();
     const profile = snapshot.data() || {};
     const orgScope = String(profile.orgScope || "").trim();
-    if (!snapshot.exists || !orgScope) {
+    if (!snapshot.exists || !orgScope || orgScope.includes('/')) {
       res.status(403).json({ error: "An organization-scoped Encompax profile is required." });
       return;
     }
     if (String(profile.moduleAccess?.sil || "").toLowerCase() !== "active") {
       res.status(403).json({ error: "Active SIL module access is required." });
+      return;
+    }
+    const [organization, membership] = await Promise.all([
+      db.doc(`organizations/${orgScope}`).get(),
+      db.doc(`organizations/${orgScope}/members/${decoded.uid}`).get(),
+    ]);
+    const org = organization.data();
+    const member = membership.data();
+    if (!organization.exists || org?.status !== 'active' || org.moduleEntitlements?.sil?.status !== 'active'
+      || !membership.exists || member?.uid !== decoded.uid || member.status !== 'active'
+      || !Array.isArray(member.moduleKeys) || !member.moduleKeys.includes('sil')) {
+      res.status(403).json({ error: 'Active organization membership and SIL entitlement are required.' });
       return;
     }
     req.authUser = decoded;
@@ -54,7 +67,6 @@ export async function requireSilAuth(req: AuthenticatedSilRequest, res: Response
   } catch (error) {
     res.status(401).json({
       error: "Invalid authentication token.",
-      details: error instanceof Error ? error.message : "Unknown authentication error",
     });
   }
 }

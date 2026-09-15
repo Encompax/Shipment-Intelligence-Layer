@@ -1,12 +1,12 @@
 import { Express, Request, Response } from 'express';
 import * as fileUpload from 'express-fileupload';
-import { prisma } from '../lib/prisma';
-import { config } from '../lib/config';
 import path from 'path';
-import fs from 'fs';
 import { createHash, randomUUID } from 'crypto';
 import * as XLSX from 'xlsx';
 import { intakeWorkspace, requireIntakeWorkspace } from '../middleware/requireIntakeWorkspace';
+import { AuthenticatedSilRequest } from '../middleware/requireSilAuth';
+import { findIntakeSource, findIntakeUpload, listIntakeUploads, publicIntakeUpload, saveIntakeUpload } from '../services/intake/intakeStore';
+import { readUploadBytes, storeUploadBytes } from '../services/intake/uploadStorage';
 import {
   createSilLoad,
   createSilMarketRate,
@@ -63,8 +63,8 @@ const parseCsv = (content: string) => {
   return { headers, records };
 };
 
-const parseWorkbook = (filePath: string) => {
-  const workbook = XLSX.readFile(filePath, { cellDates: false });
+const parseWorkbook = (bytes: Buffer) => {
+  const workbook = XLSX.read(bytes, { type: 'buffer', cellDates: false });
   const sheetName = workbook.SheetNames[0];
   const sheet = sheetName ? workbook.Sheets[sheetName] : null;
   if (!sheet) return { headers: [], records: [], sheetName: null };
@@ -81,15 +81,16 @@ const parseWorkbook = (filePath: string) => {
 
 const readUploadTable = async (uploadId: number, orgScope: string) => {
   if (!Number.isSafeInteger(uploadId) || uploadId <= 0) return null;
-  const upload = await prisma.upload.findFirst({ where: { id: uploadId, job: { orgScope } }, include: { job: true } });
-  if (!upload) return null;
+  const storedUpload = await findIntakeUpload(orgScope, uploadId);
+  if (!storedUpload) return null;
+  const upload = publicIntakeUpload(storedUpload);
   const extension = path.extname(upload.originalName).toLowerCase();
   if (extension === '.csv' || upload.contentType.toLowerCase().includes('csv')) {
-    const content = await fs.promises.readFile(upload.storedPath, 'utf8');
+    const content = (await readUploadBytes(orgScope, storedUpload)).toString('utf8');
     return { upload, parsed: { ...parseCsv(content), sheetName: null }, format: 'CSV' };
   }
   if (['.xlsx', '.xls'].includes(extension) || upload.contentType.toLowerCase().includes('spreadsheet')) {
-    return { upload, parsed: parseWorkbook(upload.storedPath), format: 'EXCEL' };
+    return { upload, parsed: parseWorkbook(await readUploadBytes(orgScope, storedUpload)), format: 'EXCEL' };
   }
   return { upload, error: 'Preview supports CSV, XLSX, and XLS files.' };
 };
@@ -364,44 +365,22 @@ export function registerUploadRoutes(app: Express) {
    if (!dataSourceRef || !req.files || !('file' in req.files)) {
      return res.status(400).json({ message: 'dataSourceId and file are required' });
    }
-   const source = await prisma.datasource.findFirst({ where: { id: dataSourceRef, orgScope } });
+   const source = await findIntakeSource(orgScope, dataSourceRef);
    if (!source) return res.status(404).json({ error: 'Data source not found' });
    const file = req.files['file'] as fileUpload.UploadedFile;
    if (Array.isArray(file)) return res.status(400).json({ error: 'Upload one file at a time.' });
-   const uploadDir = path.resolve(process.cwd(), config.uploadDir);
-   if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
-   const safeName = path.basename(file.name).replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 200);
-   const storedFileName = `${randomUUID()}_${safeName}`;
-   const storedPath = path.join(uploadDir, storedFileName);
-   await file.mv(storedPath);
-   // Create job + upload record
-   const job = await prisma.job.create({
-     data: {
-       dataSourceId: legacyDataSourceId,
-       dataSourceRef: source.id,
-       orgScope,
-       status: 'Completed', // later you can support async processing
-       uploads: {
-         create: {
-           originalName: file.name,
-           storedPath,
-           sizeBytes: file.size,
-           contentType: file.mimetype,
-         },
-       },
-     },
-     include: { uploads: true },
+   if (file.truncated || file.size > 50 * 1024 * 1024) return res.status(413).json({ error: 'Upload exceeds 50 MB.' });
+   if (!['.csv', '.xlsx', '.xls'].includes(path.extname(file.name).toLowerCase())) return res.status(415).json({ error: 'Upload a CSV, XLSX, or XLS file.' });
+   const blob = await storeUploadBytes(orgScope, file.data, file.mimetype);
+   const job = await saveIntakeUpload(orgScope, dataSourceRef, legacyDataSourceId, {
+     ...blob, originalName: path.basename(file.name).slice(0, 255), sizeBytes: file.size,
+     contentType: file.mimetype, uploadedBy: (req as AuthenticatedSilRequest).silAuth!.uid,
    });
    res.status(201).json({ ...job, dataSourceRef });
  });
 
  app.get('/api/ingest/uploads', async (req: Request, res: Response) => {
-   const uploads = await prisma.upload.findMany({
-     where: { job: { orgScope: intakeWorkspace(req) } },
-     include: { job: true },
-     orderBy: { createdAt: 'desc' },
-     take: 25,
-   });
+   const uploads = await listIntakeUploads(intakeWorkspace(req));
    res.json({ count: uploads.length, uploads });
  });
 

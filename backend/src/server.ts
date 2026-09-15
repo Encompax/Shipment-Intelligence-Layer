@@ -17,7 +17,9 @@ import { registerCycleCountRoutes } from "./routes/cycle-count-transactions";
 import { registerShipmentIntelligenceRoutes } from "./routes/shipment-intelligence";
 import { requireSilAuth } from "./middleware/requireSilAuth";
 import { registerEncompaxAuthRoutes } from "./routes/encompax-auth";
+import { assertIntakeStorageConfigured } from "./services/intake/intakeStore";
 
+assertIntakeStorageConfigured();
 const app = express();
 
 const allowedOrigins = (process.env.ALLOWED_ORIGINS || process.env.ALLOWED_ORIGIN || 'http://localhost:5173')

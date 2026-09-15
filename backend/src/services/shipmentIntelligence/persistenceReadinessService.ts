@@ -56,18 +56,21 @@ export async function buildSilPersistenceReadiness(workspaceId?: string) {
       : "GOVERNANCE_AUDIT_MIRRORED"
     : "DEMO_LOCAL_ONLY";
 
-  const controlledPilotReady = firestorePrimaryEnabled && Boolean(firestoreProjectId);
+  const intakeStorageConfigured = firestorePrimaryEnabled && Boolean(process.env.SIL_UPLOAD_BUCKET?.trim());
+  const controlledPilotReady = intakeStorageConfigured && Boolean(firestoreProjectId);
   const customerReady = false;
   const blockers = [
     runtimeStore === "LOCAL_SQLITE" && !firestorePrimaryEnabled
       ? "Operational records still use local SQLite persistence."
       : null,
-    firestorePrimaryEnabled && runtimeStore === "LOCAL_SQLITE"
-      ? "High-volume operational tables still use local SQLite while customer-facing governance/workspace/document state is Firestore-primary."
+    firestorePrimaryEnabled
+      ? "Postings, bids, shipments, appointments, and LEAN records still use local SQLite; this is not a durable end-to-end transportation workflow."
       : null,
     !firestoreMirrorEnabled ? "Firestore governance and workflow mirroring is disabled." : null,
     !firestorePrimaryEnabled ? "Firestore primary customer-facing record storage is disabled." : null,
     !firestoreProjectId ? "Firestore project id is not configured." : null,
+    !intakeStorageConfigured ? "Durable intake requires Firestore primary storage and SIL_UPLOAD_BUCKET." : null,
+    "Verify bucket privacy, runtime IAM, and a restart/revision smoke test before customer intake.",
     "Authentication, tenant isolation rules, and customer-owned workspace boundaries must be enforced before real customer data.",
   ].filter((item): item is string => Boolean(item));
 
@@ -96,6 +99,13 @@ export async function buildSilPersistenceReadiness(workspaceId?: string) {
             `${firestoreRootCollection}/{workspaceId}/governanceSignals`,
             `${firestoreRootCollection}/{workspaceId}/workflowEvents`,
             `${firestoreRootCollection}/{workspaceId}/shipmentDocuments`,
+            `${firestoreRootCollection}/{workspaceId}/intakeSources`,
+            `${firestoreRootCollection}/{workspaceId}/intakeUploads`,
+            `${firestoreRootCollection}/{workspaceId}/intakeJobs`,
+            `${firestoreRootCollection}/{workspaceId}/loads`,
+            `${firestoreRootCollection}/{workspaceId}/carriers`,
+            `${firestoreRootCollection}/{workspaceId}/lanes`,
+            `${firestoreRootCollection}/{workspaceId}/marketRates`,
           ]
         : firestoreMirrorEnabled
         ? [
@@ -114,6 +124,7 @@ export async function buildSilPersistenceReadiness(workspaceId?: string) {
       shipmentDocuments: shipmentDocuments.length,
     },
     durabilityLevel,
+    intakeStorageConfigured,
     controlledPilotReady,
     customerReady,
     blockers,

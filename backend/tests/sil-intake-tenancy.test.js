@@ -111,7 +111,11 @@ test('intake isolates authenticated organizations and preserves unowned legacy r
         assert.equal(uploaded.body.dataSourceRef, sources[org]);
         uploads[org] = uploaded.body.uploads[0];
       }
-      assert.notEqual(uploads.alpha.storedPath, uploads.beta.storedPath);
+      assert.equal(uploads.alpha.storedPath, undefined);
+      assert.equal(uploads.beta.storedPath, undefined);
+      const storedAlpha = await prisma.upload.findUnique({ where: { id: uploads.alpha.id } });
+      const storedBeta = await prisma.upload.findUnique({ where: { id: uploads.beta.id } });
+      assert.notEqual(storedAlpha.storedPath, storedBeta.storedPath);
       const filesBefore = fs.readdirSync(directory).sort();
       for (const source of [sources.beta, 'legacy-source', 'missing-source']) {
         expectStatus(await upload(source, 'alpha'), 404);

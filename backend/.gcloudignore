@@ -1,0 +1,16 @@
+.gcloudignore
+.git
+.gitignore
+node_modules/
+dist/
+uploads/
+sil/
+.env
+.env.*
+*.log
+**/*.db
+**/*.db-journal
+**/*.sqlite
+**/*.sqlite3
+**/*.pem
+**/*service-account*.json

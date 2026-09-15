@@ -2,36 +2,8 @@
 
 import { Express, Request, Response, Router } from "express";
 
-import { randomUUID } from "crypto";
 import { intakeWorkspace, requireIntakeWorkspace } from "../middleware/requireIntakeWorkspace";
-import { prisma } from "../lib/prisma";
-
-type JobStatus = "queued" | "running" | "succeeded" | "failed";
-
-interface Job {
-
-  id: string;
-  orgScope: string;
-
-  type: string;          // e.g. "datasource_import", "panatracker_sync"
-
-  status: JobStatus;
-
-  createdAt: string;
-
-  startedAt?: string;
-
-  finishedAt?: string;
-
-  payload?: any;         // shape of job input; can refine later
-
-  errorMessage?: string; // populate when failed
-
-}
-
-// Temporary in-memory store; later this becomes a Prisma model
-
-const jobs: Job[] = [];
+import { findIntakeSource, listIntakeJobs, queueIntakeJob } from "../services/intake/intakeStore";
 
 export function registerJobRoutes(app: Express) {
 
@@ -40,15 +12,11 @@ export function registerJobRoutes(app: Express) {
 
   // GET /api/jobs
 
-  router.get("/", (req: Request, res: Response) => {
+  router.get("/", async (req: Request, res: Response) => {
 
     // newest first
 
-    const list = jobs.filter((job) => job.orgScope === intakeWorkspace(req)).sort(
-
-      (a, b) => +new Date(b.createdAt) - +new Date(a.createdAt)
-
-    );
+    const list = await listIntakeJobs(intakeWorkspace(req));
 
     res.json(list);
 
@@ -60,38 +28,22 @@ export function registerJobRoutes(app: Express) {
 
     const { type, payload } = req.body;
 
-    if (!type) {
+    if (typeof type !== 'string' || !type.trim() || type.length > 100) {
 
       return res.status(400).json({ message: "type is required" });
 
     }
 
+    if (JSON.stringify(payload ?? null).length > 100000) return res.status(413).json({ error: 'Job payload is too large.' });
     for (const sourceRef of [payload?.dataSourceId, payload?.dataSourceRef]) {
       if (sourceRef === undefined) continue;
-      const source = await prisma.datasource.findFirst({
-        where: { id: String(sourceRef), orgScope: intakeWorkspace(req) },
-      });
+      const source = await findIntakeSource(intakeWorkspace(req), String(sourceRef));
       if (!source) return res.status(404).json({ error: "Data source not found" });
     }
 
-    const job: Job = {
+    const job = await queueIntakeJob(intakeWorkspace(req), type.trim(), payload);
 
-      id: randomUUID(),
-      orgScope: intakeWorkspace(req),
-
-      type,
-
-      status: "queued",
-
-      createdAt: new Date().toISOString(),
-
-      payload: payload ?? null,
-
-    };
-
-    jobs.push(job);
-
-    // For now we just queue it; later you can kick off a worker
+    // A queue receipt is not evidence of a running connector or a completed import.
 
     res.status(201).json(job);
 

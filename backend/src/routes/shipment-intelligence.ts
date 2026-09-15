@@ -570,7 +570,7 @@ export function registerShipmentIntelligenceRoutes(app: Express) {
         evidence: Array.isArray(req.body?.evidence) ? req.body.evidence : [],
       });
       if (!result.accepted) return res.status(409).json(result);
-      await updateSilLoadStatus(load.loadId, result.nextState);
+      await updateSilLoadStatus(load.loadId, result.nextState, load.workspaceId);
       await persistSilWorkflowEvent({
         ...result.event,
         workspaceId,
@@ -601,7 +601,7 @@ export function registerShipmentIntelligenceRoutes(app: Express) {
 
     if (result.accepted) {
       load.status = result.nextState;
-      await updateSilLoadStatus(load.loadId, result.nextState);
+      await updateSilLoadStatus(load.loadId, result.nextState, load.workspaceId);
     }
     await persistSilWorkflowEvent({ ...result.event, workspaceId: load.workspaceId });
 
@@ -1232,7 +1232,7 @@ export function registerShipmentIntelligenceRoutes(app: Express) {
     let shipmentResult: Awaited<ReturnType<typeof createSilShipmentFromAward>> | null = null;
     let marengoDelivery: Awaited<ReturnType<typeof publishLoadToMarengo>> | null = null;
     if (decision === "AWARDED" && updatedBid) {
-      await updateSilLoadStatus(load.loadId, "CARRIER_SELECTED");
+      await updateSilLoadStatus(load.loadId, "CARRIER_SELECTED", load.workspaceId);
       load.status = "CARRIER_SELECTED";
       shipmentResult = await createSilShipmentFromAward({
         load,
