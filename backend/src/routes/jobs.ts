@@ -3,12 +3,15 @@
 import { Express, Request, Response, Router } from "express";
 
 import { randomUUID } from "crypto";
+import { intakeWorkspace, requireIntakeWorkspace } from "../middleware/requireIntakeWorkspace";
+import { prisma } from "../lib/prisma";
 
 type JobStatus = "queued" | "running" | "succeeded" | "failed";
 
 interface Job {
 
   id: string;
+  orgScope: string;
 
   type: string;          // e.g. "datasource_import", "panatracker_sync"
 
@@ -33,6 +36,7 @@ const jobs: Job[] = [];
 export function registerJobRoutes(app: Express) {
 
   const router = Router();
+  router.use(requireIntakeWorkspace);
 
   // GET /api/jobs
 
@@ -40,7 +44,7 @@ export function registerJobRoutes(app: Express) {
 
     // newest first
 
-    const list = [...jobs].sort(
+    const list = jobs.filter((job) => job.orgScope === intakeWorkspace(req)).sort(
 
       (a, b) => +new Date(b.createdAt) - +new Date(a.createdAt)
 
@@ -52,7 +56,7 @@ export function registerJobRoutes(app: Express) {
 
   // POST /api/jobs
 
-  router.post("/", (req: Request, res: Response) => {
+  router.post("/", async (req: Request, res: Response) => {
 
     const { type, payload } = req.body;
 
@@ -62,9 +66,18 @@ export function registerJobRoutes(app: Express) {
 
     }
 
+    for (const sourceRef of [payload?.dataSourceId, payload?.dataSourceRef]) {
+      if (sourceRef === undefined) continue;
+      const source = await prisma.datasource.findFirst({
+        where: { id: String(sourceRef), orgScope: intakeWorkspace(req) },
+      });
+      if (!source) return res.status(404).json({ error: "Data source not found" });
+    }
+
     const job: Job = {
 
       id: randomUUID(),
+      orgScope: intakeWorkspace(req),
 
       type,
 
@@ -89,4 +102,3 @@ export function registerJobRoutes(app: Express) {
   app.use("/api/jobs", router);
 
 }
- 

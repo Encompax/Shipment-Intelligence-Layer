@@ -12,6 +12,7 @@ datasource db {
  
 /// First real table for Encompax
 model Datasource {
+ orgScope    String?
  id          String   @id @default(cuid())
  name        String
  type        String
@@ -20,6 +21,7 @@ model Datasource {
  isActive    Boolean  @default(true)
  createdAt   DateTime @default(now())
  updatedAt   DateTime @updatedAt
+ @@index([orgScope])
 }
 model User {
  id        String       @id @default(cuid())
@@ -59,12 +61,15 @@ model RolePermission {
  createdAt   DateTime    @default(now())
 }
 model Job {
+ orgScope     String?
+ dataSourceRef String?
  id           Int      @id @default(autoincrement())
  dataSourceId Int
  status       String
  createdAt    DateTime @default(now())
  updatedAt    DateTime @updatedAt
  uploads      Upload[]
+ @@index([orgScope])
 }
 model Upload {
  id           Int      @id @default(autoincrement())

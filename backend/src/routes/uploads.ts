@@ -4,7 +4,9 @@ import { prisma } from '../lib/prisma';
 import { config } from '../lib/config';
 import path from 'path';
 import fs from 'fs';
+import { createHash, randomUUID } from 'crypto';
 import * as XLSX from 'xlsx';
+import { intakeWorkspace, requireIntakeWorkspace } from '../middleware/requireIntakeWorkspace';
 import {
   createSilLoad,
   createSilMarketRate,
@@ -77,8 +79,9 @@ const parseWorkbook = (filePath: string) => {
   return { headers, records, sheetName };
 };
 
-const readUploadTable = async (uploadId: number) => {
-  const upload = await prisma.upload.findUnique({ where: { id: uploadId }, include: { job: true } });
+const readUploadTable = async (uploadId: number, orgScope: string) => {
+  if (!Number.isSafeInteger(uploadId) || uploadId <= 0) return null;
+  const upload = await prisma.upload.findFirst({ where: { id: uploadId, job: { orgScope } }, include: { job: true } });
   if (!upload) return null;
   const extension = path.extname(upload.originalName).toLowerCase();
   if (extension === '.csv' || upload.contentType.toLowerCase().includes('csv')) {
@@ -348,25 +351,35 @@ const buildLaneRateImportDraft = (row: Record<string, string>, mapping: Record<s
 const laneRateImportKey = (lane: LaneRateImportDraft | SilLaneProfile) =>
   [lane.originRegion, lane.destinationRegion, lane.mode, lane.equipmentType].map(normalizeKeyPart).join('|');
 
+const scopedImportId = (kind: string, workspaceId: string, key: string) =>
+  `${kind}-import-${createHash('sha256').update(JSON.stringify([workspaceId, key])).digest('hex')}`;
+
 export function registerUploadRoutes(app: Express) {
+ app.use('/api/ingest', requireIntakeWorkspace);
  app.post('/api/ingest/upload', async (req: Request, res: Response) => {
+   const orgScope = intakeWorkspace(req);
    const dataSourceRef = String(req.body.dataSourceId ?? '').trim();
    const dataSourceId = Number.parseInt(dataSourceRef, 10);
    const legacyDataSourceId = Number.isFinite(dataSourceId) ? dataSourceId : hashDataSourceId(dataSourceRef);
    if (!dataSourceRef || !req.files || !('file' in req.files)) {
      return res.status(400).json({ message: 'dataSourceId and file are required' });
    }
+   const source = await prisma.datasource.findFirst({ where: { id: dataSourceRef, orgScope } });
+   if (!source) return res.status(404).json({ error: 'Data source not found' });
    const file = req.files['file'] as fileUpload.UploadedFile;
-   const uploadDir = path.join(process.cwd(), config.uploadDir);
+   if (Array.isArray(file)) return res.status(400).json({ error: 'Upload one file at a time.' });
+   const uploadDir = path.resolve(process.cwd(), config.uploadDir);
    if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
    const safeName = path.basename(file.name).replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 200);
-   const storedFileName = `${Date.now()}_${safeName}`;
+   const storedFileName = `${randomUUID()}_${safeName}`;
    const storedPath = path.join(uploadDir, storedFileName);
    await file.mv(storedPath);
    // Create job + upload record
    const job = await prisma.job.create({
      data: {
        dataSourceId: legacyDataSourceId,
+       dataSourceRef: source.id,
+       orgScope,
        status: 'Completed', // later you can support async processing
        uploads: {
          create: {
@@ -382,8 +395,9 @@ export function registerUploadRoutes(app: Express) {
    res.status(201).json({ ...job, dataSourceRef });
  });
 
- app.get('/api/ingest/uploads', async (_req: Request, res: Response) => {
+ app.get('/api/ingest/uploads', async (req: Request, res: Response) => {
    const uploads = await prisma.upload.findMany({
+     where: { job: { orgScope: intakeWorkspace(req) } },
      include: { job: true },
      orderBy: { createdAt: 'desc' },
      take: 25,
@@ -392,7 +406,7 @@ export function registerUploadRoutes(app: Express) {
  });
 
  app.get('/api/ingest/uploads/:uploadId/preview', async (req: Request, res: Response) => {
-   const result = await readUploadTable(Number(req.params.uploadId));
+   const result = await readUploadTable(Number(req.params.uploadId), intakeWorkspace(req));
    if (!result) return res.status(404).json({ error: 'Upload not found' });
    if ('error' in result) return res.status(415).json({ error: result.error, upload: result.upload });
 
@@ -407,7 +421,8 @@ export function registerUploadRoutes(app: Express) {
  });
 
  app.post('/api/ingest/uploads/:uploadId/import-loads', async (req: Request, res: Response) => {
-   const result = await readUploadTable(Number(req.params.uploadId));
+   const workspaceId = intakeWorkspace(req);
+   const result = await readUploadTable(Number(req.params.uploadId), workspaceId);
    if (!result) return res.status(404).json({ error: 'Upload not found' });
    if ('error' in result) return res.status(415).json({ error: result.error, upload: result.upload });
 
@@ -419,7 +434,7 @@ export function registerUploadRoutes(app: Express) {
    }
 
    const allowDuplicates = req.body?.allowDuplicates === true;
-   const existingKeys = allowDuplicates ? new Set<string>() : new Set((await listSilLoads()).map(loadImportKey));
+   const existingKeys = allowDuplicates ? new Set<string>() : new Set((await listSilLoads({ workspaceId })).map(loadImportKey));
    const batchKeys = new Set<string>();
    const imported: SilLoad[] = [];
    const rejected: Array<{ row: number; error: string }> = [];
@@ -437,7 +452,7 @@ export function registerUploadRoutes(app: Express) {
          continue;
        }
        batchKeys.add(key);
-       const load = await createSilLoad(draft);
+       const load = await createSilLoad({ ...draft, workspaceId, loadId: `load-import-${randomUUID()}` });
        imported.push(load.load);
      } catch (error) {
        rejected.push({ row: index + 2, error: error instanceof Error ? error.message : 'Import failed' });
@@ -458,7 +473,8 @@ export function registerUploadRoutes(app: Express) {
  });
 
  app.post('/api/ingest/uploads/:uploadId/import-carriers', async (req: Request, res: Response) => {
-   const result = await readUploadTable(Number(req.params.uploadId));
+   const workspaceId = intakeWorkspace(req);
+   const result = await readUploadTable(Number(req.params.uploadId), workspaceId);
    if (!result) return res.status(404).json({ error: 'Upload not found' });
    if ('error' in result) return res.status(415).json({ error: result.error, upload: result.upload });
 
@@ -482,7 +498,7 @@ export function registerUploadRoutes(app: Express) {
          continue;
        }
        batchKeys.add(key);
-       const { carrier } = await upsertSilCarrier(draft);
+       const { carrier } = await upsertSilCarrier({ ...draft, workspaceId, carrierId: scopedImportId('carrier', workspaceId, key) });
        imported.push(carrier);
      } catch (error) {
        rejected.push({ row: index + 2, error: error instanceof Error ? error.message : 'Carrier import failed' });
@@ -503,7 +519,8 @@ export function registerUploadRoutes(app: Express) {
  });
 
  app.post('/api/ingest/uploads/:uploadId/import-lane-rates', async (req: Request, res: Response) => {
-   const result = await readUploadTable(Number(req.params.uploadId));
+   const workspaceId = intakeWorkspace(req);
+   const result = await readUploadTable(Number(req.params.uploadId), workspaceId);
    if (!result) return res.status(404).json({ error: 'Upload not found' });
    if ('error' in result) return res.status(415).json({ error: result.error, upload: result.upload });
 
@@ -529,9 +546,10 @@ export function registerUploadRoutes(app: Express) {
          continue;
        }
        batchKeys.add(key);
-       const lane = await upsertSilLane(draft);
+       const lane = await upsertSilLane({ ...draft, workspaceId, laneId: scopedImportId('lane', workspaceId, key) });
        if (draft.medianRate !== undefined) {
          await createSilMarketRate({
+           workspaceId,
            laneId: lane.laneId,
            source: 'MANUAL',
            lowRate: draft.lowRate,

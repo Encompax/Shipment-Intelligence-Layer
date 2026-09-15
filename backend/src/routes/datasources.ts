@@ -1,10 +1,13 @@
 import { Express, Request, Response, Router } from "express";
 import { prisma } from "../lib/prisma"; // adjust path if needed
+import { intakeWorkspace, requireIntakeWorkspace } from "../middleware/requireIntakeWorkspace";
 export function registerDatasourceRoutes(app: Express) {
  const router = Router();
+ router.use(requireIntakeWorkspace);
  // GET /api/datasources
  router.get("/", async (req: Request, res: Response) => {
    const list = await prisma.datasource.findMany({
+     where: { orgScope: intakeWorkspace(req) },
      orderBy: { name: "asc" },
    });
    res.json(list);
@@ -17,6 +20,7 @@ export function registerDatasourceRoutes(app: Express) {
    }
    const created = await prisma.datasource.create({
      data: {
+       orgScope: intakeWorkspace(req),
        name,
        type,
        description: description ?? null,
