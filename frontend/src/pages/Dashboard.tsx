@@ -133,10 +133,7 @@ const Dashboard: React.FC<DashboardProps> = ({
             <div>
               <p className="transport-eyebrow">Shipment Intelligence Layer</p>
               <h2>Transportation Control Tower</h2>
-              <p>
-                Prioritize the work required to plan, tender, move, and document freight. Financial control, performance
-                intelligence, and formal governance remain connected through their Encompax modules.
-              </p>
+              <p>Prioritize the work required to plan, tender, move, and document freight.</p>
             </div>
             <div className="transport-parent-brand">
               <SILLogo size={34} />
@@ -277,16 +274,13 @@ const Dashboard: React.FC<DashboardProps> = ({
             <div className="topbar-breadcrumb">
               <span className="topbar-parent-brand">
                 <EncompaxMark size={18} />
-                <span>Encompax Workspace Shell</span>
+                <span>Encompax</span>
               </span>
               <span className="topbar-separator">/</span>
               <span className="topbar-app-name">Shipment Intelligence Layer</span>
               <span className="topbar-separator">/</span>
               <h1 className="topbar-title">{topbarTitle}</h1>
             </div>
-            <p className="topbar-shell-copy">
-              Governed shipment operations under the signed-in Encompax profile.
-            </p>
           </div>
           <div className="topbar-meta">
             <div className="topbar-utility">
@@ -296,17 +290,13 @@ const Dashboard: React.FC<DashboardProps> = ({
                 <a href="https://www.encompax.com/help.html">Help</a>
               </div>
               <div className="topbar-search-shell">
-                <div className="topbar-search-caption">
-                  <strong>Encompax search shell</strong>
-                  <span>Search workspace, resources, help, and SIL routes.</span>
-                </div>
                 <label className="topbar-search-field" htmlFor="silShellSearch">
                   <span>Search</span>
                   <input
                     id="silShellSearch"
                     type="search"
                     value={shellSearch}
-                    placeholder="Search workspace, resources, help, and SIL routes"
+                    placeholder="Search SIL"
                     onFocus={() => setShellSearchOpen(true)}
                     onBlur={() => window.setTimeout(() => setShellSearchOpen(false), 120)}
                     onChange={(event) => {

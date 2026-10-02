@@ -710,32 +710,30 @@ body {
 }
 
 .topbar {
-  min-height: var(--topbar-height);
+  height: var(--topbar-height);
   background: var(--topbar-bg);
   border-bottom: 1px solid var(--topbar-border);
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
-  padding: var(--space-3) var(--space-6);
+  padding: 0 var(--space-5);
   gap: var(--space-4);
   z-index: 10;
   flex-shrink: 0;
-  flex-wrap: wrap;
-  row-gap: var(--space-3);
+  flex-wrap: nowrap;
 }
 
 .topbar-shell-intro {
-  display: grid;
-  gap: 6px;
-  flex: 1 1 22rem;
-  min-width: min(100%, 26rem);
+  flex: 0 1 auto;
+  min-width: 0;
 }
 
 .topbar-breadcrumb {
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  min-width: 0;
 }
 
 .topbar-parent-brand {
@@ -763,6 +761,9 @@ body {
   font-weight: var(--font-weight-semibold);
   color: var(--color-text-primary);
   margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .topbar-shell-copy {
@@ -775,17 +776,19 @@ body {
 .topbar-meta {
   display: flex;
   align-items: center;
-  gap: var(--space-4);
-  flex-wrap: wrap;
+  gap: var(--space-3);
+  flex-wrap: nowrap;
   justify-content: flex-end;
-  flex: 1 1 26rem;
-  min-width: min(100%, 24rem);
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
 .topbar-utility {
-  display: grid;
+  display: flex;
+  align-items: center;
   gap: var(--space-3);
-  min-width: min(100%, 24rem);
+  min-width: 0;
+  flex: 1;
 }
 
 .topbar-link-row {
@@ -809,43 +812,18 @@ body {
 
 .topbar-search-shell {
   position: relative;
-  min-width: min(24rem, 100%);
-  max-width: 29rem;
+  min-width: 10rem;
+  max-width: 22rem;
   width: 100%;
-  padding: var(--space-3);
-  border: 1px solid #dbeafe;
-  border-radius: 16px;
-  background: linear-gradient(180deg, #eff6ff 0%, #ffffff 100%);
-  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.06);
-}
-
-.topbar-search-caption {
-  display: grid;
-  gap: 2px;
-  margin-bottom: var(--space-2);
-}
-
-.topbar-search-caption strong {
-  color: var(--color-text-primary);
-  font-size: 0.72rem;
-  font-weight: var(--font-weight-bold);
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.topbar-search-caption span {
-  color: var(--color-text-muted);
-  font-size: 0.72rem;
-  line-height: 1.45;
 }
 
 .topbar-search-field {
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  min-height: 42px;
-  padding: 0 var(--space-3);
-  border-radius: 999px;
+  min-height: 32px;
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-md);
   border: 1px solid #bfdbfe;
   background: #ffffff;
 }
@@ -1167,11 +1145,10 @@ td {
 .overview-route-grid,
 .intake-mode-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
   gap: var(--space-3);
 }
 
-.overview-route-card,
 .intake-mode-card,
 .intake-source-row {
   display: grid;
@@ -1182,6 +1159,22 @@ td {
   text-align: left;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
+  background: var(--color-bg-default);
+  color: var(--color-text-primary);
+  cursor: pointer;
+  box-shadow: var(--shadow-xs);
+}
+
+.overview-route-card {
+  display: grid;
+  align-content: start;
+  gap: var(--space-1);
+  width: 100%;
+  min-height: 104px;
+  padding: var(--space-3);
+  text-align: left;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
   background: var(--color-bg-default);
   color: var(--color-text-primary);
   cursor: pointer;
@@ -1208,10 +1201,15 @@ td {
 }
 
 .overview-route-card strong {
-  font-size: var(--font-size-lg);
+  font-size: var(--font-size-base);
 }
 
-.overview-route-card p,
+.overview-route-card p {
+  margin: 0;
+  font-size: var(--font-size-xs);
+  line-height: 1.45;
+}
+
 .intake-mode-card p,
 .intake-source-row p,
 .pipeline-card p {
@@ -4207,10 +4205,12 @@ label {
   .topbar-meta {
     justify-content: flex-start;
     gap: var(--space-3);
+    flex-wrap: wrap;
   }
 
   .topbar-utility {
     width: 100%;
+    flex-wrap: wrap;
   }
 
   .topbar-link-row {
