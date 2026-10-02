@@ -7,7 +7,6 @@ import {
 } from "../config/panels";
 import EncompaxMark from "../components/EncompaxMark";
 import SILLogo from "../components/SILLogo";
-import SilWorkspaceAssistant from "../components/SilWorkspaceAssistant";
 
 type TabKey = "overview" | PanelKey;
 type DashboardProps = {
@@ -30,20 +29,10 @@ type ShellAction = {
 const CURRENT_USER_PERMISSIONS: string[] = [
   "transportation:view",
   "datasources:view",
-  "uploads:view",
-  "jobs:view",
   "sourcing:view",
   "planning:view",
   "productAlignment:view",
   "production:view",
-  "supplyChain:view",
-  "warehouse:view",
-  "inventory:view",
-  "customer:view",
-  "leanOps:view",
-  "communication:view",
-  "marketing:view",
-  "references:view",
 ];
 
 const hasPermission = (panel: PanelConfig) =>
@@ -143,9 +132,10 @@ const Dashboard: React.FC<DashboardProps> = ({
           <section className="transport-hero overview-hero">
             <div>
               <p className="transport-eyebrow">Shipment Intelligence Layer</p>
-              <h2>Operations Visibility Hub</h2>
+              <h2>Transportation Control Tower</h2>
               <p>
-                Start with transportation execution, connect intake sources, and route governed decisions into Encompax.
+                Prioritize the work required to plan, tender, move, and document freight. Financial control, performance
+                intelligence, and formal governance remain connected through their Encompax modules.
               </p>
             </div>
             <div className="transport-parent-brand">
@@ -157,33 +147,37 @@ const Dashboard: React.FC<DashboardProps> = ({
             </div>
           </section>
 
-          <SilWorkspaceAssistant onOpenTransportation={() => setActiveTab("transportationCommand")} />
-
           <section className="overview-route-grid">
             {[
               {
                 key: "transportationCommand" as TabKey,
-                label: "Transportation Command",
-                eyebrow: "Run the workflow",
-                body: "Plan loads, post freight, score bids, select carriers, and govern dispatch readiness.",
+                label: "My work",
+                eyebrow: "Control tower",
+                body: "Open the operating queue for tenders, active loads, shipment updates, and decisions needing attention.",
+              },
+              {
+                key: "planning" as TabKey,
+                label: "Loads & lanes",
+                eyebrow: "Plan",
+                body: "Review coverage, lane requirements, timing pressure, and the work that needs to be tendered.",
+              },
+              {
+                key: "sourcing" as TabKey,
+                label: "Carrier network & RFPs",
+                eyebrow: "Source",
+                body: "Manage carrier eligibility, bid participation, and the supplier relationships used for award decisions.",
+              },
+              {
+                key: "production" as TabKey,
+                label: "Active shipments",
+                eyebrow: "Execute",
+                body: "Follow pickup, ETA, delivery, documents, and exceptions through completion.",
               },
               {
                 key: "datasources" as TabKey,
-                label: "Data Intake",
-                eyebrow: "Connect organization data",
-                body: "Create manual sources, upload CSV or Excel files, and stage live database pipeline connections.",
-              },
-              {
-                key: "productAlignment" as TabKey,
-                label: "Product Alignment",
-                eyebrow: "Suite growth",
-                body: "Select products, control workspace boundaries, invite team members, and prepare governance routing.",
-              },
-              {
-                key: "leanOps" as TabKey,
-                label: "LEAN Operating System",
-                eyebrow: "Templates and standards",
-                body: "Turn operating procedures into reusable decision templates connected to SIL and Encompax.",
+                label: "Data intake",
+                eyebrow: "Connect",
+                body: "Bring operational records into SIL through governed file intake or a supported source connection.",
               },
             ].map((card) => (
               <button key={card.key} className="overview-route-card" type="button" onClick={() => setActiveTab(card.key)}>
@@ -194,15 +188,6 @@ const Dashboard: React.FC<DashboardProps> = ({
             ))}
           </section>
 
-          <section className="overview-module-strip">
-            {visiblePanels
-              .filter((panel) => panel.showInOverview)
-              .map((panel) => (
-                <button key={panel.key} type="button" onClick={() => setActiveTab(panel.key)}>
-                  {panel.label}
-                </button>
-              ))}
-          </section>
         </div>
       );
     }
