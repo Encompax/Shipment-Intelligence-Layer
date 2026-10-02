@@ -1400,6 +1400,7 @@ export async function createSilBid(input: Partial<SilBid> & Pick<SilBid, "loadId
       postingId = createdPosting.posting.postingId;
     }
   }
+  if (!postingId) throw new Error("A posting is required before recording a bid.");
   const posting = (await listSilPostings({ workspaceId })).find((item) => item.postingId === postingId);
   if (posting?.visibility === "INVITED_CARRIERS" && posting.invitedCarrierIds?.length) {
     if (!posting.invitedCarrierIds.includes(input.carrierId)) {
@@ -1698,7 +1699,7 @@ export async function listSilGovernanceSignalEnvelopes(filters?: { workspaceId?:
   });
 
   return records
-    .map<SilGovernanceSignalEnvelope>((record) => ({
+    .map((record): SilGovernanceSignalEnvelope => ({
       signalId: record.signalId,
       status: record.status,
       updatedAt: record.updatedAt.toISOString(),
@@ -1939,6 +1940,7 @@ export async function upsertSilWorkspace(input: SilWorkspacePayload) {
     occurredAt: now,
     actor: workspace.ownerEmail ?? "operator",
     source: "USER",
+    workspaceId,
     summary: `${workspace.workspaceName} product selection updated.`,
     evidence: [
       `Organization: ${workspace.organization}`,
