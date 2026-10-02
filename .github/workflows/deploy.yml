@@ -38,3 +38,10 @@ jobs:
       - name: Build frontend
         working-directory: frontend
         run: npm run build
+
+      - name: Upload SIL frontend artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sil-frontend
+          path: frontend/dist
+          retention-days: 1
