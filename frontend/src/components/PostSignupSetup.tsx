@@ -199,19 +199,8 @@ const PostSignupSetup: React.FC<PostSignupSetupProps> = ({ profile, user, onComp
           <p className="auth-eyebrow">Workspace Setup</p>
           <h1>Prepare the first governed SIL workspace</h1>
           <p>
-            Your Encompax identity is active. This step turns that identity into a working SIL workspace with the
-            first operational defaults and data-intake path in place.
+            Set the workspace identity and first data-intake defaults. These can be refined later from within SIL.
           </p>
-          <div className="setup-summary-grid">
-            <div className="auth-route">
-              <span>Identity model</span>
-              <strong>One Encompax account, module access added over time</strong>
-            </div>
-            <div className="auth-route">
-              <span>Import profile</span>
-              <strong>{selectedSuite.label}</strong>
-            </div>
-          </div>
         </div>
 
         <form className="setup-panel" onSubmit={handleSubmit}>
