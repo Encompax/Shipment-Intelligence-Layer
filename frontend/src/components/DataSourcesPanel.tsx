@@ -7,6 +7,7 @@ import {
   importUploadCarriers,
   importUploadLaneRates,
   importUploadLoads,
+  proposeUploadMapping,
   uploadFile,
 } from "../api/client";
 
@@ -28,6 +29,17 @@ type UploadPreview = {
 };
 
 type IntakeMode = "manual" | "file" | "pipeline";
+
+type MappingReview = {
+  governanceStatus: "READY_FOR_OPERATOR_APPROVAL";
+  proposal: {
+    dataset: "LOADS" | "CARRIERS" | "LANE_RATES" | "UNSUPPORTED";
+    mapping: Record<string, string>;
+    confidence: number;
+    summary: string;
+    reviewNotes: string[];
+  };
+};
 
 const sourceTypeOptions = [
   { value: "manual_loads", label: "Manual Loads", route: "Transportation Command" },
@@ -192,6 +204,7 @@ export default function DataSourcesPanel() {
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<UploadPreview | null>(null);
   const [mapping, setMapping] = useState<Record<string, string>>({});
+  const [mappingReview, setMappingReview] = useState<MappingReview | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [form, setForm] = useState({
     name: "Gopuff shipment workbook",
@@ -421,6 +434,7 @@ export default function DataSourcesPanel() {
           transitVarianceDays: autoMap(headers, [/variance.*day|transit.*variance/i]),
           sampleSize: autoMap(headers, [/sample|volume|count/i]),
         });
+        setMappingReview(null);
       }
       setFile(null);
       setStatus(uploadId ? "Upload complete. Preview is ready for mapping." : "Upload complete. Ingest job recorded for review.");
@@ -429,8 +443,30 @@ export default function DataSourcesPanel() {
     }
   }
 
+  async function handleMappingProposal() {
+    if (!preview) return;
+    try {
+      setStatus("Encompax is reviewing the file structure and sample records...");
+      const result = await proposeUploadMapping(preview.upload.id) as MappingReview;
+      setMapping((current) => ({ ...current, ...result.proposal.mapping }));
+      setMappingReview(result);
+      setStatus("Governed mapping proposal ready. Confirm the fields below before importing any records.");
+    } catch (err) {
+      setStatus(err instanceof Error ? err.message : "Mapping proposal failed");
+    }
+  }
+
+  function updateMapping(field: string, value: string) {
+    setMapping((current) => ({ ...current, [field]: value }));
+    setMappingReview(null);
+  }
+
   async function handleImportLoads() {
     if (!preview) return;
+    if (!mappingReview) {
+      setStatus("Request and review an Encompax mapping proposal before approving load intake.");
+      return;
+    }
 
     try {
       setStatus("Importing mapped rows into SIL loads...");
@@ -445,6 +481,10 @@ export default function DataSourcesPanel() {
 
   async function handleImportCarriers() {
     if (!preview) return;
+    if (!mappingReview) {
+      setStatus("Request and review an Encompax mapping proposal before approving carrier intake.");
+      return;
+    }
 
     try {
       setStatus("Importing mapped rows into SIL carrier profiles...");
@@ -459,6 +499,10 @@ export default function DataSourcesPanel() {
 
   async function handleImportLaneRates() {
     if (!preview) return;
+    if (!mappingReview) {
+      setStatus("Request and review an Encompax mapping proposal before approving lane-rate intake.");
+      return;
+    }
 
     try {
       setStatus("Importing mapped rows into SIL lane and market-rate intelligence...");
@@ -908,13 +952,38 @@ export default function DataSourcesPanel() {
                       {preview.format ?? "TABLE"} / {preview.totalRows} row(s)
                     </span>
                   </div>
+                  <div className="intake-governance-review">
+                    <div>
+                      <p className="transport-eyebrow">Encompax governed review</p>
+                      <strong>{mappingReview ? "Mapping proposal ready for your approval" : "Review the file before it enters SIL"}</strong>
+                      <p>
+                        {mappingReview
+                          ? mappingReview.proposal.summary
+                          : "Encompax can inspect the headers and sample rows, classify the file, and propose a mapping. Nothing is imported during review."}
+                      </p>
+                    </div>
+                    <button className="btn btn-secondary" type="button" onClick={handleMappingProposal}>
+                      {mappingReview ? "Refresh mapping review" : "Ask Encompax to map file"}
+                    </button>
+                  </div>
+                  {mappingReview && (
+                    <div className="intake-governance-result">
+                      <span>Ready for operator approval</span>
+                      <strong>{mappingReview.proposal.dataset.replace("_", " ")} / {Math.round(mappingReview.proposal.confidence * 100)}% confidence</strong>
+                      {mappingReview.proposal.reviewNotes.length > 0 && (
+                        <ul>
+                          {mappingReview.proposal.reviewNotes.map((note) => <li key={note}>{note}</li>)}
+                        </ul>
+                      )}
+                    </div>
+                  )}
                   <div className="manual-field-grid">
                     {loadMappingFields.map(([field, label]) => (
                       <label key={field}>
                         {label}
                         <select
                           value={mapping[field] ?? ""}
-                          onChange={(event) => setMapping((current) => ({ ...current, [field]: event.target.value }))}
+                          onChange={(event) => updateMapping(field, event.target.value)}
                         >
                           <option value="">Not mapped</option>
                           {preview.headers.map((header) => (
@@ -951,7 +1020,7 @@ export default function DataSourcesPanel() {
                         {label}
                         <select
                           value={mapping[field] ?? ""}
-                          onChange={(event) => setMapping((current) => ({ ...current, [field]: event.target.value }))}
+                          onChange={(event) => updateMapping(field, event.target.value)}
                         >
                           <option value="">Not mapped</option>
                           {preview.headers.map((header) => (
@@ -988,7 +1057,7 @@ export default function DataSourcesPanel() {
                         {label}
                         <select
                           value={mapping[field] ?? ""}
-                          onChange={(event) => setMapping((current) => ({ ...current, [field]: event.target.value }))}
+                          onChange={(event) => updateMapping(field, event.target.value)}
                         >
                           <option value="">Not mapped</option>
                           {preview.headers.map((header) => (
@@ -1020,14 +1089,14 @@ export default function DataSourcesPanel() {
                       </tbody>
                     </table>
                   </div>
-                  <button className="btn btn-primary" type="button" onClick={handleImportLoads}>
-                    Import Mapped Loads
+                  <button className="btn btn-primary" type="button" onClick={handleImportLoads} disabled={!mappingReview}>
+                    Approve Mapping and Import Loads
                   </button>
-                  <button className="btn btn-secondary" type="button" onClick={handleImportCarriers}>
-                    Import Carrier Profiles
+                  <button className="btn btn-secondary" type="button" onClick={handleImportCarriers} disabled={!mappingReview}>
+                    Approve Mapping and Import Carriers
                   </button>
-                  <button className="btn btn-secondary" type="button" onClick={handleImportLaneRates}>
-                    Import Lane Rates
+                  <button className="btn btn-secondary" type="button" onClick={handleImportLaneRates} disabled={!mappingReview}>
+                    Approve Mapping and Import Lane Rates
                   </button>
                 </div>
               )}

@@ -15,6 +15,7 @@ import {
   upsertSilLane,
 } from '../services/shipmentIntelligence/silPersistenceService';
 import { EquipmentType, SilCarrierProfile, SilLaneProfile, SilLoad, TransportMode } from '../services/shipmentIntelligence/types';
+import { proposeIntakeMapping } from '../services/shipmentIntelligence/openaiIntakeMapper';
 
 const hashDataSourceId = (value: string) =>
   Math.abs(
@@ -397,6 +398,25 @@ export function registerUploadRoutes(app: Express) {
      rows: result.parsed.records.slice(0, 10),
      totalRows: result.parsed.records.length,
    });
+ });
+
+ app.post('/api/ingest/uploads/:uploadId/propose-mapping', async (req: Request, res: Response) => {
+   const result = await readUploadTable(Number(req.params.uploadId), intakeWorkspace(req));
+   if (!result) return res.status(404).json({ error: 'Upload not found' });
+   if ('error' in result) return res.status(415).json({ error: result.error, upload: result.upload });
+   const uid = (req as AuthenticatedSilRequest).silAuth?.uid;
+   const safetyIdentifier = uid ? createHash('sha256').update(uid).digest('hex').slice(0, 64) : undefined;
+   try {
+     const proposal = await proposeIntakeMapping({ headers: result.parsed.headers, rows: result.parsed.records, safetyIdentifier });
+     res.json({
+       upload: result.upload,
+       governanceStatus: 'READY_FOR_OPERATOR_APPROVAL',
+       proposal,
+     });
+   } catch (error) {
+     console.error('SIL intake mapping proposal failed', { errorName: error instanceof Error ? error.name : 'UnknownError' });
+     res.status(502).json({ error: 'Encompax could not prepare a mapping proposal. Review the file and try again.' });
+   }
  });
 
  app.post('/api/ingest/uploads/:uploadId/import-loads', async (req: Request, res: Response) => {

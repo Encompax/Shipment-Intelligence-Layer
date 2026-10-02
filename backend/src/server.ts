@@ -17,6 +17,7 @@ import { registerCycleCountRoutes } from "./routes/cycle-count-transactions";
 import { registerShipmentIntelligenceRoutes } from "./routes/shipment-intelligence";
 import { requireSilAuth } from "./middleware/requireSilAuth";
 import { registerEncompaxAuthRoutes } from "./routes/encompax-auth";
+import { registerFacilityRoutes } from "./routes/facilities";
 import { assertIntakeStorageConfigured } from "./services/intake/intakeStore";
 
 assertIntakeStorageConfigured();
@@ -54,6 +55,7 @@ registerHealthRoutes(app);
 registerEncompaxAuthRoutes(app);
 app.use("/api", requireSilAuth);
 registerDatasourceRoutes(app);
+registerFacilityRoutes(app);
 registerJobRoutes(app);
 registerUploadRoutes(app);
 registerMetricsRoutes(app);

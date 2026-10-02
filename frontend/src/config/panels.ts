@@ -4,6 +4,7 @@ import PlanningPanel from "../components/PlanningPanel";
 import ProductAlignmentPanel from "../components/ProductAlignmentPanel";
 import ProductionManagementPanel from "../components/ProductionManagementPanel";
 import TransportationCommandPanel from "../components/TransportationCommandPanel";
+import FacilitiesPanel from "../components/FacilitiesPanel";
 
 export type PanelKey =
   | "transportationCommand"
@@ -11,7 +12,8 @@ export type PanelKey =
   | "sourcing"
   | "planning"
   | "productAlignment"
-  | "production";
+  | "production"
+  | "facilities";
 
 export type PanelGroup =
   | "Control Tower"
@@ -44,6 +46,14 @@ export const PANEL_CONFIG: PanelConfig[] = [
     group: "Plan & Source",
     component: PlanningPanel,
     showInOverview: true,
+    requiredPermissions: ["planning:view"],
+  },
+  {
+    key: "facilities",
+    label: "Facilities & locations",
+    group: "Plan & Source",
+    component: FacilitiesPanel,
+    showInOverview: false,
     requiredPermissions: ["planning:view"],
   },
   {

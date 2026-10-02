@@ -579,6 +579,29 @@ export async function fetchUploadPreview(uploadId: number) {
   return res.json();
 }
 
+export async function proposeUploadMapping(uploadId: number) {
+  const res = await fetch(`${API_BASE}/ingest/uploads/${encodeURIComponent(String(uploadId))}/propose-mapping`, {
+    method: "POST",
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    throw new Error(body?.error ?? `Mapping proposal error: ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function fetchFacilities() {
+  const res = await fetch(`${API_BASE}/facilities`);
+  return readJsonResponse(res, "Facility list error");
+}
+
+export async function importFacilities(file: File) {
+  const formData = new FormData();
+  formData.append("file", file);
+  const res = await fetch(`${API_BASE}/facilities/import`, { method: "POST", body: formData });
+  return readJsonResponse(res, "Facility import error");
+}
+
 export async function importUploadLoads(uploadId: number, payload: Record<string, unknown>) {
   const res = await fetch(`${API_BASE}/ingest/uploads/${encodeURIComponent(String(uploadId))}/import-loads`, {
     method: "POST",
