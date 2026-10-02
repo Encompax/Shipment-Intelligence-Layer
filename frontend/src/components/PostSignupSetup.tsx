@@ -6,7 +6,6 @@ import {
   getProductivitySuiteOption,
   PRODUCTIVITY_SUITE_OPTIONS,
   ProductivitySuite,
-  WORKSPACE_PLAN_OPTIONS,
   WorkspacePlan,
 } from "../lib/onboarding";
 import { SilUserProfile, updateSilUserProfile } from "../lib/userProfile";
@@ -201,16 +200,12 @@ const PostSignupSetup: React.FC<PostSignupSetupProps> = ({ profile, user, onComp
           <h1>Prepare the first governed SIL workspace</h1>
           <p>
             Your Encompax identity is active. This step turns that identity into a working SIL workspace with the
-            first operational defaults, import bias, and cost guardrails in place.
+            first operational defaults and data-intake path in place.
           </p>
           <div className="setup-summary-grid">
             <div className="auth-route">
               <span>Identity model</span>
               <strong>One Encompax account, module access added over time</strong>
-            </div>
-            <div className="auth-route">
-              <span>Starting plan</span>
-              <strong>{selectedPlan.label}</strong>
             </div>
             <div className="auth-route">
               <span>Import profile</span>
@@ -242,16 +237,6 @@ const PostSignupSetup: React.FC<PostSignupSetupProps> = ({ profile, user, onComp
                   onChange={(event) => updateField("ownerEmail", event.target.value)}
                   required
                 />
-              </label>
-              <label>
-                Initial plan intent
-                <select value={state.plan} onChange={(event) => updateField("plan", event.target.value as WorkspacePlan)}>
-                  {WORKSPACE_PLAN_OPTIONS.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
               </label>
             </div>
           </div>
@@ -351,31 +336,6 @@ const PostSignupSetup: React.FC<PostSignupSetupProps> = ({ profile, user, onComp
                 )}
               </div>
             </div>
-          </div>
-
-          <div className="setup-section">
-            <div>
-              <p className="transport-eyebrow">Step 3</p>
-              <h2>Guardrails before pricing is live</h2>
-            </div>
-            <div className="setup-summary-grid compact">
-              <div>
-                <span>Token guardrail</span>
-                <strong>{selectedPlan.tokenGuardrail.toLocaleString()}</strong>
-              </div>
-              <div>
-                <span>Suggested spend review point</span>
-                <strong>${suggestedSpendLimit}/mo</strong>
-              </div>
-              <div>
-                <span>Agent mode</span>
-                <strong>Manual only at launch</strong>
-              </div>
-            </div>
-            <p className="setup-note">
-              We are storing plan intent and cost ceilings now so future billing, module upgrades, and agent-heavy
-              workflows can be introduced without restructuring the account model.
-            </p>
           </div>
 
           {workspaceHint ? <p className="auth-inline-note">{workspaceHint}</p> : null}
