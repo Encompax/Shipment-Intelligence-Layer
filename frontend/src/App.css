@@ -1713,6 +1713,53 @@ td {
   letter-spacing: 0.05em;
 }
 
+.facility-manual-entry > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  cursor: pointer;
+  list-style: none;
+}
+
+.facility-manual-entry > summary::-webkit-details-marker {
+  display: none;
+}
+
+.facility-manual-entry > summary > span:first-child {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.facility-manual-toggle {
+  color: var(--color-accent);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+}
+
+.facility-manual-entry[open] > summary {
+  margin-bottom: var(--space-4);
+}
+
+.facility-manual-entry[open] .facility-manual-toggle::after {
+  content: "Close";
+  font-size: 0.875rem;
+}
+
+.facility-manual-entry[open] .facility-manual-toggle {
+  font-size: 0;
+}
+
+.facility-form-grid select {
+  min-width: 0;
+  height: 36px;
+}
+
+.facility-address-field,
+.facility-hours-field {
+  grid-column: span 2;
+}
+
 @media (max-width: 760px) {
   .facility-list-header {
     flex-direction: column;
@@ -1720,6 +1767,11 @@ td {
 
   .facility-search {
     width: 100%;
+  }
+
+  .facility-address-field,
+  .facility-hours-field {
+    grid-column: auto;
   }
 }
 

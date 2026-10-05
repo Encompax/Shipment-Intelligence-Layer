@@ -172,6 +172,18 @@ export function registerFacilityRoutes(app: Express) {
     res.json({ facilities: snapshot.docs.map((doc) => doc.data()).filter((facility) => facility.workspaceId === workspaceId) });
   });
 
+  app.post("/api/facilities", async (req: Request, res: Response) => {
+    const workspaceId = intakeWorkspace(req);
+    const sourceRow = Object.fromEntries(Object.entries(req.body ?? {}).map(([field, value]) => [field, typeof value === "string" ? value : ""]));
+    const facility = buildFacility(workspaceId, sourceRow, new Date().toISOString());
+    if (!facility) return res.status(400).json({ error: "Facility name, address, city, and state are required." });
+    if (facility.primaryContactEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(facility.primaryContactEmail)) {
+      return res.status(400).json({ error: "Enter a valid primary contact email or leave it blank." });
+    }
+    await persistFacilities(workspaceId, [facility]);
+    res.status(201).json({ facility });
+  });
+
   app.post("/api/facilities/review", async (req: Request, res: Response) => {
     const workspaceId = intakeWorkspace(req);
     const upload = req.files?.file as fileUpload.UploadedFile | undefined;

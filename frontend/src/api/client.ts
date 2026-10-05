@@ -595,6 +595,15 @@ export async function fetchFacilities() {
   return readJsonResponse(res, "Facility list error");
 }
 
+export async function createFacility(payload: Record<string, string>) {
+  const res = await fetch(`${API_BASE}/facilities`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  return readJsonResponse(res, "Facility creation error");
+}
+
 export async function importFacilities(file: File) {
   const formData = new FormData();
   formData.append("file", file);
