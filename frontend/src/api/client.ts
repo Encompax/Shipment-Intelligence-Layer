@@ -602,6 +602,22 @@ export async function importFacilities(file: File) {
   return readJsonResponse(res, "Facility import error");
 }
 
+export async function reviewFacilities(file: File) {
+  const formData = new FormData();
+  formData.append("file", file);
+  const res = await fetch(`${API_BASE}/facilities/review`, { method: "POST", body: formData });
+  return readJsonResponse(res, "Facility review error");
+}
+
+export async function importReviewedFacilities(reviewId: string) {
+  const res = await fetch(`${API_BASE}/facilities/import`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ reviewId }),
+  });
+  return readJsonResponse(res, "Reviewed facility import error");
+}
+
 export async function importUploadLoads(uploadId: number, payload: Record<string, unknown>) {
   const res = await fetch(`${API_BASE}/ingest/uploads/${encodeURIComponent(String(uploadId))}/import-loads`, {
     method: "POST",
