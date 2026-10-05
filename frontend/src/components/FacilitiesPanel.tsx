@@ -29,6 +29,7 @@ export default function FacilitiesPanel() {
   const [file, setFile] = useState<File | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [review, setReview] = useState<FacilityReview | null>(null);
+  const [reviewPage, setReviewPage] = useState(0);
 
   const load = async () => {
     try {
@@ -46,6 +47,7 @@ export default function FacilitiesPanel() {
     try {
       setStatus("Encompax is reviewing the facility file...");
       setReview(null);
+      setReviewPage(0);
       const result = await reviewFacilities(file);
       setReview(result as FacilityReview);
       setStatus("Council review is ready. No facility records have been added yet.");
@@ -83,7 +85,7 @@ export default function FacilitiesPanel() {
           <span>CSV / Excel</span>
         </div>
         <div className="intake-actions">
-          <input type="file" accept=".csv,.xlsx,.xls,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" onChange={(event) => { setFile(event.target.files?.[0] ?? null); setReview(null); setStatus(null); }} />
+          <input type="file" accept=".csv,.xlsx,.xls,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" onChange={(event) => { setFile(event.target.files?.[0] ?? null); setReview(null); setReviewPage(0); setStatus(null); }} />
           <button className="btn btn-primary" type="button" disabled={!file} onClick={reviewUpload}>Review with Encompax</button>
           <a className="btn btn-secondary" href="/templates/sil-facility-import-template.xlsx" download>Download facility template</a>
         </div>
@@ -122,13 +124,19 @@ export default function FacilitiesPanel() {
           <div className="transport-table-wrap">
             <table className="transport-table">
               <thead><tr><th>Facility</th><th>Address</th><th>Type</th><th>Property</th></tr></thead>
-              <tbody>{review.rows.slice(0, 10).map((facility) => <tr key={facility.facilityId}><td>{facility.name}</td><td>{[facility.address, facility.city, facility.state, facility.postalCode].filter(Boolean).join(", ")}</td><td>{facility.facilityType}</td><td>{facility.propertyType}</td></tr>)}</tbody>
+              <tbody>{review.rows.slice(reviewPage * 25, reviewPage * 25 + 25).map((facility) => <tr key={facility.facilityId}><td>{facility.name}</td><td>{[facility.address, facility.city, facility.state, facility.postalCode].filter(Boolean).join(", ")}</td><td>{facility.facilityType}</td><td>{facility.propertyType}</td></tr>)}</tbody>
             </table>
           </div>
-          {review.rows.length > 10 && <p className="ops-note">Previewing the first 10 reviewed records.</p>}
+          {review.rows.length > 25 && (
+            <div className="intake-actions">
+              <button className="btn btn-secondary" type="button" disabled={reviewPage === 0} onClick={() => setReviewPage((page) => page - 1)}>Previous records</button>
+              <p className="ops-note">Reviewed records {reviewPage * 25 + 1}-{Math.min((reviewPage + 1) * 25, review.rows.length)} of {review.rows.length}</p>
+              <button className="btn btn-secondary" type="button" disabled={(reviewPage + 1) * 25 >= review.rows.length} onClick={() => setReviewPage((page) => page + 1)}>Next records</button>
+            </div>
+          )}
           <div className="intake-actions">
             <button className="btn btn-primary" type="button" disabled={review.validCount === 0} onClick={importReview}>Import approved facilities</button>
-            <button className="btn btn-secondary" type="button" onClick={() => { setReview(null); setStatus("Review discarded. No facility records were added."); }}>Discard review</button>
+            <button className="btn btn-secondary" type="button" onClick={() => { setReview(null); setReviewPage(0); setStatus("Review discarded. No facility records were added."); }}>Discard review</button>
           </div>
         </section>
       )}
