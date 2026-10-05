@@ -101,12 +101,12 @@ export default function FacilitiesPanel() {
   const reviewUpload = async () => {
     if (!file) return;
     try {
-      setStatus("Encompax is reviewing the facility file...");
+      setStatus("Uploading the location file...");
       setReview(null);
       setReviewPage(0);
       const result = await reviewFacilities(file);
       setReview(result as FacilityReview);
-      setStatus("Council review is ready. No facility records have been added yet.");
+      setStatus("The file is ready. Confirm the locations below before adding them.");
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Facility review failed.");
     }
@@ -162,7 +162,7 @@ export default function FacilitiesPanel() {
         </div>
         <div className="intake-actions">
           <input type="file" accept=".csv,.xlsx,.xls,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" onChange={(event) => { setFile(event.target.files?.[0] ?? null); setReview(null); setReviewPage(0); setStatus(null); }} />
-          <button className="btn btn-primary" type="button" disabled={!file} onClick={reviewUpload}>Review with Encompax</button>
+          <button className="btn btn-primary" type="button" disabled={!file} onClick={reviewUpload}>Upload</button>
           <a className="btn btn-secondary" href="/templates/sil-facility-import-template.xlsx" download>Download facility template</a>
         </div>
         <p className="ops-note">Use Site ID when your organization has a stable facility code. Primary contact details and operating hours are optional. The Excel template includes Facility Type and Property Type dropdowns. Encompax reviews the file before anything is added and requires your confirmation to import it.</p>

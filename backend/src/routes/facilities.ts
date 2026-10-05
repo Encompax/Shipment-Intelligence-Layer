@@ -46,6 +46,7 @@ type FacilityReview = {
   importedAt?: string;
 };
 const localReviews = new Map<string, FacilityReview>();
+const firestoreDocument = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
 const normalize = (value: string | undefined) => (value ?? "").trim();
 const key = (header: string) => header.toLowerCase().replace(/[^a-z0-9]/g, "");
 const valueFor = (row: Record<string, string>, patterns: RegExp[]) => {
@@ -143,7 +144,7 @@ const saveReview = async (review: FacilityReview) => {
     localReviews.set(`${review.workspaceId}:${review.reviewId}`, review);
     return;
   }
-  await intakeCollection(review.workspaceId, "facilityReviews").doc(review.reviewId).set(review);
+  await intakeCollection(review.workspaceId, "facilityReviews").doc(review.reviewId).set(firestoreDocument(review));
 };
 
 const findReview = async (workspaceId: string, reviewId: string): Promise<FacilityReview | null> => {
@@ -157,7 +158,7 @@ const persistFacilities = async (workspaceId: string, imported: Facility[]) => {
   if (isFirestorePrimaryEnabled()) {
     const collection = intakeCollection(workspaceId, "facilities");
     const batch = collection.firestore.batch();
-    imported.forEach((facility) => batch.set(collection.doc(facility.facilityId), facility));
+    imported.forEach((facility) => batch.set(collection.doc(facility.facilityId), firestoreDocument(facility)));
     await batch.commit();
     return;
   }
