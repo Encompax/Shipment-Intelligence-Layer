@@ -11,7 +11,18 @@ type Facility = {
   postalCode?: string;
   facilityType: "SUPPLIER" | "CROSSDOCK" | "DC" | "MFC" | "OTHER";
   propertyType: "COMMERCIAL" | "RESIDENTIAL";
+  primaryContactName?: string;
+  primaryContactTitle?: string;
+  primaryContactEmail?: string;
+  primaryContactPhone?: string;
+  operatingHours?: string;
 };
+
+const contactDetails = (facility: Facility) => [
+  [facility.primaryContactName, facility.primaryContactTitle].filter(Boolean).join(" - "),
+  facility.primaryContactEmail,
+  facility.primaryContactPhone,
+].filter(Boolean).join(" | ") || "--";
 
 type FacilityReview = {
   reviewId: string;
@@ -90,7 +101,7 @@ export default function FacilitiesPanel() {
           <button className="btn btn-primary" type="button" disabled={!file} onClick={reviewUpload}>Review with Encompax</button>
           <a className="btn btn-secondary" href="/templates/sil-facility-import-template.xlsx" download>Download facility template</a>
         </div>
-        <p className="ops-note">Use Site ID when your organization has a stable facility code. The Excel template includes Facility Type and Property Type dropdowns. Encompax reviews the file before anything is added and requires your confirmation to import it.</p>
+        <p className="ops-note">Use Site ID when your organization has a stable facility code. Primary contact details and operating hours are optional. The Excel template includes Facility Type and Property Type dropdowns. Encompax reviews the file before anything is added and requires your confirmation to import it.</p>
         {status && <p className="ops-note">{status}</p>}
       </section>
       {review && (
@@ -124,8 +135,8 @@ export default function FacilitiesPanel() {
           )}
           <div className="transport-table-wrap">
             <table className="transport-table">
-              <thead><tr><th>Facility</th><th>Site ID</th><th>Address</th><th>Type</th><th>Property</th></tr></thead>
-              <tbody>{review.rows.slice(reviewPage * 25, reviewPage * 25 + 25).map((facility) => <tr key={facility.facilityId}><td>{facility.name}</td><td>{facility.siteId ?? "--"}</td><td>{[facility.address, facility.city, facility.state, facility.postalCode].filter(Boolean).join(", ")}</td><td>{facility.facilityType}</td><td>{facility.propertyType}</td></tr>)}</tbody>
+              <thead><tr><th>Facility</th><th>Site ID</th><th>Address</th><th>Contact</th><th>Hours</th><th>Type</th><th>Property</th></tr></thead>
+              <tbody>{review.rows.slice(reviewPage * 25, reviewPage * 25 + 25).map((facility) => <tr key={facility.facilityId}><td>{facility.name}</td><td>{facility.siteId ?? "--"}</td><td>{[facility.address, facility.city, facility.state, facility.postalCode].filter(Boolean).join(", ")}</td><td>{contactDetails(facility)}</td><td>{facility.operatingHours ?? "--"}</td><td>{facility.facilityType}</td><td>{facility.propertyType}</td></tr>)}</tbody>
             </table>
           </div>
           {review.rows.length > 25 && (
@@ -145,8 +156,8 @@ export default function FacilitiesPanel() {
         <div className="transport-panel-header"><div><p className="transport-eyebrow">On file</p><h3>{facilities.length} location(s)</h3></div></div>
         <div className="transport-table-wrap">
           <table className="transport-table">
-            <thead><tr><th>Facility</th><th>Site ID</th><th>Address</th><th>Type</th><th>Property</th></tr></thead>
-            <tbody>{facilities.map((facility) => <tr key={facility.facilityId}><td>{facility.name}</td><td>{facility.siteId ?? "--"}</td><td>{[facility.address, facility.city, facility.state, facility.postalCode].filter(Boolean).join(", ")}</td><td>{facility.facilityType}</td><td>{facility.propertyType}</td></tr>)}</tbody>
+            <thead><tr><th>Facility</th><th>Site ID</th><th>Address</th><th>Contact</th><th>Hours</th><th>Type</th><th>Property</th></tr></thead>
+            <tbody>{facilities.map((facility) => <tr key={facility.facilityId}><td>{facility.name}</td><td>{facility.siteId ?? "--"}</td><td>{[facility.address, facility.city, facility.state, facility.postalCode].filter(Boolean).join(", ")}</td><td>{contactDetails(facility)}</td><td>{facility.operatingHours ?? "--"}</td><td>{facility.facilityType}</td><td>{facility.propertyType}</td></tr>)}</tbody>
           </table>
         </div>
         {facilities.length === 0 && <p className="ops-note">No facility records are on file.</p>}

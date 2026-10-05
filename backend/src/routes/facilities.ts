@@ -21,6 +21,11 @@ type Facility = {
   postalCode?: string;
   facilityType: FacilityType;
   propertyType: PropertyType;
+  primaryContactName?: string;
+  primaryContactTitle?: string;
+  primaryContactEmail?: string;
+  primaryContactPhone?: string;
+  operatingHours?: string;
   updatedAt: string;
 };
 
@@ -84,6 +89,11 @@ const buildFacility = (workspaceId: string, row: Record<string, string>, timesta
     postalCode: valueFor(row, [/postal/, /zipcode/, /^zip$/]) || undefined,
     facilityType: facilityType(valueFor(row, [/facilitytype/, /^type$/, /locationtype/])),
     propertyType: propertyType(valueFor(row, [/propertytype/, /addresstype/, /residentialcommercial/])),
+    primaryContactName: valueFor(row, [/primarycontactname/, /contactname/, /^contact$/]) || undefined,
+    primaryContactTitle: valueFor(row, [/primarycontacttitle/, /contacttitle/, /contactrole/]) || undefined,
+    primaryContactEmail: valueFor(row, [/primarycontactemail/, /contactemail/, /^email$/]) || undefined,
+    primaryContactPhone: valueFor(row, [/primarycontactphone/, /contactphone/, /^phone$/, /telephone/]) || undefined,
+    operatingHours: valueFor(row, [/operatinghours/, /operationhours/, /storehours/, /^hours$/]) || undefined,
     updatedAt: timestamp,
   };
 };
@@ -98,6 +108,9 @@ const reviewIssuesFor = (row: Record<string, string>, facility: Facility | null,
   }
   if (sourceProperty && !/commercial|residential/i.test(sourceProperty)) {
     issues.push({ row: rowNumber, severity: "REVIEW", field: "propertyType", message: `Unrecognized property type: ${sourceProperty}.` });
+  }
+  if (facility.primaryContactEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(facility.primaryContactEmail)) {
+    issues.push({ row: rowNumber, severity: "REVIEW", field: "primaryContactEmail", message: "Primary contact email is not in a recognized email format." });
   }
   if (/^\d{5,}$/.test(facility.name.replace(/[-\s]/g, ""))) {
     issues.push({ row: rowNumber, severity: "REVIEW", field: "name", message: "The facility name resembles an order or reference number; verify the source columns." });
@@ -180,7 +193,18 @@ export function registerFacilityRoutes(app: Express) {
       issues.push(...reviewIssuesFor(sourceRow, facility, rowNumber));
       if (!facility) return;
       rows.push(facility);
-      reviewRows.push({ row: rowNumber, ...facility });
+      // Contact details are retained in SIL but are intentionally excluded from the AI review payload.
+      reviewRows.push({
+        row: rowNumber,
+        name: facility.name,
+        siteId: facility.siteId,
+        address: facility.address,
+        city: facility.city,
+        state: facility.state,
+        postalCode: facility.postalCode,
+        facilityType: facility.facilityType,
+        propertyType: facility.propertyType,
+      });
     });
 
     let agentReview;
