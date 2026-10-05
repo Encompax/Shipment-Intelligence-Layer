@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { fetchFacilities, importReviewedFacilities, reviewFacilities } from "../api/client";
 
 type Facility = {
@@ -42,6 +42,30 @@ export default function FacilitiesPanel() {
   const [status, setStatus] = useState<string | null>(null);
   const [review, setReview] = useState<FacilityReview | null>(null);
   const [reviewPage, setReviewPage] = useState(0);
+  const [locationSearch, setLocationSearch] = useState("");
+
+  const filteredFacilities = useMemo(() => {
+    const terms = locationSearch.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean);
+    if (terms.length === 0) return facilities;
+    return facilities.filter((facility) => {
+      const searchable = [
+        facility.name,
+        facility.siteId,
+        facility.address,
+        facility.city,
+        facility.state,
+        facility.postalCode,
+        facility.facilityType,
+        facility.propertyType,
+        facility.primaryContactName,
+        facility.primaryContactTitle,
+        facility.primaryContactEmail,
+        facility.primaryContactPhone,
+        facility.operatingHours,
+      ].filter(Boolean).join(" ").toLocaleLowerCase();
+      return terms.every((term) => searchable.includes(term));
+    });
+  }, [facilities, locationSearch]);
 
   const load = async () => {
     try {
@@ -153,14 +177,24 @@ export default function FacilitiesPanel() {
         </section>
       )}
       <section className="transport-panel">
-        <div className="transport-panel-header"><div><p className="transport-eyebrow">On file</p><h3>{facilities.length} location(s)</h3></div></div>
+        <div className="transport-panel-header facility-list-header">
+          <div>
+            <p className="transport-eyebrow">On file</p>
+            <h3>{locationSearch.trim() ? `${filteredFacilities.length} of ${facilities.length}` : facilities.length} location(s)</h3>
+          </div>
+          <label className="facility-search">
+            <span>Search locations</span>
+            <input type="search" value={locationSearch} onChange={(event) => setLocationSearch(event.target.value)} placeholder="Name, Site ID, address, contact, type..." />
+          </label>
+        </div>
         <div className="transport-table-wrap">
           <table className="transport-table">
             <thead><tr><th>Facility</th><th>Site ID</th><th>Address</th><th>Contact</th><th>Hours</th><th>Type</th><th>Property</th></tr></thead>
-            <tbody>{facilities.map((facility) => <tr key={facility.facilityId}><td>{facility.name}</td><td>{facility.siteId ?? "--"}</td><td>{[facility.address, facility.city, facility.state, facility.postalCode].filter(Boolean).join(", ")}</td><td>{contactDetails(facility)}</td><td>{facility.operatingHours ?? "--"}</td><td>{facility.facilityType}</td><td>{facility.propertyType}</td></tr>)}</tbody>
+            <tbody>{filteredFacilities.map((facility) => <tr key={facility.facilityId}><td>{facility.name}</td><td>{facility.siteId ?? "--"}</td><td>{[facility.address, facility.city, facility.state, facility.postalCode].filter(Boolean).join(", ")}</td><td>{contactDetails(facility)}</td><td>{facility.operatingHours ?? "--"}</td><td>{facility.facilityType}</td><td>{facility.propertyType}</td></tr>)}</tbody>
           </table>
         </div>
         {facilities.length === 0 && <p className="ops-note">No facility records are on file.</p>}
+        {facilities.length > 0 && filteredFacilities.length === 0 && <p className="ops-note">No locations match your search.</p>}
       </section>
     </div>
   );

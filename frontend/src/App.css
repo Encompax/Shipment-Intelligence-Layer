@@ -1698,6 +1698,31 @@ td {
   font-weight: var(--font-weight-semibold);
 }
 
+.facility-search {
+  display: grid;
+  gap: var(--space-1);
+  width: min(28rem, 50%);
+  margin: 0;
+}
+
+.facility-search span {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+@media (max-width: 760px) {
+  .facility-list-header {
+    flex-direction: column;
+  }
+
+  .facility-search {
+    width: 100%;
+  }
+}
+
 .transport-load-list,
 .lane-list,
 .signal-list {
