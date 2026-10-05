@@ -14,6 +14,7 @@ type Facility = {
   facilityId: string;
   workspaceId: string;
   name: string;
+  siteId?: string;
   address: string;
   city: string;
   state: string;
@@ -67,14 +68,16 @@ const comparable = (value: string | undefined) => normalize(value).toLocaleLower
 
 const buildFacility = (workspaceId: string, row: Record<string, string>, timestamp: string): Facility | null => {
   const name = valueFor(row, [/facilityname/, /^name$/, /locationname/]);
+  const siteId = valueFor(row, [/siteid/, /sitecode/, /facilityid/, /locationid/]) || undefined;
   const address = valueFor(row, [/address1?/, /street/, /address/]);
   const city = valueFor(row, [/city/, /municipality/]);
   const state = valueFor(row, [/state/, /province/, /region/]);
   if (!name || !address || !city || !state) return null;
   return {
-    facilityId: `facility-${createHash("sha256").update(`${workspaceId}|${name}|${address}|${city}|${state}`).digest("hex").slice(0, 20)}`,
+    facilityId: `facility-${createHash("sha256").update(siteId ? `${workspaceId}|${siteId}` : `${workspaceId}|${name}|${address}|${city}|${state}`).digest("hex").slice(0, 20)}`,
     workspaceId,
     name,
+    siteId,
     address,
     city,
     state,

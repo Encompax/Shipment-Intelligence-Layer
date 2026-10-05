@@ -3,6 +3,7 @@ import OpenAI from "openai";
 export type FacilityReviewRow = {
   row: number;
   name: string;
+  siteId?: string;
   address: string;
   city: string;
   state: string;
