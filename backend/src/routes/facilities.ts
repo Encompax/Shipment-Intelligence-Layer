@@ -26,6 +26,8 @@ type Facility = {
   primaryContactEmail?: string;
   primaryContactPhone?: string;
   operatingHours?: string;
+  regionalManager?: string;
+  supplyChainBusinessPartner?: string;
   updatedAt: string;
 };
 
@@ -94,6 +96,8 @@ const buildFacility = (workspaceId: string, row: Record<string, string>, timesta
     primaryContactEmail: valueFor(row, [/primarycontactemail/, /contactemail/, /^email$/]) || undefined,
     primaryContactPhone: valueFor(row, [/primarycontactphone/, /contactphone/, /^phone$/, /telephone/]) || undefined,
     operatingHours: valueFor(row, [/operatinghours/, /operationhours/, /storehours/, /^hours$/]) || undefined,
+    regionalManager: valueFor(row, [/regionalmanager/, /regionmanager/]) || undefined,
+    supplyChainBusinessPartner: valueFor(row, [/supplychainbusinesspartner/, /supplychainpartner/, /scbp/]) || undefined,
     updatedAt: timestamp,
   };
 };

@@ -16,12 +16,19 @@ type Facility = {
   primaryContactEmail?: string;
   primaryContactPhone?: string;
   operatingHours?: string;
+  regionalManager?: string;
+  supplyChainBusinessPartner?: string;
 };
 
 const contactDetails = (facility: Facility) => [
   [facility.primaryContactName, facility.primaryContactTitle].filter(Boolean).join(" - "),
   facility.primaryContactEmail,
   facility.primaryContactPhone,
+].filter(Boolean).join(" | ") || "--";
+
+const ownershipDetails = (facility: Facility) => [
+  facility.regionalManager ? `Regional: ${facility.regionalManager}` : "",
+  facility.supplyChainBusinessPartner ? `SCBP: ${facility.supplyChainBusinessPartner}` : "",
 ].filter(Boolean).join(" | ") || "--";
 
 type FacilityReview = {
@@ -41,6 +48,7 @@ const emptyManualFacility: ManualFacility = {
   name: "", siteId: "", address: "", city: "", state: "", postalCode: "",
   facilityType: "OTHER", propertyType: "COMMERCIAL", primaryContactName: "",
   primaryContactTitle: "", primaryContactEmail: "", primaryContactPhone: "", operatingHours: "",
+  regionalManager: "", supplyChainBusinessPartner: "",
 };
 
 export default function FacilitiesPanel() {
@@ -72,6 +80,8 @@ export default function FacilitiesPanel() {
         facility.primaryContactEmail,
         facility.primaryContactPhone,
         facility.operatingHours,
+        facility.regionalManager,
+        facility.supplyChainBusinessPartner,
       ].filter(Boolean).join(" ").toLocaleLowerCase();
       return terms.every((term) => searchable.includes(term));
     });
@@ -189,8 +199,8 @@ export default function FacilitiesPanel() {
           )}
           <div className="transport-table-wrap">
             <table className="transport-table">
-              <thead><tr><th>Facility</th><th>Site ID</th><th>Address</th><th>Contact</th><th>Hours</th><th>Type</th><th>Property</th></tr></thead>
-              <tbody>{review.rows.slice(reviewPage * 25, reviewPage * 25 + 25).map((facility) => <tr key={facility.facilityId}><td>{facility.name}</td><td>{facility.siteId ?? "--"}</td><td>{[facility.address, facility.city, facility.state, facility.postalCode].filter(Boolean).join(", ")}</td><td>{contactDetails(facility)}</td><td>{facility.operatingHours ?? "--"}</td><td>{facility.facilityType}</td><td>{facility.propertyType}</td></tr>)}</tbody>
+              <thead><tr><th>Facility</th><th>Site ID</th><th>Address</th><th>Contact</th><th>Ownership</th><th>Hours</th><th>Type</th><th>Property</th></tr></thead>
+              <tbody>{review.rows.slice(reviewPage * 25, reviewPage * 25 + 25).map((facility) => <tr key={facility.facilityId}><td>{facility.name}</td><td>{facility.siteId ?? "--"}</td><td>{[facility.address, facility.city, facility.state, facility.postalCode].filter(Boolean).join(", ")}</td><td>{contactDetails(facility)}</td><td>{ownershipDetails(facility)}</td><td>{facility.operatingHours ?? "--"}</td><td>{facility.facilityType}</td><td>{facility.propertyType}</td></tr>)}</tbody>
             </table>
           </div>
           {review.rows.length > 25 && (
@@ -225,6 +235,8 @@ export default function FacilitiesPanel() {
             <label>Contact title<input value={manualFacility.primaryContactTitle} onChange={(event) => updateManual("primaryContactTitle", event.target.value)} /></label>
             <label>Contact email<input type="email" value={manualFacility.primaryContactEmail} onChange={(event) => updateManual("primaryContactEmail", event.target.value)} /></label>
             <label>Contact phone<input type="tel" value={manualFacility.primaryContactPhone} onChange={(event) => updateManual("primaryContactPhone", event.target.value)} /></label>
+            <label>Regional manager<input value={manualFacility.regionalManager} onChange={(event) => updateManual("regionalManager", event.target.value)} /></label>
+            <label>Supply Chain Business Partner<input value={manualFacility.supplyChainBusinessPartner} onChange={(event) => updateManual("supplyChainBusinessPartner", event.target.value)} /></label>
             <label className="facility-hours-field">Operating hours<input value={manualFacility.operatingHours} onChange={(event) => updateManual("operatingHours", event.target.value)} placeholder="Mon-Fri 08:00-17:00" /></label>
           </div>
           <div className="intake-actions">
@@ -246,8 +258,8 @@ export default function FacilitiesPanel() {
         </div>
         <div className="transport-table-wrap">
           <table className="transport-table">
-            <thead><tr><th>Facility</th><th>Site ID</th><th>Address</th><th>Contact</th><th>Hours</th><th>Type</th><th>Property</th></tr></thead>
-            <tbody>{filteredFacilities.map((facility) => <tr key={facility.facilityId}><td>{facility.name}</td><td>{facility.siteId ?? "--"}</td><td>{[facility.address, facility.city, facility.state, facility.postalCode].filter(Boolean).join(", ")}</td><td>{contactDetails(facility)}</td><td>{facility.operatingHours ?? "--"}</td><td>{facility.facilityType}</td><td>{facility.propertyType}</td></tr>)}</tbody>
+            <thead><tr><th>Facility</th><th>Site ID</th><th>Address</th><th>Contact</th><th>Ownership</th><th>Hours</th><th>Type</th><th>Property</th></tr></thead>
+            <tbody>{filteredFacilities.map((facility) => <tr key={facility.facilityId}><td>{facility.name}</td><td>{facility.siteId ?? "--"}</td><td>{[facility.address, facility.city, facility.state, facility.postalCode].filter(Boolean).join(", ")}</td><td>{contactDetails(facility)}</td><td>{ownershipDetails(facility)}</td><td>{facility.operatingHours ?? "--"}</td><td>{facility.facilityType}</td><td>{facility.propertyType}</td></tr>)}</tbody>
           </table>
         </div>
         {facilities.length === 0 && <p className="ops-note">No facility records are on file.</p>}
