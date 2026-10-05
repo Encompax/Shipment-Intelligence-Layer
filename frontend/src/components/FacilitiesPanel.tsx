@@ -53,13 +53,14 @@ export default function FacilitiesPanel() {
       <section className="transport-panel">
         <div className="transport-panel-header">
           <div><p className="transport-eyebrow">Bulk import</p><h3>Add facility records</h3></div>
-          <span>CSV</span>
+          <span>CSV / Excel</span>
         </div>
         <div className="intake-actions">
-          <input type="file" accept=".csv,text/csv" onChange={(event) => setFile(event.target.files?.[0] ?? null)} />
+          <input type="file" accept=".csv,.xlsx,.xls,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" onChange={(event) => setFile(event.target.files?.[0] ?? null)} />
           <button className="btn btn-primary" type="button" disabled={!file} onClick={upload}>Import facilities</button>
+          <a className="btn btn-secondary" href="/templates/sil-facility-import-template.xlsx" download>Download facility template</a>
         </div>
-        <p className="ops-note">Use columns for facility name, address, city, state, postal code, facility type, and property type. Facility types: Supplier, Crossdock, DC, MFC, or Other. Property type: Commercial or Residential.</p>
+        <p className="ops-note">The Excel template includes Facility Type and Property Type dropdowns. Facility types: Supplier, Crossdock, DC, MFC, or Other. Property type: Commercial or Residential.</p>
         {status && <p className="ops-note">{status}</p>}
       </section>
       <section className="transport-panel">

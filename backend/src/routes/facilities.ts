@@ -2,6 +2,7 @@ import { createHash } from "crypto";
 import { Express, Request, Response } from "express";
 import * as fileUpload from "express-fileupload";
 import path from "path";
+import * as XLSX from "xlsx";
 import { isFirestorePrimaryEnabled } from "../lib/firestore";
 import { intakeWorkspace, requireIntakeWorkspace } from "../middleware/requireIntakeWorkspace";
 import { intakeCollection } from "../services/intake/intakeStore";
@@ -33,6 +34,14 @@ const parseCsv = (content: string) => {
   const headers = rows.shift() ?? [];
   return rows.map((cells) => Object.fromEntries(headers.map((header, index) => [header, cells[index] ?? ""])));
 };
+const parseFacilityRows = (upload: fileUpload.UploadedFile, extension: string): Array<Record<string, string>> => {
+  if (extension === ".csv") return parseCsv(upload.data.toString("utf8"));
+  const workbook = XLSX.read(upload.data, { type: "buffer" });
+  const worksheet = workbook.Sheets[workbook.SheetNames[0]];
+  if (!worksheet) return [];
+  return XLSX.utils.sheet_to_json<Record<string, unknown>>(worksheet, { defval: "", raw: false })
+    .map((row) => Object.fromEntries(Object.entries(row).map(([header, value]) => [header, String(value ?? "")] )));
+};
 const facilityType = (value: string): FacilityType => {
   const candidate = value.toUpperCase().replace(/[\s-]/g, "");
   if (["SUPPLIER", "CROSSDOCK", "DC", "MFC"].includes(candidate)) return candidate as FacilityType;
@@ -53,13 +62,14 @@ export function registerFacilityRoutes(app: Express) {
   app.post("/api/facilities/import", async (req: Request, res: Response) => {
     const workspaceId = intakeWorkspace(req);
     const upload = req.files?.file as fileUpload.UploadedFile | undefined;
-    if (!upload || Array.isArray(upload)) return res.status(400).json({ error: "Upload one CSV facility file." });
-    if (path.extname(upload.name).toLowerCase() !== ".csv") return res.status(415).json({ error: "Facility imports currently support CSV files." });
+    if (!upload || Array.isArray(upload)) return res.status(400).json({ error: "Upload one CSV or Excel facility file." });
+    const extension = path.extname(upload.name).toLowerCase();
+    if (![".csv", ".xlsx", ".xls"].includes(extension)) return res.status(415).json({ error: "Facility imports support CSV, XLSX, and XLS files." });
 
     const imported: Facility[] = [];
     const rejected: Array<{ row: number; error: string }> = [];
     const timestamp = new Date().toISOString();
-    for (const [index, row] of parseCsv(upload.data.toString("utf8")).entries()) {
+    for (const [index, row] of parseFacilityRows(upload, extension).entries()) {
       const name = valueFor(row, [/facilityname/, /^name$/, /locationname/]);
       const address = valueFor(row, [/address1?/, /street/, /address/]);
       const city = valueFor(row, [/city/, /municipality/]);
