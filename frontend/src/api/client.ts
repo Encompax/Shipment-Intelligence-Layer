@@ -595,6 +595,38 @@ export async function fetchFacilities() {
   return readJsonResponse(res, "Facility list error");
 }
 
+export async function fetchLaneRegistry() {
+  const res = await fetch(`${API_BASE}/lanes`);
+  return readJsonResponse(res, "Failed to load lane registry");
+}
+
+export async function createLane(payload: Record<string, unknown>) {
+  const res = await fetch(`${API_BASE}/lanes`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  return readJsonResponse(res, "Failed to create lane");
+}
+
+export async function addLaneEligibility(laneId: string, payload: { externalPartnerId: string; notes?: string }) {
+  const res = await fetch(`${API_BASE}/lanes/${encodeURIComponent(laneId)}/eligibility`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  return readJsonResponse(res, "Failed to add carrier eligibility");
+}
+
+export async function createLaneAward(laneId: string, payload: Record<string, unknown>) {
+  const res = await fetch(`${API_BASE}/lanes/${encodeURIComponent(laneId)}/awards`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  return readJsonResponse(res, "Failed to create lane award");
+}
+
 export async function createFacility(payload: Record<string, string>) {
   const res = await fetch(`${API_BASE}/facilities`, {
     method: "POST",

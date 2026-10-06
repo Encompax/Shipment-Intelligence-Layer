@@ -18,6 +18,7 @@ import { registerShipmentIntelligenceRoutes } from "./routes/shipment-intelligen
 import { requireSilAuth } from "./middleware/requireSilAuth";
 import { registerEncompaxAuthRoutes } from "./routes/encompax-auth";
 import { registerFacilityRoutes } from "./routes/facilities";
+import { registerLaneRoutes } from "./routes/lanes";
 import { assertIntakeStorageConfigured } from "./services/intake/intakeStore";
 
 assertIntakeStorageConfigured();
@@ -56,6 +57,7 @@ registerEncompaxAuthRoutes(app);
 app.use("/api", requireSilAuth);
 registerDatasourceRoutes(app);
 registerFacilityRoutes(app);
+registerLaneRoutes(app);
 registerJobRoutes(app);
 registerUploadRoutes(app);
 registerMetricsRoutes(app);

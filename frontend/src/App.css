@@ -1312,6 +1312,94 @@ td {
   }
 }
 
+.lane-registry { display: grid; gap: 14px; min-width: 0; }
+.lane-hero { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; }
+.lane-metrics { display: grid; grid-template-columns: repeat(3, minmax(92px, 1fr)); border: 1px solid #30445b; min-width: min(420px, 48%); }
+.lane-metrics div { display: grid; gap: 4px; padding: 12px 14px; border-right: 1px solid #30445b; }
+.lane-metrics div:last-child { border-right: 0; }
+.lane-metrics span, .lane-pane-heading span, .lane-section-heading span, .lane-route-web article > span, .lane-profile-facts span { color: #8fa4bb; font-size: 11px; text-transform: uppercase; }
+.lane-metrics strong { color: #f3f7fc; font-size: 20px; }
+.lane-type-tabs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border: 1px solid #30445b; background: #101b29; }
+.lane-type-tabs button { display: flex; align-items: center; justify-content: space-between; min-height: 42px; padding: 8px 14px; border: 0; border-right: 1px solid #30445b; background: transparent; color: #aebed0; cursor: pointer; }
+.lane-type-tabs button:last-child { border-right: 0; }
+.lane-type-tabs button.active { background: #1d344e; color: #f5f8fc; box-shadow: inset 0 -2px #4c9de8; }
+.lane-type-tabs button span { min-width: 24px; padding: 2px 6px; border: 1px solid #45627f; text-align: center; font-size: 11px; }
+.lane-status { margin: 0; }
+.lane-workbench { display: grid; grid-template-columns: minmax(245px, 0.28fr) minmax(0, 1fr); min-height: min(680px, calc(100vh - 245px)); border: 1px solid #30445b; background: #0d1724; }
+.lane-list-pane { border-right: 1px solid #30445b; min-width: 0; }
+.lane-pane-heading, .lane-section-heading { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 14px; border-bottom: 1px solid #30445b; }
+.lane-pane-heading > div, .lane-section-heading > div { display: grid; gap: 3px; }
+.lane-pane-heading strong, .lane-section-heading h4 { margin: 0; color: #f3f7fc; font-size: 15px; }
+.lane-list { display: grid; align-content: start; max-height: calc(100vh - 315px); overflow: auto; }
+.lane-list > button { display: grid; gap: 5px; padding: 14px; border: 0; border-bottom: 1px solid #273a50; background: transparent; color: #c2cfdd; text-align: left; cursor: pointer; }
+.lane-list > button:hover, .lane-list > button.active { background: #17283b; }
+.lane-list > button.active { box-shadow: inset 3px 0 #4c9de8; }
+.lane-list > button strong { color: #f2f6fb; }
+.lane-list > button span, .lane-list > button small { color: #91a4b9; }
+.lane-detail-pane { min-width: 0; overflow: auto; }
+.lane-profile-header { display: flex; justify-content: space-between; align-items: center; padding: 16px 18px; border-bottom: 1px solid #30445b; }
+.lane-profile-header h3 { margin: 3px 0 0; color: #f4f8fc; font-size: 22px; }
+.lane-route-web { display: grid; grid-template-columns: minmax(0, 1fr) 150px minmax(0, 1fr); align-items: stretch; padding: 16px 18px; }
+.lane-route-web article { display: grid; gap: 6px; padding: 16px; border: 1px solid #30445b; background: #142131; }
+.lane-route-web article strong { color: #f4f8fc; }
+.lane-route-web article p { margin: 0; color: #9eb0c3; }
+.lane-route-connector { display: grid; align-content: center; justify-items: center; gap: 4px; color: #91a4b9; }
+.lane-route-connector strong { color: #4c9de8; font-size: 28px; }
+.lane-route-connector span, .lane-route-connector small { font-size: 11px; text-align: center; }
+.lane-profile-facts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); margin: 0 18px 16px; border: 1px solid #30445b; }
+.lane-profile-facts div { display: grid; gap: 5px; padding: 11px 13px; border-right: 1px solid #30445b; }
+.lane-profile-facts div:last-child { border-right: 0; }
+.lane-profile-facts strong { color: #e9f0f8; font-size: 13px; }
+.lane-relationship-section { margin: 0 18px 16px; border: 1px solid #30445b; background: #111d2b; }
+.lane-inline-form { display: flex; gap: 8px; min-width: min(470px, 60%); }
+.lane-inline-form select { flex: 1; min-width: 0; }
+.lane-chip-list { display: flex; flex-wrap: wrap; gap: 8px; padding: 14px; }
+.lane-chip-list span { padding: 7px 9px; border: 1px solid #3d5875; background: #182b40; color: #dce7f3; font-size: 12px; }
+.lane-chip-list p { margin: 0; color: #91a4b9; }
+.lane-create-form { margin: 0; }
+.lane-form-grid, .lane-award-form { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; padding: 16px; }
+.lane-form-grid label, .lane-award-form label { display: grid; gap: 6px; color: #bac8d7; font-size: 12px; }
+.lane-form-grid input, .lane-form-grid select, .lane-form-grid textarea, .lane-award-form input, .lane-award-form select, .lane-inline-form select { width: 100%; min-height: 38px; padding: 8px 10px; border: 1px solid #3b516a; background: #0c1622; color: #eef4fb; }
+.lane-form-grid textarea { min-height: 74px; resize: vertical; }
+.lane-form-wide { grid-column: 1 / -1; }
+.lane-form-actions { display: flex; justify-content: flex-end; padding: 0 16px 16px; }
+.lane-award-form { grid-template-columns: repeat(4, minmax(0, 1fr)); align-items: end; }
+.lane-award-history { border-top: 1px solid #30445b; overflow-x: auto; }
+.lane-award-row { display: grid; grid-template-columns: 1.2fr 0.7fr 1fr 1.2fr 0.7fr; gap: 10px; align-items: center; min-width: 690px; padding: 10px 14px; border-bottom: 1px solid #273a50; color: #afbdcc; font-size: 12px; }
+.lane-award-row:last-child { border-bottom: 0; }
+.lane-award-row strong { color: #edf3fa; }
+.lane-award-head { color: #8096ad; text-transform: uppercase; font-size: 10px; }
+.lane-empty { padding: 24px 16px; color: #91a4b9; }
+.lane-empty strong { color: #eaf1f8; }
+.lane-empty p { line-height: 1.5; }
+.lane-detail-empty { min-height: 320px; display: grid; place-content: center; text-align: center; }
+
+@media (max-width: 1050px) {
+  .lane-hero { align-items: stretch; flex-direction: column; }
+  .lane-metrics { min-width: 0; width: 100%; }
+  .lane-workbench { grid-template-columns: 220px minmax(0, 1fr); }
+  .lane-form-grid, .lane-award-form { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .lane-inline-form { min-width: 0; width: 100%; }
+  .lane-section-heading { align-items: stretch; flex-direction: column; }
+}
+
+@media (max-width: 760px) {
+  .lane-type-tabs { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .lane-type-tabs button:nth-child(2) { border-right: 0; }
+  .lane-type-tabs button:nth-child(-n+2) { border-bottom: 1px solid #30445b; }
+  .lane-workbench { grid-template-columns: 1fr; min-height: 0; }
+  .lane-list-pane { border-right: 0; border-bottom: 1px solid #30445b; }
+  .lane-list { max-height: 230px; }
+  .lane-route-web { grid-template-columns: 1fr; gap: 8px; }
+  .lane-route-connector { grid-template-columns: 1fr auto 1fr; }
+  .lane-route-connector strong { transform: rotate(90deg); }
+  .lane-profile-facts, .lane-metrics { grid-template-columns: 1fr; }
+  .lane-profile-facts div, .lane-metrics div { border-right: 0; border-bottom: 1px solid #30445b; }
+  .lane-profile-facts div:last-child, .lane-metrics div:last-child { border-bottom: 0; }
+  .lane-form-grid, .lane-award-form { grid-template-columns: 1fr; }
+  .lane-inline-form { flex-direction: column; }
+}
+
 .intake-alert {
   padding: var(--space-3) var(--space-4);
   border: 1px solid rgba(220, 38, 38, 0.24);
