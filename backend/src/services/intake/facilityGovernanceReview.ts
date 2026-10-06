@@ -33,6 +33,8 @@ export type FacilityGovernanceReview = {
   corrections: FacilityCorrection[];
 };
 
+export type OptionalFieldCoverage = Record<string, { populated: number; total: number }>;
+
 const CORRECTABLE_FIELDS = new Set<FacilityCorrection["field"]>([
   "name", "address", "city", "state", "postalCode", "facilityType", "propertyType",
 ]);
@@ -78,6 +80,7 @@ export async function reviewFacilityIntake(input: {
   headers: string[];
   rows: FacilityReviewRow[];
   issues: FacilityReviewIssue[];
+  optionalFieldCoverage: OptionalFieldCoverage;
   safetyIdentifier?: string;
 }): Promise<FacilityGovernanceReview> {
   const response = await openai().responses.create({
@@ -88,12 +91,22 @@ export async function reviewFacilityIntake(input: {
     safety_identifier: input.safetyIdentifier,
     instructions: `You are the SIL facility-intake agent. Review organization-scoped location records before import.
 Identify mechanical formatting problems, invalid categorical values, missing values, and likely column/content mismatches.
+Primary contact name, contact title, contact email, contact phone, operating hours, regional manager, and supply chain
+business partner are optional. Their values are intentionally withheld from this review. The optionalFieldCoverage counts
+show whether those values exist in the source rows without exposing personal data. Never state that an optional field is
+missing or list it as a risk solely because its value is absent from the review rows. Do not infer that a value is blank
+when its coverage count says it is populated. Required fields are facility name, address, city, and state.
 You may propose a correction only when the corrected value is directly supported by the supplied row. Never invent an
 address, geographic fact, postal code, facility identity, or missing value. Do not claim that an address was verified
 against an external source. A potentially incorrect street, city, state, or postal code must be listed in risks for
 operator verification, not changed. Keep corrections limited to clear whitespace, capitalization, punctuation, or
 provided enum normalization. This is a governed proposal: it cannot import records or alter data.`,
-    input: JSON.stringify({ headers: input.headers, rows: input.rows.slice(0, 100), knownIssues: input.issues.slice(0, 100) }),
+    input: JSON.stringify({
+      headers: input.headers,
+      rows: input.rows.slice(0, 100),
+      optionalFieldCoverage: input.optionalFieldCoverage,
+      knownIssues: input.issues.slice(0, 100),
+    }),
     text: { verbosity: "low", format: { type: "json_schema", name: "sil_facility_review", strict: true, schema } },
   });
   const parsed = JSON.parse(response.output_text) as Partial<FacilityGovernanceReview>;

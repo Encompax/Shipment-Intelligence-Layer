@@ -73,6 +73,21 @@ const facilityType = (value: string): FacilityType => {
 };
 const propertyType = (value: string): PropertyType => value.toUpperCase().includes("RESIDENT") ? "RESIDENTIAL" : "COMMERCIAL";
 const comparable = (value: string | undefined) => normalize(value).toLocaleLowerCase().replace(/[^a-z0-9]/g, "");
+const optionalFieldCoverage = (rows: Facility[]) => {
+  const fields: Array<keyof Facility> = [
+    "primaryContactName",
+    "primaryContactTitle",
+    "primaryContactEmail",
+    "primaryContactPhone",
+    "operatingHours",
+    "regionalManager",
+    "supplyChainBusinessPartner",
+  ];
+  return Object.fromEntries(fields.map((field) => [
+    field,
+    { populated: rows.filter((row) => normalize(String(row[field] ?? ""))).length, total: rows.length },
+  ]));
+};
 
 const buildFacility = (workspaceId: string, row: Record<string, string>, timestamp: string): Facility | null => {
   const name = valueFor(row, [/facilityname/, /^name$/, /locationname/]);
@@ -230,6 +245,7 @@ export function registerFacilityRoutes(app: Express) {
         headers: Object.keys(sourceRows[0] ?? {}),
         rows: reviewRows,
         issues,
+        optionalFieldCoverage: optionalFieldCoverage(rows),
         safetyIdentifier: createHash("sha256").update(workspaceId).digest("hex"),
       });
     } catch (error) {
