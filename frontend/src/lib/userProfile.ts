@@ -50,6 +50,14 @@ export type SilUserProfile = {
     acceptedAt?: unknown;
   };
   ownerEmail?: string | null;
+  userType?: "encompax_employee" | "customer_user" | "partner_user";
+  organizationClass?: "encompax" | "customer" | "partner" | "vendor";
+  partnerRelationship?: {
+    clientOrgScope?: string;
+    clientOrganizationName?: string;
+    externalPartnerId?: string;
+    accessScopes?: string[];
+  };
 };
 
 export async function getSilUserProfile(uid: string) {

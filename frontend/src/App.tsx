@@ -5,6 +5,7 @@ import Dashboard from "./pages/Dashboard";
 import AuthGate from "./components/AuthGate";
 import PostSignupSetup from "./components/PostSignupSetup";
 import { getSilUserProfile, SilUserProfile } from "./lib/userProfile";
+import PartnerWorkspace from "./pages/PartnerWorkspace";
 
 const App: React.FC = () => {
   const [user, setUser] = useState<User | null>(null);
@@ -68,6 +69,19 @@ const App: React.FC = () => {
 
   if (!profile?.setupCompleted) {
     return <PostSignupSetup profile={profile} user={user} onComplete={setProfile} />;
+  }
+
+  if (profile.userType === "partner_user") {
+    return (
+      <PartnerWorkspace
+        partnerName={profile.organization || "Partner organization"}
+        clientName={profile.partnerRelationship?.clientOrganizationName || "Client organization"}
+        currentUserName={user.displayName || user.email || "Partner operator"}
+        currentUserEmail={user.email || ""}
+        accessScopes={profile.partnerRelationship?.accessScopes || []}
+        onSignOut={() => signOut(auth)}
+      />
+    );
   }
 
   return (
