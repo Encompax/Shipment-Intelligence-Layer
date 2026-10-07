@@ -6,6 +6,7 @@ import { getSilFirestore, isFirestorePrimaryEnabled } from "../lib/firestore";
 
 type LaneType = "LINEHAUL" | "FINAL_MILE" | "INBOUND" | "ADHOC";
 type AwardType = "PRIMARY" | "BACKUP" | "SPOT";
+type AdhocMode = "ONE_TIME" | "ROLLING_CONTINGENCY" | "TEMPORARY_RECURRING";
 
 type LaneRecord = {
   laneId: string;
@@ -27,6 +28,11 @@ type LaneRecord = {
   effectiveTo?: string;
   notes?: string;
   adhocReason?: "CARRIER_COVERAGE" | "SPECIAL_PROJECT" | "VOLUME_CAPACITY";
+  adhocMode?: AdhocMode;
+  parentLaneId?: string;
+  maxUsesPerWeek?: number;
+  responseDeadlineHours?: number;
+  rateCap?: number;
   status: "ACTIVE";
   createdBy: string;
   createdAt: string;
@@ -70,6 +76,7 @@ const laneTypes = new Set<LaneType>(["LINEHAUL", "FINAL_MILE", "INBOUND", "ADHOC
 const awardTypes = new Set<AwardType>(["PRIMARY", "BACKUP", "SPOT"]);
 const rateUnits = new Set(["PER_LOAD", "PER_MILE", "FLAT"]);
 const adhocReasons = new Set(["CARRIER_COVERAGE", "SPECIAL_PROJECT", "VOLUME_CAPACITY"]);
+const adhocModes = new Set<AdhocMode>(["ONE_TIME", "ROLLING_CONTINGENCY", "TEMPORARY_RECURRING"]);
 const equipmentAssumptions = new Map([
   ["53 FT DRY VAN", "TL" as const],
   ["26 FT DRY VAN", "LTL" as const],
@@ -140,6 +147,14 @@ async function laneExists(workspaceId: string, laneId: string) {
   return (await intakeCollection(workspaceId, "lanes").doc(laneId).get()).exists;
 }
 
+async function findLane(workspaceId: string, laneId: string): Promise<LaneRecord | undefined> {
+  if (!laneId) return undefined;
+  if (!isFirestorePrimaryEnabled()) return (localLanes.get(workspaceId) ?? []).find((lane) => lane.laneId === laneId);
+  const snapshot = await intakeCollection(workspaceId, "lanes").doc(laneId).get();
+  const lane = snapshot.data() as LaneRecord | undefined;
+  return lane?.workspaceId === workspaceId ? lane : undefined;
+}
+
 export function registerLaneRoutes(app: Express) {
   app.get("/api/lanes", async (req: Request, res: Response) => {
     const auth = requireClient(req, res);
@@ -167,6 +182,11 @@ export function registerLaneRoutes(app: Express) {
     const effectiveFrom = cleanText(req.body?.effectiveFrom, 10);
     const effectiveTo = cleanText(req.body?.effectiveTo, 10);
     const adhocReason = cleanText(req.body?.adhocReason).toUpperCase();
+    const adhocMode = cleanText(req.body?.adhocMode).toUpperCase() as AdhocMode;
+    const parentLaneId = cleanText(req.body?.parentLaneId, 180);
+    const maxUsesPerWeek = optionalNumber(req.body?.maxUsesPerWeek);
+    const responseDeadlineHours = optionalNumber(req.body?.responseDeadlineHours);
+    const rateCap = optionalNumber(req.body?.rateCap);
     const standardOriginDepartureTime = cleanText(req.body?.standardOriginDepartureTime, 5);
     const standardCarrierArrivalStart = cleanText(req.body?.standardCarrierArrivalStart, 5);
     const standardCarrierArrivalEnd = cleanText(req.body?.standardCarrierArrivalEnd, 5);
@@ -194,6 +214,20 @@ export function registerLaneRoutes(app: Express) {
     if (laneType === "ADHOC" && !adhocReasons.has(adhocReason)) {
       return res.status(400).json({ error: "Select whether the adhoc lane supports carrier coverage, a special project, or volume capacity." });
     }
+    if (laneType === "ADHOC" && !adhocModes.has(adhocMode)) {
+      return res.status(400).json({ error: "Select a one-time, rolling contingency, or temporary recurring adhoc mode." });
+    }
+    if (laneType === "ADHOC" && adhocMode === "ROLLING_CONTINGENCY") {
+      const parentLane = await findLane(auth.orgScope, parentLaneId);
+      if (!parentLane || parentLane.laneType === "ADHOC") return res.status(400).json({ error: "A rolling contingency must reference an existing standard lane." });
+    }
+    if (maxUsesPerWeek !== undefined && (!Number.isInteger(maxUsesPerWeek) || maxUsesPerWeek < 1 || maxUsesPerWeek > 999)) {
+      return res.status(400).json({ error: "Maximum uses per week must be a whole number between 1 and 999." });
+    }
+    if (responseDeadlineHours !== undefined && (!Number.isFinite(responseDeadlineHours) || responseDeadlineHours <= 0 || responseDeadlineHours > 168)) {
+      return res.status(400).json({ error: "Carrier response deadline must be between 0 and 168 hours." });
+    }
+    if (rateCap !== undefined && (!Number.isFinite(rateCap) || rateCap <= 0)) return res.status(400).json({ error: "Rate cap must be greater than zero." });
     if (!(await facilityExists(auth.orgScope, originFacilityId)) || !(await facilityExists(auth.orgScope, destinationFacilityId))) {
       return res.status(400).json({ error: "Both lane facilities must exist in this workspace." });
     }
@@ -214,6 +248,11 @@ export function registerLaneRoutes(app: Express) {
       effectiveTo: effectiveTo || undefined,
       notes: cleanText(req.body?.notes, 1000) || undefined,
       adhocReason: laneType === "ADHOC" ? adhocReason as LaneRecord["adhocReason"] : undefined,
+      adhocMode: laneType === "ADHOC" ? adhocMode : undefined,
+      parentLaneId: laneType === "ADHOC" && parentLaneId ? parentLaneId : undefined,
+      maxUsesPerWeek: laneType === "ADHOC" ? maxUsesPerWeek : undefined,
+      responseDeadlineHours: laneType === "ADHOC" ? responseDeadlineHours : undefined,
+      rateCap: laneType === "ADHOC" ? rateCap : undefined,
       status: "ACTIVE", createdBy: auth.uid, createdAt: now, updatedAt: now,
     };
     if (isFirestorePrimaryEnabled()) await intakeCollection(auth.orgScope, "lanes").doc(lane.laneId).create(lane);
