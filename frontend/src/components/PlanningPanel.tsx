@@ -4,7 +4,8 @@ import { addLaneEligibility, createLane, createLaneAward, fetchFacilities, fetch
 type LaneType = "LINEHAUL" | "FINAL_MILE" | "INBOUND" | "ADHOC";
 type Facility = { facilityId: string; name: string; siteId?: string; city: string; state: string; facilityType: string };
 type Partner = { id: string; name: string; scac?: string; partnerType?: string; status?: string };
-type Lane = { laneId: string; name: string; laneType: LaneType; originFacilityId: string; destinationFacilityId: string; equipmentType?: string; frequency?: string; transitDays?: number; standardOriginDepartureTime?: string; standardCarrierArrivalStart?: string; standardCarrierArrivalEnd?: string; effectiveFrom?: string; effectiveTo?: string; notes?: string; adhocReason?: string; status: string; createdAt: string };
+type BusinessUnit = { id: string; name: string; status?: string };
+type Lane = { laneId: string; name: string; laneType: LaneType; originFacilityId: string; destinationFacilityId: string; businessUnitId?: string; businessUnitName?: string; equipmentType?: string; frequency?: string; transitDays?: number; standardOriginDepartureTime?: string; standardCarrierArrivalStart?: string; standardCarrierArrivalEnd?: string; effectiveFrom?: string; effectiveTo?: string; notes?: string; adhocReason?: string; status: string; createdAt: string };
 type Eligibility = { eligibilityId: string; laneId: string; externalPartnerId: string; notes?: string; status: string };
 type Award = { awardId: string; laneId: string; externalPartnerId: string; awardType: "PRIMARY" | "BACKUP" | "SPOT"; rate: number; currency: string; rateUnit: string; capacity?: number; effectiveFrom: string; effectiveTo?: string; status: "ACTIVE" | "SUPERSEDED"; createdAt: string };
 
@@ -12,7 +13,7 @@ const laneTypes: Array<{ key: LaneType; label: string }> = [
   { key: "LINEHAUL", label: "Linehaul" }, { key: "FINAL_MILE", label: "Final mile" },
   { key: "INBOUND", label: "Inbound" }, { key: "ADHOC", label: "Adhoc" },
 ];
-const emptyLane = { name: "", originFacilityId: "", destinationFacilityId: "", equipmentType: "", frequency: "", transitDays: "", standardOriginDepartureTime: "", standardCarrierArrivalStart: "", standardCarrierArrivalEnd: "", effectiveFrom: "", effectiveTo: "", notes: "", adhocReason: "CARRIER_COVERAGE" };
+const emptyLane = { name: "", originFacilityId: "", destinationFacilityId: "", businessUnitId: "", equipmentType: "", frequency: "", transitDays: "", standardOriginDepartureTime: "", standardCarrierArrivalStart: "", standardCarrierArrivalEnd: "", effectiveFrom: "", effectiveTo: "", notes: "", adhocReason: "CARRIER_COVERAGE" };
 const emptyAward = { externalPartnerId: "", awardType: "PRIMARY", rate: "", rateUnit: "PER_LOAD", capacity: "", effectiveFrom: "", effectiveTo: "", notes: "" };
 const money = (value: number) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(value);
 const label = (value?: string) => String(value || "").replaceAll("_", " ").toLowerCase().replace(/(^|\s)\w/g, (c) => c.toUpperCase());
@@ -22,6 +23,7 @@ export default function PlanningPanel() {
   const [lanes, setLanes] = useState<Lane[]>([]);
   const [facilities, setFacilities] = useState<Facility[]>([]);
   const [partners, setPartners] = useState<Partner[]>([]);
+  const [businessUnits, setBusinessUnits] = useState<BusinessUnit[]>([]);
   const [eligibility, setEligibility] = useState<Eligibility[]>([]);
   const [awards, setAwards] = useState<Award[]>([]);
   const [selectedLaneId, setSelectedLaneId] = useState("");
@@ -35,7 +37,7 @@ export default function PlanningPanel() {
   const load = async () => {
     const [registry, facilityResult] = await Promise.all([fetchLaneRegistry(), fetchFacilities()]);
     setLanes(registry.lanes ?? []); setEligibility(registry.eligibility ?? []); setAwards(registry.awards ?? []);
-    setPartners(registry.partners ?? []); setFacilities(facilityResult.facilities ?? []);
+    setPartners(registry.partners ?? []); setBusinessUnits(registry.businessUnits ?? []); setFacilities(facilityResult.facilities ?? []);
   };
   useEffect(() => { void load().catch((error) => setStatus(error instanceof Error ? error.message : "Lane registry unavailable.")); }, []);
 
@@ -92,6 +94,7 @@ export default function PlanningPanel() {
         <label>Lane name<input required value={laneDraft.name} onChange={(e) => setLaneDraft({ ...laneDraft, name: e.target.value })} placeholder="Example: WK01OriginToDestination" /></label>
         <label>Origin facility<select required value={laneDraft.originFacilityId} onChange={(e) => setLaneDraft({ ...laneDraft, originFacilityId: e.target.value })}><option value="">Select origin</option>{facilities.map((facility) => <option key={facility.facilityId} value={facility.facilityId}>{facility.name} | {facility.city}, {facility.state}</option>)}</select></label>
         <label>Destination facility<select required value={laneDraft.destinationFacilityId} onChange={(e) => setLaneDraft({ ...laneDraft, destinationFacilityId: e.target.value })}><option value="">Select destination</option>{facilities.map((facility) => <option key={facility.facilityId} value={facility.facilityId}>{facility.name} | {facility.city}, {facility.state}</option>)}</select></label>
+        <label>Business unit<select required value={laneDraft.businessUnitId} onChange={(e) => setLaneDraft({ ...laneDraft, businessUnitId: e.target.value })}><option value="">Select business unit</option>{businessUnits.map((unit) => <option key={unit.id} value={unit.id}>{unit.name}</option>)}</select></label>
         <label>Equipment<input value={laneDraft.equipmentType} onChange={(e) => setLaneDraft({ ...laneDraft, equipmentType: e.target.value })} placeholder="53 ft dry van" /></label>
         <label>Operating frequency<input value={laneDraft.frequency} onChange={(e) => setLaneDraft({ ...laneDraft, frequency: e.target.value })} placeholder="Monday-Friday" /></label>
         <label>Transit days<input type="number" min="0" max="60" step="0.5" value={laneDraft.transitDays} onChange={(e) => setLaneDraft({ ...laneDraft, transitDays: e.target.value })} /></label>
@@ -112,7 +115,7 @@ export default function PlanningPanel() {
       <section className="lane-detail-pane">{selectedLane ? <>
         <header className="lane-profile-header"><div><p className="transport-eyebrow">{label(selectedLane.laneType)} lane</p><h3>{selectedLane.name}</h3></div><span className="ops-status-pill">{selectedLane.status}</span></header>
         <div className="lane-route-web"><article><span>Origin</span><strong>{origin?.name || "Unknown facility"}</strong><p>{origin?.siteId ? `${origin.siteId} | ` : ""}{origin?.city}, {origin?.state}</p></article><div className="lane-route-connector"><span>{selectedLane.equipmentType || "Any equipment"}</span><strong>→</strong><small>{selectedLane.transitDays !== undefined ? `${selectedLane.transitDays} day transit` : "Transit not set"}</small></div><article><span>Destination</span><strong>{destination?.name || "Unknown facility"}</strong><p>{destination?.siteId ? `${destination.siteId} | ` : ""}{destination?.city}, {destination?.state}</p></article></div>
-        <div className="lane-profile-facts"><div><span>Frequency</span><strong>{selectedLane.frequency || "Not set"}</strong></div><div><span>Effective period</span><strong>{selectedLane.effectiveFrom || "Open"} to {selectedLane.effectiveTo || "Open"}</strong></div>{selectedLane.laneType === "LINEHAUL" ? <><div><span>Origin departure</span><strong>{selectedLane.standardOriginDepartureTime || "Not set"}</strong></div><div><span>Carrier arrival / load start</span><strong>{selectedLane.standardCarrierArrivalStart && selectedLane.standardCarrierArrivalEnd ? `${selectedLane.standardCarrierArrivalStart} to ${selectedLane.standardCarrierArrivalEnd}` : "Not set"}</strong></div></> : null}{selectedLane.adhocReason ? <div><span>Adhoc purpose</span><strong>{label(selectedLane.adhocReason)}</strong></div> : null}</div>
+        <div className="lane-profile-facts"><div><span>Business unit</span><strong>{selectedLane.businessUnitName || "Not assigned"}</strong></div><div><span>Frequency</span><strong>{selectedLane.frequency || "Not set"}</strong></div><div><span>Effective period</span><strong>{selectedLane.effectiveFrom || "Open"} to {selectedLane.effectiveTo || "Open"}</strong></div>{selectedLane.laneType === "LINEHAUL" ? <><div><span>Origin departure</span><strong>{selectedLane.standardOriginDepartureTime || "Not set"}</strong></div><div><span>Carrier arrival / load start</span><strong>{selectedLane.standardCarrierArrivalStart && selectedLane.standardCarrierArrivalEnd ? `${selectedLane.standardCarrierArrivalStart} to ${selectedLane.standardCarrierArrivalEnd}` : "Not set"}</strong></div></> : null}{selectedLane.adhocReason ? <div><span>Adhoc purpose</span><strong>{label(selectedLane.adhocReason)}</strong></div> : null}</div>
         <section className="lane-relationship-section"><div className="lane-section-heading"><div><span>Carrier network</span><h4>Eligible carriers</h4></div><div className="lane-inline-form"><select value={eligiblePartnerId} onChange={(e) => setEligiblePartnerId(e.target.value)}><option value="">Select registered carrier</option>{availablePartners.map((partner) => <option key={partner.id} value={partner.id}>{partner.name}{partner.scac ? ` (${partner.scac})` : ""}</option>)}</select><button className="btn btn-secondary" type="button" disabled={!eligiblePartnerId || busy} onClick={addEligibility}>Add eligibility</button></div></div>
           <div className="lane-chip-list">{laneEligibility.length ? laneEligibility.map((item) => { const partner = partnerMap.get(item.externalPartnerId); return <span key={item.eligibilityId}>{partner?.name || "Registered carrier"}{partner?.scac ? ` | ${partner.scac}` : ""}</span>; }) : <p>No carriers are eligible yet. Eligibility controls who may later receive tenders for this lane.</p>}</div>
         </section>

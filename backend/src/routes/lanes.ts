@@ -14,6 +14,8 @@ type LaneRecord = {
   laneType: LaneType;
   originFacilityId: string;
   destinationFacilityId: string;
+  businessUnitId: string;
+  businessUnitName: string;
   equipmentType?: string;
   frequency?: string;
   transitDays?: number;
@@ -104,6 +106,18 @@ async function listPartners(workspaceId: string) {
   return snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() })).filter((partner: any) => partner.status !== "archived");
 }
 
+async function listBusinessUnits(workspaceId: string) {
+  const db = getSilFirestore();
+  if (!db) return [];
+  const snapshot = await db.collection("organizations").doc(workspaceId).get();
+  const organization = snapshot.data() || {};
+  const configured = Array.isArray(organization.businessUnits) ? organization.businessUnits : [];
+  if (configured.length) return configured.filter((unit: any) => unit?.status !== "inactive" && unit?.id && unit?.name);
+  return String(organization.name || "").toLowerCase() === "gopuff"
+    ? [{ id: "gopuff", name: "GoPuff", status: "active" }, { id: "bevmo", name: "BevMo", status: "active" }]
+    : [];
+}
+
 async function facilityExists(workspaceId: string, facilityId: string) {
   if (!isFirestorePrimaryEnabled()) return true;
   return (await intakeCollection(workspaceId, "facilities").doc(facilityId).get()).exists;
@@ -124,13 +138,14 @@ export function registerLaneRoutes(app: Express) {
   app.get("/api/lanes", async (req: Request, res: Response) => {
     const auth = requireClient(req, res);
     if (!auth) return;
-    const [lanes, eligibility, awards, partners] = await Promise.all([
+    const [lanes, eligibility, awards, partners, businessUnits] = await Promise.all([
       listCollection(auth.orgScope, "lanes", localLanes),
       listCollection(auth.orgScope, "laneEligibility", localEligibility),
       listCollection(auth.orgScope, "laneAwards", localAwards),
       listPartners(auth.orgScope),
+      listBusinessUnits(auth.orgScope),
     ]);
-    res.json({ lanes, eligibility, awards, partners });
+    res.json({ lanes, eligibility, awards, partners, businessUnits });
   });
 
   app.post("/api/lanes", async (req: Request, res: Response) => {
@@ -140,6 +155,7 @@ export function registerLaneRoutes(app: Express) {
     const laneType = cleanText(req.body?.laneType).toUpperCase() as LaneType;
     const originFacilityId = cleanText(req.body?.originFacilityId, 180);
     const destinationFacilityId = cleanText(req.body?.destinationFacilityId, 180);
+    const businessUnitId = cleanText(req.body?.businessUnitId, 80).toLowerCase();
     const transitDays = optionalNumber(req.body?.transitDays);
     const effectiveFrom = cleanText(req.body?.effectiveFrom, 10);
     const effectiveTo = cleanText(req.body?.effectiveTo, 10);
@@ -147,8 +163,8 @@ export function registerLaneRoutes(app: Express) {
     const standardOriginDepartureTime = cleanText(req.body?.standardOriginDepartureTime, 5);
     const standardCarrierArrivalStart = cleanText(req.body?.standardCarrierArrivalStart, 5);
     const standardCarrierArrivalEnd = cleanText(req.body?.standardCarrierArrivalEnd, 5);
-    if (!name || !laneTypes.has(laneType) || !originFacilityId || !destinationFacilityId || originFacilityId === destinationFacilityId) {
-      return res.status(400).json({ error: "Lane name, type, and two different facilities are required." });
+    if (!name || !laneTypes.has(laneType) || !originFacilityId || !destinationFacilityId || originFacilityId === destinationFacilityId || !businessUnitId) {
+      return res.status(400).json({ error: "Lane name, business unit, type, and two different facilities are required." });
     }
     if (!validDate(effectiveFrom) || !validDate(effectiveTo) || (effectiveFrom && effectiveTo && effectiveTo < effectiveFrom)) {
       return res.status(400).json({ error: "Lane effective dates are invalid." });
@@ -171,9 +187,12 @@ export function registerLaneRoutes(app: Express) {
     if (!(await facilityExists(auth.orgScope, originFacilityId)) || !(await facilityExists(auth.orgScope, destinationFacilityId))) {
       return res.status(400).json({ error: "Both lane facilities must exist in this workspace." });
     }
+    const businessUnit = (await listBusinessUnits(auth.orgScope)).find((unit: any) => String(unit.id).toLowerCase() === businessUnitId);
+    if (!businessUnit) return res.status(400).json({ error: "Select an active business unit managed by this organization." });
     const now = new Date().toISOString();
     const lane: LaneRecord = {
       laneId: randomUUID(), workspaceId: auth.orgScope, name, laneType, originFacilityId, destinationFacilityId,
+      businessUnitId: String(businessUnit.id), businessUnitName: String(businessUnit.name),
       equipmentType: cleanText(req.body?.equipmentType, 80) || undefined,
       frequency: cleanText(req.body?.frequency, 80) || undefined,
       transitDays,
