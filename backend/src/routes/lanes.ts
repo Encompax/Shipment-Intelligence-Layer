@@ -17,6 +17,7 @@ type LaneRecord = {
   businessUnitId: string;
   businessUnitName: string;
   equipmentType?: string;
+  loadAssumption?: "TL" | "LTL";
   frequency?: string;
   transitDays?: number;
   standardOriginDepartureTime?: string;
@@ -69,6 +70,11 @@ const laneTypes = new Set<LaneType>(["LINEHAUL", "FINAL_MILE", "INBOUND", "ADHOC
 const awardTypes = new Set<AwardType>(["PRIMARY", "BACKUP", "SPOT"]);
 const rateUnits = new Set(["PER_LOAD", "PER_MILE", "FLAT"]);
 const adhocReasons = new Set(["CARRIER_COVERAGE", "SPECIAL_PROJECT", "VOLUME_CAPACITY"]);
+const equipmentAssumptions = new Map([
+  ["53 FT DRY VAN", "TL" as const],
+  ["26 FT DRY VAN", "LTL" as const],
+  ["BOX TRUCK", "LTL" as const],
+]);
 const localLanes = new Map<string, LaneRecord[]>();
 const localEligibility = new Map<string, EligibilityRecord[]>();
 const localAwards = new Map<string, AwardRecord[]>();
@@ -156,6 +162,7 @@ export function registerLaneRoutes(app: Express) {
     const originFacilityId = cleanText(req.body?.originFacilityId, 180);
     const destinationFacilityId = cleanText(req.body?.destinationFacilityId, 180);
     const businessUnitId = cleanText(req.body?.businessUnitId, 80).toLowerCase();
+    const equipmentType = cleanText(req.body?.equipmentType, 80).toUpperCase();
     const transitDays = optionalNumber(req.body?.transitDays);
     const effectiveFrom = cleanText(req.body?.effectiveFrom, 10);
     const effectiveTo = cleanText(req.body?.effectiveTo, 10);
@@ -163,8 +170,11 @@ export function registerLaneRoutes(app: Express) {
     const standardOriginDepartureTime = cleanText(req.body?.standardOriginDepartureTime, 5);
     const standardCarrierArrivalStart = cleanText(req.body?.standardCarrierArrivalStart, 5);
     const standardCarrierArrivalEnd = cleanText(req.body?.standardCarrierArrivalEnd, 5);
-    if (!name || !laneTypes.has(laneType) || !originFacilityId || !destinationFacilityId || originFacilityId === destinationFacilityId || !businessUnitId) {
-      return res.status(400).json({ error: "Lane name, business unit, type, and two different facilities are required." });
+    if (!name || !laneTypes.has(laneType) || !originFacilityId || !destinationFacilityId || originFacilityId === destinationFacilityId || !businessUnitId || !equipmentType) {
+      return res.status(400).json({ error: "Lane name, business unit, equipment, type, and two different facilities are required." });
+    }
+    if (equipmentType && !equipmentAssumptions.has(equipmentType)) {
+      return res.status(400).json({ error: "Select a supported lane equipment type." });
     }
     if (!validDate(effectiveFrom) || !validDate(effectiveTo) || (effectiveFrom && effectiveTo && effectiveTo < effectiveFrom)) {
       return res.status(400).json({ error: "Lane effective dates are invalid." });
@@ -193,7 +203,8 @@ export function registerLaneRoutes(app: Express) {
     const lane: LaneRecord = {
       laneId: randomUUID(), workspaceId: auth.orgScope, name, laneType, originFacilityId, destinationFacilityId,
       businessUnitId: String(businessUnit.id), businessUnitName: String(businessUnit.name),
-      equipmentType: cleanText(req.body?.equipmentType, 80) || undefined,
+      equipmentType: equipmentType || undefined,
+      loadAssumption: equipmentType ? equipmentAssumptions.get(equipmentType) : undefined,
       frequency: cleanText(req.body?.frequency, 80) || undefined,
       transitDays,
       standardOriginDepartureTime: laneType === "LINEHAUL" ? standardOriginDepartureTime || undefined : undefined,
