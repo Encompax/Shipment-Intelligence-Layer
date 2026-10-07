@@ -17,6 +17,9 @@ type LaneRecord = {
   equipmentType?: string;
   frequency?: string;
   transitDays?: number;
+  standardOriginDepartureTime?: string;
+  standardCarrierArrivalStart?: string;
+  standardCarrierArrivalEnd?: string;
   effectiveFrom?: string;
   effectiveTo?: string;
   notes?: string;
@@ -86,6 +89,7 @@ function requireClient(req: Request, res: Response) {
 const cleanText = (value: unknown, max = 240) => String(value || "").trim().slice(0, max);
 const optionalNumber = (value: unknown) => value === "" || value === null || value === undefined ? undefined : Number(value);
 const validDate = (value: string) => !value || /^\d{4}-\d{2}-\d{2}$/.test(value);
+const validTime = (value: string) => !value || /^([01]\d|2[0-3]):[0-5]\d$/.test(value);
 
 async function listCollection<T>(workspaceId: string, name: string, local: Map<string, T[]>) {
   if (!isFirestorePrimaryEnabled()) return local.get(workspaceId) ?? [];
@@ -140,6 +144,9 @@ export function registerLaneRoutes(app: Express) {
     const effectiveFrom = cleanText(req.body?.effectiveFrom, 10);
     const effectiveTo = cleanText(req.body?.effectiveTo, 10);
     const adhocReason = cleanText(req.body?.adhocReason).toUpperCase();
+    const standardOriginDepartureTime = cleanText(req.body?.standardOriginDepartureTime, 5);
+    const standardCarrierArrivalStart = cleanText(req.body?.standardCarrierArrivalStart, 5);
+    const standardCarrierArrivalEnd = cleanText(req.body?.standardCarrierArrivalEnd, 5);
     if (!name || !laneTypes.has(laneType) || !originFacilityId || !destinationFacilityId || originFacilityId === destinationFacilityId) {
       return res.status(400).json({ error: "Lane name, type, and two different facilities are required." });
     }
@@ -148,6 +155,15 @@ export function registerLaneRoutes(app: Express) {
     }
     if (transitDays !== undefined && (!Number.isFinite(transitDays) || transitDays < 0 || transitDays > 60)) {
       return res.status(400).json({ error: "Transit days must be between 0 and 60." });
+    }
+    if (![standardOriginDepartureTime, standardCarrierArrivalStart, standardCarrierArrivalEnd].every(validTime)) {
+      return res.status(400).json({ error: "Lane schedule times must use a valid 24-hour time." });
+    }
+    if ((standardCarrierArrivalStart && !standardCarrierArrivalEnd) || (!standardCarrierArrivalStart && standardCarrierArrivalEnd)) {
+      return res.status(400).json({ error: "Both the carrier arrival window start and end are required when setting a window." });
+    }
+    if (standardCarrierArrivalStart && standardCarrierArrivalEnd && standardCarrierArrivalEnd <= standardCarrierArrivalStart) {
+      return res.status(400).json({ error: "The carrier arrival window end must be later than its start." });
     }
     if (laneType === "ADHOC" && !adhocReasons.has(adhocReason)) {
       return res.status(400).json({ error: "Select whether the adhoc lane supports carrier coverage, a special project, or volume capacity." });
@@ -161,6 +177,9 @@ export function registerLaneRoutes(app: Express) {
       equipmentType: cleanText(req.body?.equipmentType, 80) || undefined,
       frequency: cleanText(req.body?.frequency, 80) || undefined,
       transitDays,
+      standardOriginDepartureTime: laneType === "LINEHAUL" ? standardOriginDepartureTime || undefined : undefined,
+      standardCarrierArrivalStart: laneType === "LINEHAUL" ? standardCarrierArrivalStart || undefined : undefined,
+      standardCarrierArrivalEnd: laneType === "LINEHAUL" ? standardCarrierArrivalEnd || undefined : undefined,
       effectiveFrom: effectiveFrom || undefined,
       effectiveTo: effectiveTo || undefined,
       notes: cleanText(req.body?.notes, 1000) || undefined,
