@@ -6,6 +6,7 @@ import AuthGate from "./components/AuthGate";
 import PostSignupSetup from "./components/PostSignupSetup";
 import { getSilUserProfile, SilUserProfile } from "./lib/userProfile";
 import PartnerWorkspace from "./pages/PartnerWorkspace";
+import EncompaxLoader from "./components/EncompaxLoader";
 
 const App: React.FC = () => {
   const [user, setUser] = useState<User | null>(null);
@@ -52,15 +53,7 @@ const App: React.FC = () => {
   }, []);
 
   if (loading) {
-    return (
-      <div className="auth-shell">
-        <section className="auth-card auth-loading-card">
-          <p className="auth-eyebrow">SIL | Encompax</p>
-          <h1>Preparing workspace access</h1>
-          <p>Checking your session and loading the authenticated module shell.</p>
-        </section>
-      </div>
-    );
+    return <EncompaxLoader fullScreen label="Preparing SIL" detail="Connecting your workspace" />;
   }
 
   if (!user) {
