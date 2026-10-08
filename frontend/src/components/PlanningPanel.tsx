@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { addLaneEligibility, createLane, createLaneAward, fetchFacilities, fetchLaneRegistry } from "../api/client";
 
 type LaneType = "LINEHAUL" | "FINAL_MILE" | "INBOUND" | "ADHOC";
@@ -34,6 +34,35 @@ function FacilitySearchSelect({ kind, value, facilities, onChange }: { kind: "or
       </div> : null}
     </div>
   </label>;
+}
+
+function TimePicker({ labelText, value, onChange }: { labelText: string; value: string; onChange: (value: string) => void }) {
+  const root = useRef<HTMLDivElement>(null);
+  const [open, setOpen] = useState(false);
+  const parsedHour = value ? Number(value.slice(0, 2)) : 8;
+  const hour = parsedHour % 12 || 12;
+  const minute = value ? value.slice(3, 5) : "00";
+  const period = parsedHour >= 12 ? "PM" : "AM";
+  useEffect(() => {
+    if (!open) return;
+    const close = (event: PointerEvent) => { if (!root.current?.contains(event.target as Node)) setOpen(false); };
+    document.addEventListener("pointerdown", close);
+    return () => document.removeEventListener("pointerdown", close);
+  }, [open]);
+  const update = (nextHour = hour, nextMinute = minute, nextPeriod = period) => {
+    const hour24 = nextPeriod === "PM" ? (nextHour % 12) + 12 : nextHour % 12;
+    onChange(`${String(hour24).padStart(2, "0")}:${nextMinute}`);
+  };
+  return <label>{labelText}<div className="lane-time-picker" ref={root}>
+    <input readOnly value={value} placeholder="HH:MM" onClick={() => setOpen(true)} />
+    <button className="lane-time-trigger" type="button" aria-label={`Choose ${labelText.toLowerCase()}`} aria-expanded={open} title="Choose time" onClick={() => setOpen((current) => !current)} />
+    {open ? <div className="lane-time-menu" role="group" aria-label={`${labelText} time`}>
+      <div><span>Hour</span><select size={6} value={String(hour)} onChange={(event) => update(Number(event.target.value))}>{Array.from({ length: 12 }, (_, index) => index + 1).map((item) => <option key={item} value={item}>{String(item).padStart(2, "0")}</option>)}</select></div>
+      <div><span>Minute</span><select size={6} value={minute} onChange={(event) => update(hour, event.target.value)}>{Array.from({ length: 60 }, (_, index) => String(index).padStart(2, "0")).map((item) => <option key={item} value={item}>{item}</option>)}</select></div>
+      <div><span>Period</span><select size={2} value={period} onChange={(event) => update(hour, minute, event.target.value)}><option>AM</option><option>PM</option></select></div>
+      <button type="button" className="lane-time-done" onClick={() => { if (!value) update(); setOpen(false); }}>Done</button>
+    </div> : null}
+  </div></label>;
 }
 
 export default function PlanningPanel() {
@@ -119,12 +148,12 @@ export default function PlanningPanel() {
         <label>Equipment<select required value={laneDraft.equipmentType} onChange={(e) => setLaneDraft({ ...laneDraft, equipmentType: e.target.value })}><option value="">Select equipment</option><option value="53 FT DRY VAN">53 FT Dry Van</option><option value="26 FT DRY VAN">26 FT Dry Van</option><option value="BOX TRUCK">Box Truck</option></select></label>
         <label>Operating frequency<select required value={laneDraft.frequency} onChange={(e) => setLaneDraft({ ...laneDraft, frequency: e.target.value, dispatchDays: e.target.value === "DAILY" ? [...weekdays] : [] })}><option value="DAILY">Daily</option><option value="1WEEKLY">1 weekly</option><option value="2WEEKLY">2 weekly</option><option value="3WEEKLY">3 weekly</option><option value="4WEEKLY">4 weekly</option><option value="OTHER">Other</option></select></label>
         {activeType === "LINEHAUL" ? <>
-          <label>Carrier arrival / load start<input type="time" value={laneDraft.standardCarrierArrivalStart} onChange={(e) => setLaneDraft({ ...laneDraft, standardCarrierArrivalStart: e.target.value })} /></label>
-          <label>Carrier arrival window end<input type="time" value={laneDraft.standardCarrierArrivalEnd} onChange={(e) => setLaneDraft({ ...laneDraft, standardCarrierArrivalEnd: e.target.value })} /></label>
-          <label>Standard origin departure time<input type="time" value={laneDraft.standardOriginDepartureTime} onChange={(e) => setLaneDraft({ ...laneDraft, standardOriginDepartureTime: e.target.value })} /></label>
+          <TimePicker labelText="Carrier arrival / load start" value={laneDraft.standardCarrierArrivalStart} onChange={(standardCarrierArrivalStart) => setLaneDraft({ ...laneDraft, standardCarrierArrivalStart })} />
+          <TimePicker labelText="Carrier arrival window end" value={laneDraft.standardCarrierArrivalEnd} onChange={(standardCarrierArrivalEnd) => setLaneDraft({ ...laneDraft, standardCarrierArrivalEnd })} />
+          <TimePicker labelText="Standard origin departure time" value={laneDraft.standardOriginDepartureTime} onChange={(standardOriginDepartureTime) => setLaneDraft({ ...laneDraft, standardOriginDepartureTime })} />
         </> : null}
         <label>Delivery latest date<input type="date" value={laneDraft.deliveryLatestDate} onChange={(e) => setLaneDraft({ ...laneDraft, deliveryLatestDate: e.target.value })} /></label>
-        <label>Delivery latest time<input type="time" value={laneDraft.deliveryLatestTime} onChange={(e) => setLaneDraft({ ...laneDraft, deliveryLatestTime: e.target.value })} /></label>
+        <TimePicker labelText="Delivery latest time" value={laneDraft.deliveryLatestTime} onChange={(deliveryLatestTime) => setLaneDraft({ ...laneDraft, deliveryLatestTime })} />
         <label>Effective from<input type="date" value={laneDraft.effectiveFrom} onChange={(e) => setLaneDraft({ ...laneDraft, effectiveFrom: e.target.value })} /></label>
         <label>Effective through<input type="date" value={laneDraft.effectiveTo} onChange={(e) => setLaneDraft({ ...laneDraft, effectiveTo: e.target.value })} /></label>
         <fieldset className="lane-dispatch-days lane-form-wide"><legend>Dispatch days</legend>{weekdays.map((day) => <label key={day}><input type="checkbox" checked={laneDraft.dispatchDays.includes(day)} disabled={laneDraft.frequency === "DAILY"} onChange={(event) => setLaneDraft({ ...laneDraft, dispatchDays: event.target.checked ? [...laneDraft.dispatchDays, day] : laneDraft.dispatchDays.filter((item) => item !== day) })} /><span>{label(day).slice(0, 3)}</span></label>)}<small>{requiredDispatchDayCount ? `Select ${requiredDispatchDayCount} day${requiredDispatchDayCount === 1 ? "" : "s"}.` : "Select the days this lane may dispatch."}</small></fieldset>

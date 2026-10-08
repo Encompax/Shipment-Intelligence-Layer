@@ -1399,8 +1399,19 @@ td {
 .lane-form-grid label, .lane-award-form label { display: grid; gap: 6px; color: #91a3b7; font-size: 12px; }
 .lane-form-grid input, .lane-form-grid select, .lane-form-grid textarea, .lane-award-form input, .lane-award-form select, .lane-inline-form select { width: 100%; min-height: 38px; padding: 8px 10px; border: 1px solid #3b516a; background: #0c1622; color: #eef4fb; }
 .lane-form-grid input::placeholder { color: rgba(238, 244, 251, .48); }
-.lane-form-grid input[type="date"], .lane-form-grid input[type="time"], .lane-award-form input[type="date"] { color-scheme: dark; }
-.lane-form-grid input[type="date"]::-webkit-calendar-picker-indicator, .lane-form-grid input[type="time"]::-webkit-calendar-picker-indicator, .lane-award-form input[type="date"]::-webkit-calendar-picker-indicator { opacity: .9; filter: invert(1); cursor: pointer; }
+.lane-form-grid input[type="date"], .lane-award-form input[type="date"] { color-scheme: dark; }
+.lane-form-grid input[type="date"]::-webkit-calendar-picker-indicator, .lane-award-form input[type="date"]::-webkit-calendar-picker-indicator { width: 14px; height: 14px; padding: 2px; border-radius: 2px; background-color: #19a99a; opacity: 1; filter: none; cursor: pointer; }
+.lane-time-picker { position: relative; }
+.lane-time-picker > input { padding-right: 38px; cursor: pointer; }
+.lane-time-trigger { position: absolute; top: 50%; right: 11px; width: 16px; height: 16px; padding: 0; transform: translateY(-50%); border: 2px solid #73e0d5; border-radius: 50%; background: #159e91; box-shadow: 0 0 0 2px rgba(21,158,145,.18); cursor: pointer; }
+.lane-time-trigger:hover, .lane-time-trigger:focus-visible { background: #22c5b5; outline: 2px solid rgba(115,224,213,.45); outline-offset: 2px; }
+.lane-time-menu { position: absolute; z-index: 25; top: calc(100% + 5px); right: 0; width: min(292px, calc(100vw - 40px)); display: grid; grid-template-columns: 1fr 1fr .8fr; gap: 7px; padding: 10px; border: 1px solid #49627e; background: #101d2b; box-shadow: 0 14px 32px rgba(0,0,0,.42); }
+.lane-time-menu > div { display: grid; gap: 4px; min-width: 0; }
+.lane-time-menu span { color: #91a3b7; font-size: 10px; text-transform: uppercase; }
+.lane-time-menu select { min-height: 132px; padding: 2px; overflow-y: auto; scrollbar-color: #159e91 #0c1622; }
+.lane-time-menu option { padding: 4px 7px; text-align: center; }
+.lane-time-menu option:checked { background: #159e91 linear-gradient(#159e91, #159e91); color: #fff; }
+.lane-time-done { grid-column: 1 / -1; min-height: 32px; border: 1px solid #27b8aa; background: #126f69; color: #fff; cursor: pointer; }
 .lane-facility-combobox { position: relative; }
 .lane-facility-options { position: absolute; z-index: 20; top: calc(100% + 4px); left: 0; right: 0; max-height: 240px; overflow: auto; border: 1px solid #49627e; background: #101d2b; box-shadow: 0 12px 28px rgba(0,0,0,.36); }
 .lane-facility-options button { width: 100%; display: grid; gap: 2px; padding: 9px 10px; border: 0; border-bottom: 1px solid rgba(255,255,255,.08); background: transparent; color: #eef4fb; text-align: left; cursor: pointer; }
