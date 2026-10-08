@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { Suspense, useMemo, useState } from "react";
 import {
   PANEL_CONFIG,
   PANEL_GROUPS,
@@ -7,6 +7,7 @@ import {
 } from "../config/panels";
 import EncompaxMark from "../components/EncompaxMark";
 import SILLogo from "../components/SILLogo";
+import EncompaxLoader from "../components/EncompaxLoader";
 
 type TabKey = "overview" | PanelKey;
 type DashboardProps = {
@@ -207,7 +208,9 @@ const Dashboard: React.FC<DashboardProps> = ({
           <h1 className="panel-title">{activePanel.label}</h1>
         </div>
         <div className="panel-body">
-          <PanelComponent />
+          <Suspense fallback={<EncompaxLoader label={`Opening ${activePanel.label}`} detail="Preparing your workspace" />}>
+            <PanelComponent />
+          </Suspense>
         </div>
       </div>
     );

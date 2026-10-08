@@ -1,10 +1,12 @@
-import DataSourcesPanel from "../components/DataSourcesPanel";
-import SourcingPanel from "../components/SourcingPanel";
-import PlanningPanel from "../components/PlanningPanel";
-import ProductAlignmentPanel from "../components/ProductAlignmentPanel";
-import ProductionManagementPanel from "../components/ProductionManagementPanel";
-import TransportationCommandPanel from "../components/TransportationCommandPanel";
-import FacilitiesPanel from "../components/FacilitiesPanel";
+import React from "react";
+
+const DataSourcesPanel = React.lazy(() => import("../components/DataSourcesPanel"));
+const SourcingPanel = React.lazy(() => import("../components/SourcingPanel"));
+const PlanningPanel = React.lazy(() => import("../components/PlanningPanel"));
+const ProductAlignmentPanel = React.lazy(() => import("../components/ProductAlignmentPanel"));
+const ProductionManagementPanel = React.lazy(() => import("../components/ProductionManagementPanel"));
+const TransportationCommandPanel = React.lazy(() => import("../components/TransportationCommandPanel"));
+const FacilitiesPanel = React.lazy(() => import("../components/FacilitiesPanel"));
 
 export type PanelKey =
   | "transportationCommand"
@@ -25,7 +27,7 @@ export type PanelConfig = {
   key: PanelKey;
   label: string;
   group: PanelGroup;
-  component: React.ComponentType;
+  component: React.LazyExoticComponent<React.ComponentType>;
   showInOverview: boolean;
   requiredPermissions: string[];
 };

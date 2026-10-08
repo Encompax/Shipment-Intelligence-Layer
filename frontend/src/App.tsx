@@ -1,12 +1,13 @@
-import React, { useEffect, useState } from "react";
+import React, { Suspense, lazy, useEffect, useState } from "react";
 import { User, onAuthStateChanged, signOut } from "firebase/auth";
 import { auth, consumeEncompaxLaunchCode } from "./lib/firebase";
-import Dashboard from "./pages/Dashboard";
 import AuthGate from "./components/AuthGate";
-import PostSignupSetup from "./components/PostSignupSetup";
 import { getSilUserProfile, SilUserProfile } from "./lib/userProfile";
-import PartnerWorkspace from "./pages/PartnerWorkspace";
 import EncompaxLoader from "./components/EncompaxLoader";
+
+const Dashboard = lazy(() => import("./pages/Dashboard"));
+const PostSignupSetup = lazy(() => import("./components/PostSignupSetup"));
+const PartnerWorkspace = lazy(() => import("./pages/PartnerWorkspace"));
 
 const App: React.FC = () => {
   const [user, setUser] = useState<User | null>(null);
@@ -61,11 +62,11 @@ const App: React.FC = () => {
   }
 
   if (!profile?.setupCompleted) {
-    return <PostSignupSetup profile={profile} user={user} onComplete={setProfile} />;
+    return <Suspense fallback={<EncompaxLoader fullScreen label="Preparing setup" detail="Loading your organization" />}><PostSignupSetup profile={profile} user={user} onComplete={setProfile} /></Suspense>;
   }
 
   if (profile.userType === "partner_user") {
-    return (
+    return <Suspense fallback={<EncompaxLoader fullScreen label="Opening partner workspace" detail="Loading authorized work" />}>
       <PartnerWorkspace
         partnerName={profile.organization || "Partner organization"}
         clientName={profile.partnerRelationship?.clientOrganizationName || "Client organization"}
@@ -74,10 +75,10 @@ const App: React.FC = () => {
         accessScopes={profile.partnerRelationship?.accessScopes || []}
         onSignOut={() => signOut(auth)}
       />
-    );
+    </Suspense>;
   }
 
-  return (
+  return <Suspense fallback={<EncompaxLoader fullScreen label="Opening SIL" detail="Loading your operations workspace" />}>
     <Dashboard
       currentUserName={user.displayName || user.email || "Operator"}
       currentUserEmail={user.email || ""}
@@ -85,7 +86,7 @@ const App: React.FC = () => {
       organizationName={profile?.organization || profile?.workspaceName || "Shipment Operations"}
       onSignOut={() => signOut(auth)}
     />
-  );
+  </Suspense>;
 };
 
 export default App;
