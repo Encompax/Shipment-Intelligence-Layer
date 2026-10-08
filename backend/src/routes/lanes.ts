@@ -225,8 +225,11 @@ export function registerLaneRoutes(app: Express) {
     if (!validDate(effectiveFrom) || !validDate(effectiveTo) || (effectiveFrom && effectiveTo && effectiveTo < effectiveFrom)) {
       return res.status(400).json({ error: "Lane effective dates are invalid." });
     }
-    if (!terminalArrivalDays.length || terminalArrivalDays.some((day) => !weekdays.has(day)) || !storeDeliveryDays.length || storeDeliveryDays.some((day) => !weekdays.has(day))) {
-      return res.status(400).json({ error: "Select valid terminal arrival and store delivery days." });
+    if (!terminalArrivalDays.length || terminalArrivalDays.some((day) => !weekdays.has(day))) {
+      return res.status(400).json({ error: "Select valid terminal arrival days." });
+    }
+    if (laneType === "FINAL_MILE" && (!storeDeliveryDays.length || storeDeliveryDays.some((day) => !weekdays.has(day)))) {
+      return res.status(400).json({ error: "Select valid store delivery days for the final mile lane." });
     }
     if (!terminalArrivalStart || !terminalArrivalEnd || !validTime(terminalArrivalStart) || !validTime(terminalArrivalEnd) || terminalArrivalEnd <= terminalArrivalStart) {
       return res.status(400).json({ error: "The terminal arrival window requires a valid start and later end time." });
@@ -277,7 +280,7 @@ export function registerLaneRoutes(app: Express) {
       terminalArrivalStart,
       terminalArrivalEnd,
       downlineCarrierTerminalFacilityId,
-      storeDeliveryDays,
+      storeDeliveryDays: laneType === "FINAL_MILE" ? storeDeliveryDays : undefined,
       standardOriginDepartureTime: laneType === "LINEHAUL" ? standardOriginDepartureTime || undefined : undefined,
       standardCarrierArrivalStart: laneType === "LINEHAUL" ? standardCarrierArrivalStart || undefined : undefined,
       standardCarrierArrivalEnd: laneType === "LINEHAUL" ? standardCarrierArrivalEnd || undefined : undefined,
