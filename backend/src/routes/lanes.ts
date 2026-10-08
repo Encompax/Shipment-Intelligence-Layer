@@ -22,6 +22,8 @@ type LaneRecord = {
   frequency?: string;
   dispatchDays?: string[];
   transitDays?: number;
+  deliveryLatestDate?: string;
+  deliveryLatestTime?: string;
   standardOriginDepartureTime?: string;
   standardCarrierArrivalStart?: string;
   standardCarrierArrivalEnd?: string;
@@ -185,7 +187,8 @@ export function registerLaneRoutes(app: Express) {
     const dispatchDays: string[] = Array.isArray(req.body?.dispatchDays)
       ? Array.from(new Set<string>((req.body.dispatchDays as unknown[]).map((day) => cleanText(day, 12).toUpperCase())))
       : [];
-    const transitDays = optionalNumber(req.body?.transitDays);
+    const deliveryLatestDate = cleanText(req.body?.deliveryLatestDate, 10);
+    const deliveryLatestTime = cleanText(req.body?.deliveryLatestTime, 5);
     const effectiveFrom = cleanText(req.body?.effectiveFrom, 10);
     const effectiveTo = cleanText(req.body?.effectiveTo, 10);
     const adhocReason = cleanText(req.body?.adhocReason).toUpperCase();
@@ -216,8 +219,11 @@ export function registerLaneRoutes(app: Express) {
     if (!validDate(effectiveFrom) || !validDate(effectiveTo) || (effectiveFrom && effectiveTo && effectiveTo < effectiveFrom)) {
       return res.status(400).json({ error: "Lane effective dates are invalid." });
     }
-    if (transitDays !== undefined && (!Number.isFinite(transitDays) || transitDays < 0 || transitDays > 60)) {
-      return res.status(400).json({ error: "Transit days must be between 0 and 60." });
+    if (!validDate(deliveryLatestDate) || !validTime(deliveryLatestTime)) {
+      return res.status(400).json({ error: "The latest delivery date or time is invalid." });
+    }
+    if ((deliveryLatestDate && !deliveryLatestTime) || (!deliveryLatestDate && deliveryLatestTime)) {
+      return res.status(400).json({ error: "Both the latest delivery date and time are required when setting a delivery deadline." });
     }
     if (![standardOriginDepartureTime, standardCarrierArrivalStart, standardCarrierArrivalEnd].every(validTime)) {
       return res.status(400).json({ error: "Lane schedule times must use a valid 24-hour time." });
@@ -258,7 +264,8 @@ export function registerLaneRoutes(app: Express) {
       loadAssumption: equipmentType ? equipmentAssumptions.get(equipmentType) : undefined,
       frequency,
       dispatchDays,
-      transitDays,
+      deliveryLatestDate: deliveryLatestDate || undefined,
+      deliveryLatestTime: deliveryLatestTime || undefined,
       standardOriginDepartureTime: laneType === "LINEHAUL" ? standardOriginDepartureTime || undefined : undefined,
       standardCarrierArrivalStart: laneType === "LINEHAUL" ? standardCarrierArrivalStart || undefined : undefined,
       standardCarrierArrivalEnd: laneType === "LINEHAUL" ? standardCarrierArrivalEnd || undefined : undefined,
