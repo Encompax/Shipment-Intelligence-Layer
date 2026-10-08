@@ -22,8 +22,11 @@ type LaneRecord = {
   frequency?: string;
   dispatchDays?: string[];
   transitDays?: number;
-  deliveryLatestDate?: string;
-  deliveryLatestTime?: string;
+  terminalArrivalDays?: string[];
+  terminalArrivalStart?: string;
+  terminalArrivalEnd?: string;
+  downlineCarrierTerminalFacilityId?: string;
+  storeDeliveryDays?: string[];
   standardOriginDepartureTime?: string;
   standardCarrierArrivalStart?: string;
   standardCarrierArrivalEnd?: string;
@@ -187,8 +190,11 @@ export function registerLaneRoutes(app: Express) {
     const dispatchDays: string[] = Array.isArray(req.body?.dispatchDays)
       ? Array.from(new Set<string>((req.body.dispatchDays as unknown[]).map((day) => cleanText(day, 12).toUpperCase())))
       : [];
-    const deliveryLatestDate = cleanText(req.body?.deliveryLatestDate, 10);
-    const deliveryLatestTime = cleanText(req.body?.deliveryLatestTime, 5);
+    const terminalArrivalDays: string[] = Array.isArray(req.body?.terminalArrivalDays) ? Array.from(new Set<string>((req.body.terminalArrivalDays as unknown[]).map((day) => cleanText(day, 12).toUpperCase()))) : [];
+    const storeDeliveryDays: string[] = Array.isArray(req.body?.storeDeliveryDays) ? Array.from(new Set<string>((req.body.storeDeliveryDays as unknown[]).map((day) => cleanText(day, 12).toUpperCase()))) : [];
+    const terminalArrivalStart = cleanText(req.body?.terminalArrivalStart, 5);
+    const terminalArrivalEnd = cleanText(req.body?.terminalArrivalEnd, 5);
+    const downlineCarrierTerminalFacilityId = cleanText(req.body?.downlineCarrierTerminalFacilityId, 180);
     const effectiveFrom = cleanText(req.body?.effectiveFrom, 10);
     const effectiveTo = cleanText(req.body?.effectiveTo, 10);
     const adhocReason = cleanText(req.body?.adhocReason).toUpperCase();
@@ -219,11 +225,11 @@ export function registerLaneRoutes(app: Express) {
     if (!validDate(effectiveFrom) || !validDate(effectiveTo) || (effectiveFrom && effectiveTo && effectiveTo < effectiveFrom)) {
       return res.status(400).json({ error: "Lane effective dates are invalid." });
     }
-    if (!validDate(deliveryLatestDate) || !validTime(deliveryLatestTime)) {
-      return res.status(400).json({ error: "The latest delivery date or time is invalid." });
+    if (!terminalArrivalDays.length || terminalArrivalDays.some((day) => !weekdays.has(day)) || !storeDeliveryDays.length || storeDeliveryDays.some((day) => !weekdays.has(day))) {
+      return res.status(400).json({ error: "Select valid terminal arrival and store delivery days." });
     }
-    if ((deliveryLatestDate && !deliveryLatestTime) || (!deliveryLatestDate && deliveryLatestTime)) {
-      return res.status(400).json({ error: "Both the latest delivery date and time are required when setting a delivery deadline." });
+    if (!terminalArrivalStart || !terminalArrivalEnd || !validTime(terminalArrivalStart) || !validTime(terminalArrivalEnd) || terminalArrivalEnd <= terminalArrivalStart) {
+      return res.status(400).json({ error: "The terminal arrival window requires a valid start and later end time." });
     }
     if (![standardOriginDepartureTime, standardCarrierArrivalStart, standardCarrierArrivalEnd].every(validTime)) {
       return res.status(400).json({ error: "Lane schedule times must use a valid 24-hour time." });
@@ -254,6 +260,9 @@ export function registerLaneRoutes(app: Express) {
     if (!(await facilityExists(auth.orgScope, originFacilityId)) || !(await facilityExists(auth.orgScope, destinationFacilityId))) {
       return res.status(400).json({ error: "Both lane facilities must exist in this workspace." });
     }
+    if (!downlineCarrierTerminalFacilityId || !(await facilityExists(auth.orgScope, downlineCarrierTerminalFacilityId))) {
+      return res.status(400).json({ error: "Select a downline carrier terminal from this workspace's facilities." });
+    }
     const businessUnit = (await listBusinessUnits(auth.orgScope)).find((unit: any) => String(unit.id).toLowerCase() === businessUnitId);
     if (!businessUnit) return res.status(400).json({ error: "Select an active business unit managed by this organization." });
     const now = new Date().toISOString();
@@ -264,8 +273,11 @@ export function registerLaneRoutes(app: Express) {
       loadAssumption: equipmentType ? equipmentAssumptions.get(equipmentType) : undefined,
       frequency,
       dispatchDays,
-      deliveryLatestDate: deliveryLatestDate || undefined,
-      deliveryLatestTime: deliveryLatestTime || undefined,
+      terminalArrivalDays,
+      terminalArrivalStart,
+      terminalArrivalEnd,
+      downlineCarrierTerminalFacilityId,
+      storeDeliveryDays,
       standardOriginDepartureTime: laneType === "LINEHAUL" ? standardOriginDepartureTime || undefined : undefined,
       standardCarrierArrivalStart: laneType === "LINEHAUL" ? standardCarrierArrivalStart || undefined : undefined,
       standardCarrierArrivalEnd: laneType === "LINEHAUL" ? standardCarrierArrivalEnd || undefined : undefined,
