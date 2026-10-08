@@ -53,16 +53,16 @@ function TimePicker({ labelText, value, onChange }: { labelText: string; value: 
     const hour24 = nextPeriod === "PM" ? (nextHour % 12) + 12 : nextHour % 12;
     onChange(`${String(hour24).padStart(2, "0")}:${nextMinute}`);
   };
-  return <label>{labelText}<div className="lane-time-picker" ref={root}>
+  return <div className="lane-time-field"><span>{labelText}</span><div className="lane-time-picker" ref={root}>
     <input readOnly value={value} placeholder="HH:MM" onClick={() => setOpen(true)} />
     <button className="lane-time-trigger" type="button" aria-label={`Choose ${labelText.toLowerCase()}`} aria-expanded={open} title="Choose time" onClick={() => setOpen((current) => !current)} />
     {open ? <div className="lane-time-menu" role="group" aria-label={`${labelText} time`}>
       <div><span>Hour</span><select size={6} value={String(hour)} onChange={(event) => update(Number(event.target.value))}>{Array.from({ length: 12 }, (_, index) => index + 1).map((item) => <option key={item} value={item}>{String(item).padStart(2, "0")}</option>)}</select></div>
       <div><span>Minute</span><select size={6} value={minute} onChange={(event) => update(hour, event.target.value)}>{Array.from({ length: 60 }, (_, index) => String(index).padStart(2, "0")).map((item) => <option key={item} value={item}>{item}</option>)}</select></div>
       <div><span>Period</span><select size={2} value={period} onChange={(event) => update(hour, minute, event.target.value)}><option>AM</option><option>PM</option></select></div>
-      <button type="button" className="lane-time-done" onClick={() => { if (!value) update(); setOpen(false); }}>Done</button>
+      <button type="button" className="lane-time-done" onClick={(event) => { event.preventDefault(); event.stopPropagation(); if (!value) update(); setOpen(false); }}>Done</button>
     </div> : null}
-  </div></label>;
+  </div></div>;
 }
 
 export default function PlanningPanel() {
@@ -99,7 +99,8 @@ export default function PlanningPanel() {
   const requiredDispatchDayCount = laneDraft.frequency === "DAILY" ? 7 : /^([1-4])WEEKLY$/.test(laneDraft.frequency) ? Number(laneDraft.frequency[0]) : 0;
   const dispatchScheduleValid = laneDraft.dispatchDays.length > 0 && (!requiredDispatchDayCount || laneDraft.dispatchDays.length === requiredDispatchDayCount);
 
-  const chooseType = (type: LaneType) => { setActiveType(type); setSelectedLaneId(""); setCreating(false); setStatus(""); };
+  const chooseType = (type: LaneType) => { setActiveType(type); setSelectedLaneId(""); setLaneDraft({ ...emptyLane, dispatchDays: [] }); setCreating(false); setStatus(""); };
+  const startCreating = () => { setLaneDraft({ ...emptyLane, dispatchDays: [] }); setCreating(true); setStatus(""); };
   const saveLane = async (event: React.FormEvent) => {
     event.preventDefault();
     try {
@@ -168,7 +169,7 @@ export default function PlanningPanel() {
         <label className="lane-form-wide">Operating notes<textarea value={laneDraft.notes} onChange={(e) => setLaneDraft({ ...laneDraft, notes: e.target.value })} placeholder="Appointments, equipment constraints, or service expectations" /></label>
       </div><div className="lane-form-actions"><button className="btn btn-primary" disabled={busy || facilities.length < 2 || !dispatchScheduleValid}>Create lane</button></div>
     </form> : <div className="lane-workbench">
-      <aside className="lane-list-pane"><div className="lane-pane-heading"><div><span>{label(activeType)}</span><strong>Lane profiles</strong></div><button className="btn btn-primary" type="button" onClick={() => setCreating(true)}>New lane</button></div>
+      <aside className="lane-list-pane"><div className="lane-pane-heading"><div><span>{label(activeType)}</span><strong>Lane profiles</strong></div><button className="btn btn-primary" type="button" onClick={startCreating}>New lane</button></div>
         <div className="lane-list">{visibleLanes.length ? visibleLanes.map((lane) => { const from = facilityMap.get(lane.originFacilityId); const to = facilityMap.get(lane.destinationFacilityId); return <button type="button" key={lane.laneId} className={selectedLane?.laneId === lane.laneId ? "active" : ""} onClick={() => setSelectedLaneId(lane.laneId)}><strong>{lane.name}</strong><span>{from?.siteId || from?.name || "Origin"} to {to?.siteId || to?.name || "Destination"}</span><small>{eligibility.filter((item) => item.laneId === lane.laneId).length} eligible | {awards.filter((item) => item.laneId === lane.laneId && item.status === "ACTIVE").length} active awards</small></button>; }) : <div className="lane-empty"><strong>No {label(activeType)} lanes</strong><p>Create the first lane from locations already on file.</p></div>}</div>
       </aside>
       <section className="lane-detail-pane">{selectedLane ? <>
