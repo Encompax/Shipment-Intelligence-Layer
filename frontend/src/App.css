@@ -1396,8 +1396,22 @@ td {
 .lane-chip-list p { margin: 0; color: #91a4b9; }
 .lane-create-form { margin: 0; }
 .lane-form-grid, .lane-award-form { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; padding: 16px; }
-.lane-form-grid label, .lane-award-form label { display: grid; gap: 6px; color: #bac8d7; font-size: 12px; }
+.lane-form-grid label, .lane-award-form label { display: grid; gap: 6px; color: #91a3b7; font-size: 12px; }
 .lane-form-grid input, .lane-form-grid select, .lane-form-grid textarea, .lane-award-form input, .lane-award-form select, .lane-inline-form select { width: 100%; min-height: 38px; padding: 8px 10px; border: 1px solid #3b516a; background: #0c1622; color: #eef4fb; }
+.lane-form-grid input::placeholder { color: rgba(238, 244, 251, .48); }
+.lane-form-grid input[type="date"], .lane-form-grid input[type="time"], .lane-award-form input[type="date"] { color-scheme: dark; }
+.lane-form-grid input[type="date"]::-webkit-calendar-picker-indicator, .lane-form-grid input[type="time"]::-webkit-calendar-picker-indicator, .lane-award-form input[type="date"]::-webkit-calendar-picker-indicator { opacity: .9; filter: invert(1); cursor: pointer; }
+.lane-facility-combobox { position: relative; }
+.lane-facility-options { position: absolute; z-index: 20; top: calc(100% + 4px); left: 0; right: 0; max-height: 240px; overflow: auto; border: 1px solid #49627e; background: #101d2b; box-shadow: 0 12px 28px rgba(0,0,0,.36); }
+.lane-facility-options button { width: 100%; display: grid; gap: 2px; padding: 9px 10px; border: 0; border-bottom: 1px solid rgba(255,255,255,.08); background: transparent; color: #eef4fb; text-align: left; cursor: pointer; }
+.lane-facility-options button:hover, .lane-facility-options button:focus-visible { background: #1a3045; outline: none; }
+.lane-facility-options span, .lane-facility-empty { color: #91a3b7; font-size: 11px; }
+.lane-facility-empty { display: block; padding: 12px; }
+.lane-dispatch-days { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 16px; min-width: 0; margin: 0; padding: 10px 12px; border: 1px solid #3b516a; }
+.lane-dispatch-days legend { padding: 0 5px; color: #91a3b7; font-size: 12px; }
+.lane-dispatch-days label { display: inline-flex; grid-template-columns: auto auto; align-items: center; gap: 6px; color: #dbe6f2; }
+.lane-dispatch-days input { width: 16px; min-height: 16px; margin: 0; accent-color: #23a89a; }
+.lane-dispatch-days small { margin-left: auto; color: #91a3b7; }
 .lane-form-grid textarea { min-height: 74px; resize: vertical; }
 .lane-form-wide { grid-column: 1 / -1; }
 .lane-form-actions { display: flex; justify-content: flex-end; padding: 0 16px 16px; }

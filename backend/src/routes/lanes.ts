@@ -20,6 +20,7 @@ type LaneRecord = {
   equipmentType?: string;
   loadAssumption?: "TL" | "LTL";
   frequency?: string;
+  dispatchDays?: string[];
   transitDays?: number;
   standardOriginDepartureTime?: string;
   standardCarrierArrivalStart?: string;
@@ -77,6 +78,8 @@ const awardTypes = new Set<AwardType>(["PRIMARY", "BACKUP", "SPOT"]);
 const rateUnits = new Set(["PER_LOAD", "PER_MILE", "FLAT"]);
 const adhocReasons = new Set(["CARRIER_COVERAGE", "SPECIAL_PROJECT", "VOLUME_CAPACITY"]);
 const adhocModes = new Set<AdhocMode>(["ONE_TIME", "ROLLING_CONTINGENCY", "TEMPORARY_RECURRING"]);
+const operatingFrequencies = new Set(["DAILY", "1WEEKLY", "2WEEKLY", "3WEEKLY", "4WEEKLY", "OTHER"]);
+const weekdays = new Set(["MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY", "SUNDAY"]);
 const equipmentAssumptions = new Map([
   ["53 FT DRY VAN", "TL" as const],
   ["26 FT DRY VAN", "LTL" as const],
@@ -178,6 +181,10 @@ export function registerLaneRoutes(app: Express) {
     const destinationFacilityId = cleanText(req.body?.destinationFacilityId, 180);
     const businessUnitId = cleanText(req.body?.businessUnitId, 80).toLowerCase();
     const equipmentType = cleanText(req.body?.equipmentType, 80).toUpperCase();
+    const frequency = cleanText(req.body?.frequency, 20).toUpperCase();
+    const dispatchDays: string[] = Array.isArray(req.body?.dispatchDays)
+      ? Array.from(new Set<string>((req.body.dispatchDays as unknown[]).map((day) => cleanText(day, 12).toUpperCase())))
+      : [];
     const transitDays = optionalNumber(req.body?.transitDays);
     const effectiveFrom = cleanText(req.body?.effectiveFrom, 10);
     const effectiveTo = cleanText(req.body?.effectiveTo, 10);
@@ -195,6 +202,16 @@ export function registerLaneRoutes(app: Express) {
     }
     if (equipmentType && !equipmentAssumptions.has(equipmentType)) {
       return res.status(400).json({ error: "Select a supported lane equipment type." });
+    }
+    if (!operatingFrequencies.has(frequency) || !dispatchDays.length || dispatchDays.some((day) => !weekdays.has(day))) {
+      return res.status(400).json({ error: "Select an operating frequency and at least one valid dispatch day." });
+    }
+    if (frequency === "DAILY" && dispatchDays.length !== weekdays.size) {
+      return res.status(400).json({ error: "Daily lanes must include every dispatch day." });
+    }
+    const expectedWeeklyDays = new Map([["1WEEKLY", 1], ["2WEEKLY", 2], ["3WEEKLY", 3], ["4WEEKLY", 4]]).get(frequency);
+    if (expectedWeeklyDays && dispatchDays.length !== expectedWeeklyDays) {
+      return res.status(400).json({ error: `${frequency.replace("WEEKLY", " weekly")} lanes require exactly ${expectedWeeklyDays} dispatch day${expectedWeeklyDays === 1 ? "" : "s"}.` });
     }
     if (!validDate(effectiveFrom) || !validDate(effectiveTo) || (effectiveFrom && effectiveTo && effectiveTo < effectiveFrom)) {
       return res.status(400).json({ error: "Lane effective dates are invalid." });
@@ -239,7 +256,8 @@ export function registerLaneRoutes(app: Express) {
       businessUnitId: String(businessUnit.id), businessUnitName: String(businessUnit.name),
       equipmentType: equipmentType || undefined,
       loadAssumption: equipmentType ? equipmentAssumptions.get(equipmentType) : undefined,
-      frequency: cleanText(req.body?.frequency, 80) || undefined,
+      frequency,
+      dispatchDays,
       transitDays,
       standardOriginDepartureTime: laneType === "LINEHAUL" ? standardOriginDepartureTime || undefined : undefined,
       standardCarrierArrivalStart: laneType === "LINEHAUL" ? standardCarrierArrivalStart || undefined : undefined,
