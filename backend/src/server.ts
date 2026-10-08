@@ -20,6 +20,7 @@ import { registerEncompaxAuthRoutes } from "./routes/encompax-auth";
 import { registerFacilityRoutes } from "./routes/facilities";
 import { registerLaneRoutes } from "./routes/lanes";
 import { assertIntakeStorageConfigured } from "./services/intake/intakeStore";
+import { requestTracing } from "./middleware/requestTracing";
 
 assertIntakeStorageConfigured();
 const app = express();
@@ -45,6 +46,7 @@ app.use(cors({
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Encompax-Module'],
 }));
 
+app.use(requestTracing);
 app.use(express.json({ limit: '1mb' }));
 app.use(fileUpload({
   limits: { fileSize: 50 * 1024 * 1024 }, // 50MB max upload
