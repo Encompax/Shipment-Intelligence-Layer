@@ -1408,9 +1408,9 @@ td {
 .lane-time-menu { position: absolute; z-index: 25; top: calc(100% + 5px); right: 0; width: min(292px, calc(100vw - 40px)); display: grid; grid-template-columns: 1fr 1fr .8fr; gap: 7px; padding: 10px; border: 1px solid #49627e; background: #101d2b; box-shadow: 0 14px 32px rgba(0,0,0,.42); }
 .lane-time-menu > div { display: grid; gap: 4px; min-width: 0; }
 .lane-time-menu span { color: #91a3b7; font-size: 10px; text-transform: uppercase; }
-.lane-time-menu select { min-height: 132px; padding: 2px; overflow-y: auto; scrollbar-color: #159e91 #0c1622; }
-.lane-time-menu option { padding: 4px 7px; text-align: center; }
-.lane-time-menu option:checked { background: #159e91 linear-gradient(#159e91, #159e91); color: #fff; }
+.lane-time-menu select { min-height: 132px; padding: 2px; overflow-y: auto; border-color: #8ca6a4; background: #edf5f4; color: #07110f; scrollbar-color: #159e91 #d5e5e3; }
+.lane-time-menu option { padding: 4px 7px; color: #07110f; text-align: center; }
+.lane-time-menu option:checked { background: #39c5b7 linear-gradient(#39c5b7, #39c5b7); color: #07110f; }
 .lane-time-done { grid-column: 1 / -1; min-height: 32px; border: 1px solid #27b8aa; background: #126f69; color: #fff; cursor: pointer; }
 .lane-facility-combobox { position: relative; }
 .lane-facility-options { position: absolute; z-index: 20; top: calc(100% + 4px); left: 0; right: 0; max-height: 240px; overflow: auto; border: 1px solid #49627e; background: #101d2b; box-shadow: 0 12px 28px rgba(0,0,0,.36); }
