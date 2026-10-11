@@ -160,8 +160,8 @@ export default function PlanningPanel() {
           <TimePicker labelText="Carrier arrival window end" value={laneDraft.standardCarrierArrivalEnd} onChange={(standardCarrierArrivalEnd) => setLaneDraft({ ...laneDraft, standardCarrierArrivalEnd })} />
           <TimePicker labelText="Standard origin departure time" value={laneDraft.standardOriginDepartureTime} onChange={(standardOriginDepartureTime) => setLaneDraft({ ...laneDraft, standardOriginDepartureTime })} />
         </> : null}
-        <TimePicker labelText="Terminal arrival window from" value={laneDraft.terminalArrivalStart} onChange={(terminalArrivalStart) => setLaneDraft({ ...laneDraft, terminalArrivalStart })} />
-        <TimePicker labelText="Terminal arrival window to" value={laneDraft.terminalArrivalEnd} onChange={(terminalArrivalEnd) => setLaneDraft({ ...laneDraft, terminalArrivalEnd })} />
+        <TimePicker labelText="Destination terminal arrival window from" value={laneDraft.terminalArrivalStart} onChange={(terminalArrivalStart) => setLaneDraft({ ...laneDraft, terminalArrivalStart })} />
+        <TimePicker labelText="Destination terminal arrival window to" value={laneDraft.terminalArrivalEnd} onChange={(terminalArrivalEnd) => setLaneDraft({ ...laneDraft, terminalArrivalEnd })} />
         <FacilitySearchSelect fieldKey="downline-terminal" labelText="Downline carrier terminal" value={laneDraft.downlineCarrierTerminalFacilityId} facilities={facilities} onChange={(downlineCarrierTerminalFacilityId) => setLaneDraft((draft) => ({ ...draft, downlineCarrierTerminalFacilityId }))} />
         <label>Effective from<input type="date" value={laneDraft.effectiveFrom} onChange={(e) => setLaneDraft({ ...laneDraft, effectiveFrom: e.target.value })} /></label>
         <label>Effective through<input type="date" value={laneDraft.effectiveTo} onChange={(e) => setLaneDraft({ ...laneDraft, effectiveTo: e.target.value })} /></label>

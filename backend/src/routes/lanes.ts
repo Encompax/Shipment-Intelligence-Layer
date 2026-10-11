@@ -3,6 +3,7 @@ import { Express, Request, Response } from "express";
 import { AuthenticatedSilRequest } from "../middleware/requireSilAuth";
 import { intakeCollection } from "../services/intake/intakeStore";
 import { getSilFirestore, isFirestorePrimaryEnabled } from "../lib/firestore";
+import { omitUndefinedFields } from "../lib/firestoreDocument";
 
 type LaneType = "LINEHAUL" | "FINAL_MILE" | "INBOUND" | "ADHOC";
 type AwardType = "PRIMARY" | "BACKUP" | "SPOT";
@@ -295,7 +296,7 @@ export function registerLaneRoutes(app: Express) {
       rateCap: laneType === "ADHOC" ? rateCap : undefined,
       status: "ACTIVE", createdBy: auth.uid, createdAt: now, updatedAt: now,
     };
-    if (isFirestorePrimaryEnabled()) await intakeCollection(auth.orgScope, "lanes").doc(lane.laneId).create(lane);
+    if (isFirestorePrimaryEnabled()) await intakeCollection(auth.orgScope, "lanes").doc(lane.laneId).create(omitUndefinedFields(lane));
     else localLanes.set(auth.orgScope, [...(localLanes.get(auth.orgScope) ?? []), lane]);
     res.status(201).json({ lane });
   });
@@ -316,7 +317,7 @@ export function registerLaneRoutes(app: Express) {
       notes: cleanText(req.body?.notes, 500) || undefined,
       status: "ELIGIBLE", createdBy: auth.uid, createdAt: now, updatedAt: now,
     };
-    if (isFirestorePrimaryEnabled()) await intakeCollection(auth.orgScope, "laneEligibility").doc(eligibility.eligibilityId).create(eligibility);
+    if (isFirestorePrimaryEnabled()) await intakeCollection(auth.orgScope, "laneEligibility").doc(eligibility.eligibilityId).create(omitUndefinedFields(eligibility));
     else localEligibility.set(auth.orgScope, [...(localEligibility.get(auth.orgScope) ?? []), eligibility]);
     res.status(201).json({ eligibility });
   });
@@ -362,7 +363,7 @@ export function registerLaneRoutes(app: Express) {
       superseded.forEach((item) => batch.update(intakeCollection(auth.orgScope, "laneAwards").doc(item.awardId), {
         status: "SUPERSEDED", supersededAt: now, supersededByAwardId: award.awardId, updatedAt: now,
       }));
-      batch.create(intakeCollection(auth.orgScope, "laneAwards").doc(award.awardId), award);
+      batch.create(intakeCollection(auth.orgScope, "laneAwards").doc(award.awardId), omitUndefinedFields(award));
       await batch.commit();
     } else {
       const next = awards.map((item) => superseded.some((previous) => previous.awardId === item.awardId)

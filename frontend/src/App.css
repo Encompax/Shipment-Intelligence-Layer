@@ -1356,7 +1356,7 @@ td {
 .lane-metrics div { display: grid; gap: 4px; padding: 12px 14px; border-right: 1px solid #30445b; }
 .lane-metrics div:last-child { border-right: 0; }
 .lane-metrics span, .lane-pane-heading span, .lane-section-heading span, .lane-route-web article > span, .lane-profile-facts span { color: #8fa4bb; font-size: 11px; text-transform: uppercase; }
-.lane-metrics strong { color: #f3f7fc; font-size: 20px; }
+.lane-metrics strong { color: #000; font-size: 20px; }
 .lane-type-tabs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border: 1px solid #30445b; background: #101b29; }
 .lane-type-tabs button { display: flex; align-items: center; justify-content: space-between; min-height: 42px; padding: 8px 14px; border: 0; border-right: 1px solid #30445b; background: transparent; color: #aebed0; cursor: pointer; }
 .lane-type-tabs button:last-child { border-right: 0; }
