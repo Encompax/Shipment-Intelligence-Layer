@@ -66,7 +66,7 @@ type AwardRecord = {
   awardType: AwardType;
   rate: number;
   currency: "USD";
-  rateUnit: "PER_LOAD" | "PER_MILE" | "FLAT";
+  rateUnit: "PER_LOAD" | "PER_MILE" | "PER_PALLET" | "FLAT";
   capacity?: number;
   effectiveFrom: string;
   effectiveTo?: string;
@@ -81,7 +81,7 @@ type AwardRecord = {
 
 const laneTypes = new Set<LaneType>(["LINEHAUL", "FINAL_MILE", "INBOUND", "ADHOC"]);
 const awardTypes = new Set<AwardType>(["PRIMARY", "BACKUP", "SPOT"]);
-const rateUnits = new Set(["PER_LOAD", "PER_MILE", "FLAT"]);
+const rateUnits = new Set(["PER_LOAD", "PER_MILE", "PER_PALLET", "FLAT"]);
 const adhocReasons = new Set(["CARRIER_COVERAGE", "SPECIAL_PROJECT", "VOLUME_CAPACITY"]);
 const adhocModes = new Set<AdhocMode>(["ONE_TIME", "ROLLING_CONTINGENCY", "TEMPORARY_RECURRING"]);
 const operatingFrequencies = new Set(["DAILY", "1WEEKLY", "2WEEKLY", "3WEEKLY", "4WEEKLY", "OTHER"]);
