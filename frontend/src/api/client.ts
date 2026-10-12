@@ -69,6 +69,11 @@ export async function fetchOrders() {
   return readJsonResponse(res, "Failed to fetch orders");
 }
 
+export async function generateOrderTestMeid(orderId: string) {
+  const res = await fetch(`${API_BASE}/orders/${encodeURIComponent(orderId)}/generate-test-meid`, { method: "POST" });
+  return readJsonResponse(res, "Failed to generate SIL test MEID");
+}
+
 export async function createOrder(payload: Record<string, unknown>) {
   const res = await fetch(`${API_BASE}/orders`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
   return readJsonResponse(res, "Failed to create order");

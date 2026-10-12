@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
-import { createOrder, fetchOrders } from "../api/client";
+import { createOrder, fetchOrders, generateOrderTestMeid } from "../api/client";
 
-type Order = { orderId: string; primaryReference: string; poNumber?: string; materialTransferOrderNumber?: string; originId?: string; destinationId?: string; businessUnit?: string; earliestPickup?: string; latestDelivery?: string; status: string };
+type Order = { orderId: string; primaryReference: string; meid?: string; externalMeid?: string; poNumber?: string; materialTransferOrderNumber?: string; originId?: string; destinationId?: string; businessUnit?: string; earliestPickup?: string; latestDelivery?: string; status: string };
 const empty = { primaryReference: "", poNumber: "", materialTransferOrderNumber: "", meid: "", businessUnit: "", originId: "", destinationId: "", earliestPickup: "", latestDelivery: "", quantity: "", quantityUom: "PALLETS", weight: "", weightUom: "LB", equipmentType: "53 FT DRY VAN", scac: "", modeType: "TL", orderType: "TRANSFER" };
 
 export default function OrdersPanel() {
@@ -18,6 +18,7 @@ export default function OrdersPanel() {
     try { await createOrder(form); setForm(empty); setMessage("Order saved and validated for planning."); await load(); }
     catch (error) { setMessage(error instanceof Error ? error.message : "Could not save order."); }
   };
+  const generateMeid = async (orderId: string) => { try { setMessage("Generating SIL test MEID..."); await generateOrderTestMeid(orderId); setMessage("SIL test MEID assigned."); await load(); } catch (error) { setMessage(error instanceof Error ? error.message : "Could not generate test MEID."); } };
   return <div className="data-intake">
     <section className="transport-hero intake-hero"><div><p className="transport-eyebrow">Order management</p><h2>Orders</h2><p>Create and review demand before it is consolidated into loads, assigned to lanes, or tendered.</p></div></section>
     <details className="transport-panel facility-manual-entry"><summary><span><span className="transport-eyebrow">Manual entry</span><strong>Create an order</strong></span><span className="facility-manual-toggle">Open form</span></summary>
@@ -32,7 +33,7 @@ export default function OrdersPanel() {
     <section className="transport-panel"><div className="transport-panel-header"><div><p className="transport-eyebrow">Planning queue</p><h3>Orders on file</h3></div><span>{filtered.length}</span></div>
       <label className="facility-search"><span>Search orders</span><input type="search" placeholder="Reference, site, business unit, SCAC, or status" value={search} onChange={(e) => setSearch(e.target.value)} /></label>
       {message && <p className="ops-note">{message}</p>}
-      <div className="transport-table-wrap"><table className="transport-table"><thead><tr><th>Reference</th><th>PO / TO</th><th>Route</th><th>Business unit</th><th>Pickup</th><th>Delivery</th><th>Status</th></tr></thead><tbody>{filtered.map((order) => <tr key={order.orderId}><td>{order.primaryReference}</td><td>{order.poNumber || order.materialTransferOrderNumber || '--'}</td><td>{order.originId || '--'} to {order.destinationId || '--'}</td><td>{order.businessUnit || '--'}</td><td>{order.earliestPickup || '--'}</td><td>{order.latestDelivery || '--'}</td><td>{order.status.replaceAll('_',' ')}</td></tr>)}</tbody></table></div>
+      <div className="transport-table-wrap"><table className="transport-table"><thead><tr><th>SIL test MEID</th><th>Reference</th><th>PO / TO</th><th>Route</th><th>Business unit</th><th>Pickup</th><th>Delivery</th><th>Status</th></tr></thead><tbody>{filtered.map((order) => <tr key={order.orderId}><td>{order.meid || <button className="btn btn-secondary" type="button" onClick={() => void generateMeid(order.orderId)}>Generate</button>}</td><td>{order.primaryReference}</td><td>{order.poNumber || order.materialTransferOrderNumber || '--'}</td><td>{order.originId || '--'} to {order.destinationId || '--'}</td><td>{order.businessUnit || '--'}</td><td>{order.earliestPickup || '--'}</td><td>{order.latestDelivery || '--'}</td><td>{order.status.replaceAll('_',' ')}</td></tr>)}</tbody></table></div>
       {!filtered.length && <p className="ops-note">No matching orders are on file. Use manual entry here or stage a CSV or Excel file in Data intake.</p>}
     </section>
   </div>;

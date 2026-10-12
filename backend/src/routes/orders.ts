@@ -12,6 +12,7 @@ type OrderRecord = Record<string, unknown> & { orderId: string; workspaceId: str
 const localOrders = new Map<string, OrderRecord[]>();
 const localProfiles = new Map<string, any[]>();
 const localReviews = new Map<string, any[]>();
+const localMeidCounters = new Map<string, number>();
 const fields = [
   "action", "primaryReference", "poNumber", "materialTransferOrderNumber", "meid", "businessUnit",
   "earliestPickup", "latestPickup", "earliestDelivery", "latestDelivery", "originId", "destinationId",
@@ -39,6 +40,26 @@ const numberOrNull = (value: unknown) => value === "" || value == null ? null : 
 const comparable = (value: unknown) => clean(value).toLowerCase().replace(/[^a-z0-9]/g, "");
 type ReviewIssue = { row: number; field: string; severity: "ERROR" | "REVIEW"; code?: string; message: string };
 type ReviewCorrection = { row: number; field: string; originalValue: unknown; proposedValue: unknown; reason: string; confidence: number };
+const FIRST_SIL_TEST_MEID = 500000001;
+
+async function reserveSilTestMeids(workspaceId: string, count: number) {
+  if (count <= 0) return [];
+  let first: number;
+  if (isFirestorePrimaryEnabled()) {
+    const counter = intakeCollection(workspaceId, "orderCounters").doc("silTestMeid");
+    first = await counter.firestore.runTransaction(async (transaction) => {
+      const snapshot = await transaction.get(counter);
+      const next = snapshot.exists ? Number(snapshot.data()?.nextValue) : FIRST_SIL_TEST_MEID;
+      if (!Number.isSafeInteger(next) || next < FIRST_SIL_TEST_MEID || next + count - 1 > 999999999) throw new Error("SIL test MEID range is exhausted or misconfigured.");
+      transaction.set(counter, { workspaceId, nextValue: next + count, updatedAt: new Date().toISOString() });
+      return next;
+    });
+  } else {
+    first = localMeidCounters.get(workspaceId) ?? FIRST_SIL_TEST_MEID;
+    localMeidCounters.set(workspaceId, first + count);
+  }
+  return Array.from({ length: count }, (_, index) => String(first + index));
+}
 
 function requireWorkspace(req: Request, res: Response) {
   const context = auth(req);
@@ -114,7 +135,7 @@ async function resolveFacilities(workspaceId: string, rows: Record<string, unkno
   return { corrections, issues };
 }
 
-export const orderDuplicateKey = (row: Record<string, unknown>) => [row.primaryReference, row.poNumber, row.materialTransferOrderNumber, row.meid].map(comparable).filter(Boolean).join("|");
+export const orderDuplicateKey = (row: Record<string, unknown>) => [row.primaryReference, row.poNumber, row.materialTransferOrderNumber, row.externalMeid || row.meid].map(comparable).filter(Boolean).join("|");
 
 export function registerOrderRoutes(app: Express) {
   app.get("/api/orders", async (req, res) => {
@@ -131,7 +152,8 @@ export function registerOrderRoutes(app: Express) {
     const issues = [...validateOrder(canonical, 1), ...facilityReview.issues];
     if (orderDuplicateKey(canonical) && existing.some((order) => orderDuplicateKey(order) === orderDuplicateKey(canonical))) issues.push({ row: 1, field: "primaryReference", severity: "ERROR", code: "DUPLICATE_ORDER", message: "An order with these references already exists." });
     const now = new Date().toISOString();
-    const order: OrderRecord = { ...canonical, orderId: randomUUID(), workspaceId: context.orgScope, primaryReference: clean(canonical.primaryReference), status: issues.some((i) => i.severity === "ERROR") ? "VALIDATION_REQUIRED" : "READY_TO_PLAN", issues, corrections: facilityReview.corrections, source: "MANUAL", createdBy: context.uid, createdAt: now, updatedAt: now } as OrderRecord;
+    const [silTestMeid] = await reserveSilTestMeids(context.orgScope, 1);
+    const order: OrderRecord = { ...canonical, externalMeid: clean(canonical.meid) || null, meid: silTestMeid, silTestMeid, identifierType: "SIL_TEST_MEID", identifierSource: "SIL", environment: "TEST", orderId: randomUUID(), workspaceId: context.orgScope, primaryReference: clean(canonical.primaryReference), status: issues.some((i) => i.severity === "ERROR") ? "VALIDATION_REQUIRED" : "READY_TO_PLAN", issues, corrections: facilityReview.corrections, source: "MANUAL", createdBy: context.uid, createdAt: now, updatedAt: now } as OrderRecord;
     await save(context.orgScope, "orders", order.orderId, order, localOrders);
     res.status(201).json({ order });
   });
@@ -139,6 +161,18 @@ export function registerOrderRoutes(app: Express) {
   app.get("/api/orders/intake-profiles", async (req, res) => {
     const context = requireWorkspace(req, res); if (!context) return;
     res.json({ profiles: await list(context.orgScope, "orderIntakeProfiles", localProfiles), canonicalFields: fields });
+  });
+
+  app.post("/api/orders/:orderId/generate-test-meid", async (req, res) => {
+    const context = requireWorkspace(req, res); if (!context) return;
+    const orders = await list(context.orgScope, "orders", localOrders);
+    const order = orders.find((item) => item.orderId === req.params.orderId);
+    if (!order) { res.status(404).json({ error: "Order not found." }); return; }
+    if (order.silTestMeid) { res.json({ order }); return; }
+    const [silTestMeid] = await reserveSilTestMeids(context.orgScope, 1);
+    const updated = { ...order, externalMeid: clean(order.externalMeid || order.meid) || null, meid: silTestMeid, silTestMeid, identifierType: "SIL_TEST_MEID", identifierSource: "SIL", environment: "TEST", updatedAt: new Date().toISOString() };
+    await save(context.orgScope, "orders", order.orderId, updated, localOrders);
+    res.json({ order: updated });
   });
 
   app.post("/api/orders/intake-profiles", async (req, res) => {
@@ -195,7 +229,8 @@ export function registerOrderRoutes(app: Express) {
     const errorRows = new Set(review.issues.filter((issue: any) => issue.severity === "ERROR").map((issue: any) => issue.row - 2));
     const now = new Date().toISOString();
     const accepted = review.proposedRows.filter((_: any, index: number) => !errorRows.has(index));
-    const orders = accepted.map((row: any) => ({ ...row, orderId: randomUUID(), workspaceId: context.orgScope, status: "READY_TO_PLAN", issues: review.issues.filter((issue: any) => issue.row - 2 === review.proposedRows.indexOf(row)), source: "FILE_IMPORT", intakeReviewId: review.reviewId, intakeProfileId: review.profileId, createdBy: context.uid, createdAt: now, updatedAt: now }));
+    const testMeids = await reserveSilTestMeids(context.orgScope, accepted.length);
+    const orders = accepted.map((row: any, index: number) => ({ ...row, externalMeid: clean(row.meid) || null, meid: testMeids[index], silTestMeid: testMeids[index], identifierType: "SIL_TEST_MEID", identifierSource: "SIL", environment: "TEST", orderId: randomUUID(), workspaceId: context.orgScope, status: "READY_TO_PLAN", issues: review.issues.filter((issue: any) => issue.row - 2 === review.proposedRows.indexOf(row)), source: "FILE_IMPORT", intakeReviewId: review.reviewId, intakeProfileId: review.profileId, createdBy: context.uid, createdAt: now, updatedAt: now }));
     for (const order of orders) await save(context.orgScope, "orders", order.orderId, order, localOrders);
     const approved = { ...review, status: "APPROVED", approvedBy: context.uid, approvedAt: now, importedOrderIds: orders.map((order: any) => order.orderId) };
     await save(context.orgScope, "orderIntakeReviews", review.reviewId, approved, localReviews);
