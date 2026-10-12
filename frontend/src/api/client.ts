@@ -64,6 +64,26 @@ export async function createDatasource(payload: {
  return readJsonResponse(res, "Failed to create datasource");
 }
 
+export async function fetchOrders() {
+  const res = await fetch(`${API_BASE}/orders`);
+  return readJsonResponse(res, "Failed to fetch orders");
+}
+
+export async function createOrder(payload: Record<string, unknown>) {
+  const res = await fetch(`${API_BASE}/orders`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+  return readJsonResponse(res, "Failed to create order");
+}
+
+export async function createOrderIntakeReview(payload: { rows?: Record<string, unknown>[]; uploadId?: number; sourceName?: string; profileName?: string; mapping?: Record<string, string> }) {
+  const res = await fetch(`${API_BASE}/orders/intake-reviews`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+  return readJsonResponse(res, "Failed to review order intake");
+}
+
+export async function approveOrderIntakeReview(reviewId: string) {
+  const res = await fetch(`${API_BASE}/orders/intake-reviews/${encodeURIComponent(reviewId)}/approve`, { method: "POST" });
+  return readJsonResponse(res, "Failed to approve order intake");
+}
+
 // ── SIL (Shipment Intelligence Layer) ────────────────────────────────────────
 
 const SIL_BASE = `${API_BASE}/sil`;

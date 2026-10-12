@@ -19,6 +19,7 @@ import { requireSilAuth } from "./middleware/requireSilAuth";
 import { registerEncompaxAuthRoutes } from "./routes/encompax-auth";
 import { registerFacilityRoutes } from "./routes/facilities";
 import { registerLaneRoutes } from "./routes/lanes";
+import { registerOrderRoutes } from "./routes/orders";
 import { assertIntakeStorageConfigured } from "./services/intake/intakeStore";
 import { requestTracing } from "./middleware/requestTracing";
 
@@ -60,6 +61,7 @@ app.use("/api", requireSilAuth);
 registerDatasourceRoutes(app);
 registerFacilityRoutes(app);
 registerLaneRoutes(app);
+registerOrderRoutes(app);
 registerJobRoutes(app);
 registerUploadRoutes(app);
 registerMetricsRoutes(app);

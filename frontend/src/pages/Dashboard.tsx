@@ -160,6 +160,12 @@ const Dashboard: React.FC<DashboardProps> = ({
                 body: "Review coverage, lane requirements, timing pressure, and the work that needs to be tendered.",
               },
               {
+                key: "orders" as TabKey,
+                label: "Orders",
+                eyebrow: "Build",
+                body: "Create and review transfer, inbound, and ad hoc orders before they are assigned to loads and lanes.",
+              },
+              {
                 key: "sourcing" as TabKey,
                 label: "Carrier network & RFPs",
                 eyebrow: "Source",

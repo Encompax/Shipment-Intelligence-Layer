@@ -80,7 +80,7 @@ const parseWorkbook = (bytes: Buffer) => {
   return { headers, records, sheetName };
 };
 
-const readUploadTable = async (uploadId: number, orgScope: string) => {
+export const readUploadTable = async (uploadId: number, orgScope: string) => {
   if (!Number.isSafeInteger(uploadId) || uploadId <= 0) return null;
   const storedUpload = await findIntakeUpload(orgScope, uploadId);
   if (!storedUpload) return null;

@@ -7,6 +7,7 @@ const ProductAlignmentPanel = React.lazy(() => import("../components/ProductAlig
 const ProductionManagementPanel = React.lazy(() => import("../components/ProductionManagementPanel"));
 const TransportationCommandPanel = React.lazy(() => import("../components/TransportationCommandPanel"));
 const FacilitiesPanel = React.lazy(() => import("../components/FacilitiesPanel"));
+const OrdersPanel = React.lazy(() => import("../components/OrdersPanel"));
 
 export type PanelKey =
   | "transportationCommand"
@@ -15,7 +16,8 @@ export type PanelKey =
   | "planning"
   | "productAlignment"
   | "production"
-  | "facilities";
+  | "facilities"
+  | "orders";
 
 export type PanelGroup =
   | "Control Tower"
@@ -47,6 +49,14 @@ export const PANEL_CONFIG: PanelConfig[] = [
     label: "Loads & lanes",
     group: "Plan & Source",
     component: PlanningPanel,
+    showInOverview: true,
+    requiredPermissions: ["planning:view"],
+  },
+  {
+    key: "orders",
+    label: "Orders",
+    group: "Plan & Source",
+    component: OrdersPanel,
     showInOverview: true,
     requiredPermissions: ["planning:view"],
   },

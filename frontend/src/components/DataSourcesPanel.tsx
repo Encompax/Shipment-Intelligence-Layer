@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   createDatasource,
+  createOrderIntakeReview,
+  approveOrderIntakeReview,
   createTransportationLoad,
   fetchDatasources,
   fetchUploadPreview,
@@ -40,6 +42,8 @@ type MappingReview = {
     reviewNotes: string[];
   };
 };
+
+type OrderIntakeReview = { reviewId: string; proposedRows: Record<string, unknown>[]; issues: Array<{ row: number; severity: "ERROR" | "REVIEW"; field: string; message: string }> };
 
 const sourceTypeOptions = [
   { value: "manual_loads", label: "Manual Loads", route: "Transportation Command" },
@@ -205,6 +209,7 @@ export default function DataSourcesPanel() {
   const [preview, setPreview] = useState<UploadPreview | null>(null);
   const [mapping, setMapping] = useState<Record<string, string>>({});
   const [mappingReview, setMappingReview] = useState<MappingReview | null>(null);
+  const [orderReview, setOrderReview] = useState<OrderIntakeReview | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [form, setForm] = useState({
     name: "Gopuff shipment workbook",
@@ -435,6 +440,7 @@ export default function DataSourcesPanel() {
           sampleSize: autoMap(headers, [/sample|volume|count/i]),
         });
         setMappingReview(null);
+        setOrderReview(null);
       }
       setFile(null);
       setStatus(uploadId ? "Upload complete. Preview is ready for mapping." : "Upload complete. Ingest job recorded for review.");
@@ -513,6 +519,26 @@ export default function DataSourcesPanel() {
     } catch (err) {
       setStatus(err instanceof Error ? err.message : "Lane-rate import failed");
     }
+  }
+
+  async function handleReviewOrders() {
+    if (!preview) return;
+    try {
+      setStatus("Preparing a governed canonical order preview...");
+      const result = await createOrderIntakeReview({ uploadId: preview.upload.id, sourceName: preview.upload.originalName, profileName: selectedSource?.name || "Order intake" });
+      setOrderReview(result.review);
+      setStatus("Order proposal ready. Rows with required-field errors will remain excluded until corrected.");
+    } catch (err) { setStatus(err instanceof Error ? err.message : "Order review failed"); }
+  }
+
+  async function handleApproveOrders() {
+    if (!orderReview) return;
+    try {
+      setStatus("Importing approved canonical orders...");
+      const result = await approveOrderIntakeReview(orderReview.reviewId);
+      setStatus(`Imported ${result.importedCount} order(s). ${result.rejectedCount} row(s) remain excluded for correction.`);
+      setOrderReview(null);
+    } catch (err) { setStatus(err instanceof Error ? err.message : "Order approval failed"); }
   }
 
   if (loading) return <div className="empty-state">Loading intake controls...</div>;
@@ -1092,6 +1118,11 @@ export default function DataSourcesPanel() {
                   <button className="btn btn-primary" type="button" onClick={handleImportLoads} disabled={!mappingReview}>
                     Approve Mapping and Import Loads
                   </button>
+                  <div className="intake-governance-review">
+                    <div><p className="transport-eyebrow">Canonical order intake</p><strong>Stage orders before load planning</strong><p>Headers are normalized into the shared order model. Nothing enters the planning queue until you approve the preview.</p></div>
+                    <button className="btn btn-secondary" type="button" onClick={handleReviewOrders}>Review as orders</button>
+                  </div>
+                  {orderReview && <div className="intake-governance-result"><span>Order proposal ready</span><strong>{orderReview.proposedRows.length} proposed / {orderReview.issues.filter((issue) => issue.severity === "ERROR").length} required-field issue(s)</strong><ul>{orderReview.issues.slice(0, 8).map((issue) => <li key={`${issue.row}-${issue.field}`}>Row {issue.row}: {issue.message}</li>)}</ul><button className="btn btn-primary" type="button" onClick={handleApproveOrders}>Approve valid orders</button></div>}
                   <button className="btn btn-secondary" type="button" onClick={handleImportCarriers} disabled={!mappingReview}>
                     Approve Mapping and Import Carriers
                   </button>
