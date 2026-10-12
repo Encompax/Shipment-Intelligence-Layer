@@ -27,6 +27,7 @@ import {
 import {
   BidState,
   BrokerageLoadState,
+  EquipmentType,
   SilBid,
   SilCarrierInviteCommunication,
   SilCarrierProfile,
@@ -41,6 +42,7 @@ import {
   SilTenderResponse,
   SilWorkflowEvent,
   ShipmentState,
+  TransportMode,
 } from "./types";
 
 import { isFirestorePrimaryEnabled } from "../../lib/firestore";
@@ -1069,11 +1071,30 @@ export async function upsertSilCarrier(input: Partial<SilCarrierProfile> & Pick<
 }
 
 export async function listSilLanes(filters?: { workspaceId?: string }) {
-  if (isFirestorePrimaryEnabled()) return (await listDurableRecords<SilLaneProfile>('lanes', filters?.workspaceId))
+  if (isFirestorePrimaryEnabled()) return (await listDurableRecords<Record<string, unknown>>('lanes', filters?.workspaceId))
+    .map(normalizeSilLaneProfile)
     .sort((a, b) => a.originRegion.localeCompare(b.originRegion) || a.destinationRegion.localeCompare(b.destinationRegion));
   await seedSilPersistence();
   const records = await prisma.silLaneRecord.findMany({ orderBy: [{ origin: "asc" }, { destination: "asc" }] });
   return records.map((record) => withWorkspace(fromRecord<SilLaneProfile>(record))).filter((record) => matchesWorkspace(record, filters?.workspaceId));
+}
+
+export function normalizeSilLaneProfile(record: Record<string, unknown>): SilLaneProfile {
+  const originRegion = String(record.originRegion || record.originFacilityId || "UNKNOWN").trim() || "UNKNOWN";
+  const destinationRegion = String(record.destinationRegion || record.destinationFacilityId || "UNKNOWN").trim() || "UNKNOWN";
+  const assumption = String(record.loadAssumption || "").toUpperCase();
+  const mode = String(record.mode || (assumption === "TL" ? "FTL" : assumption) || "FTL") as TransportMode;
+  const equipmentType = String(record.equipmentType || "DRY_VAN").toUpperCase().replace(/\s+/g, "_") as EquipmentType;
+  return {
+    ...record,
+    workspaceId: String(record.workspaceId || "") || undefined,
+    laneId: String(record.laneId || record.id || `lane-${normalizeIdPart(originRegion, "origin")}-${normalizeIdPart(destinationRegion, "destination")}`),
+    originRegion,
+    destinationRegion,
+    mode,
+    equipmentType,
+    lastUpdatedAt: String(record.lastUpdatedAt || record.updatedAt || "") || undefined,
+  } as SilLaneProfile;
 }
 
 export async function upsertSilLane(input: Partial<SilLaneProfile> & Pick<SilLaneProfile, "originRegion" | "destinationRegion" | "mode" | "equipmentType">) {
