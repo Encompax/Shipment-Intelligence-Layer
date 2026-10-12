@@ -232,7 +232,7 @@ export function registerLaneRoutes(app: Express) {
     if (laneType === "FINAL_MILE" && (!storeDeliveryDays.length || storeDeliveryDays.some((day) => !weekdays.has(day)))) {
       return res.status(400).json({ error: "Select valid store delivery days for the final mile lane." });
     }
-    if (!terminalArrivalStart || !terminalArrivalEnd || !validTime(terminalArrivalStart) || !validTime(terminalArrivalEnd) || terminalArrivalEnd <= terminalArrivalStart) {
+    if (laneType !== "FINAL_MILE" && (!terminalArrivalStart || !terminalArrivalEnd || !validTime(terminalArrivalStart) || !validTime(terminalArrivalEnd) || terminalArrivalEnd <= terminalArrivalStart)) {
       return res.status(400).json({ error: "The terminal arrival window requires a valid start and later end time." });
     }
     if (![standardOriginDepartureTime, standardCarrierArrivalStart, standardCarrierArrivalEnd].every(validTime)) {
@@ -264,7 +264,7 @@ export function registerLaneRoutes(app: Express) {
     if (!(await facilityExists(auth.orgScope, originFacilityId)) || !(await facilityExists(auth.orgScope, destinationFacilityId))) {
       return res.status(400).json({ error: "Both lane facilities must exist in this workspace." });
     }
-    if (!downlineCarrierTerminalFacilityId || !(await facilityExists(auth.orgScope, downlineCarrierTerminalFacilityId))) {
+    if (laneType !== "FINAL_MILE" && (!downlineCarrierTerminalFacilityId || !(await facilityExists(auth.orgScope, downlineCarrierTerminalFacilityId)))) {
       return res.status(400).json({ error: "Select a downline carrier terminal from this workspace's facilities." });
     }
     const businessUnit = (await listBusinessUnits(auth.orgScope)).find((unit: any) => String(unit.id).toLowerCase() === businessUnitId);
@@ -278,9 +278,9 @@ export function registerLaneRoutes(app: Express) {
       frequency,
       dispatchDays,
       terminalArrivalDays,
-      terminalArrivalStart,
-      terminalArrivalEnd,
-      downlineCarrierTerminalFacilityId,
+      terminalArrivalStart: laneType === "FINAL_MILE" ? undefined : terminalArrivalStart,
+      terminalArrivalEnd: laneType === "FINAL_MILE" ? undefined : terminalArrivalEnd,
+      downlineCarrierTerminalFacilityId: laneType === "FINAL_MILE" ? undefined : downlineCarrierTerminalFacilityId,
       storeDeliveryDays: laneType === "FINAL_MILE" ? storeDeliveryDays : undefined,
       standardOriginDepartureTime: laneType === "LINEHAUL" ? standardOriginDepartureTime || undefined : undefined,
       standardCarrierArrivalStart: laneType === "LINEHAUL" ? standardCarrierArrivalStart || undefined : undefined,
