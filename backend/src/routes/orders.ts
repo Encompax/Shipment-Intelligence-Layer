@@ -4,6 +4,7 @@ import { AuthenticatedSilRequest } from "../middleware/requireSilAuth";
 import { intakeCollection } from "../services/intake/intakeStore";
 import { isFirestorePrimaryEnabled } from "../lib/firestore";
 import { readUploadTable } from "./uploads";
+import { listFacilitiesForWorkspace } from "./facilities";
 
 type OrderStatus = "DRAFT" | "VALIDATION_REQUIRED" | "READY_TO_PLAN" | "ASSIGNED_TO_LOAD" | "TENDERED" | "IN_TRANSIT" | "DELIVERED";
 type OrderRecord = Record<string, unknown> & { orderId: string; workspaceId: string; primaryReference: string; status: OrderStatus };
@@ -35,6 +36,9 @@ const auth = (req: Request) => (req as AuthenticatedSilRequest).silAuth;
 const clean = (value: unknown, max = 500) => String(value ?? "").trim().slice(0, max);
 const normalizedHeader = (value: unknown) => clean(value).toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 const numberOrNull = (value: unknown) => value === "" || value == null ? null : Number(value);
+const comparable = (value: unknown) => clean(value).toLowerCase().replace(/[^a-z0-9]/g, "");
+type ReviewIssue = { row: number; field: string; severity: "ERROR" | "REVIEW"; code?: string; message: string };
+type ReviewCorrection = { row: number; field: string; originalValue: unknown; proposedValue: unknown; reason: string; confidence: number };
 
 function requireWorkspace(req: Request, res: Response) {
   const context = auth(req);
@@ -54,7 +58,7 @@ async function save(workspaceId: string, name: string, id: string, value: any, l
   else local.set(workspaceId, [...(local.get(workspaceId) ?? []).filter((item) => item.orderId !== id && item.profileId !== id && item.reviewId !== id), value]);
 }
 
-function inferMapping(headers: string[]) {
+export function inferOrderMapping(headers: string[]) {
   const available = headers.map((header) => [header, normalizedHeader(header)] as const);
   return Object.fromEntries(fields.map((field) => {
     const accepted = (aliases[field] ?? [field]).map(normalizedHeader);
@@ -63,7 +67,7 @@ function inferMapping(headers: string[]) {
   }));
 }
 
-function canonicalize(row: Record<string, unknown>, mapping: Record<string, string>) {
+export function canonicalizeOrder(row: Record<string, unknown>, mapping: Record<string, string>) {
   const output: Record<string, unknown> = {};
   for (const field of fields) output[field] = mapping[field] ? row[mapping[field]] ?? "" : "";
   for (const field of ["quantity", "lines", "weight", "waterWeight", "handlingUnits", "waterPallets"]) output[field] = numberOrNull(output[field]);
@@ -72,8 +76,8 @@ function canonicalize(row: Record<string, unknown>, mapping: Record<string, stri
   return output;
 }
 
-function validate(row: Record<string, unknown>, rowNumber: number) {
-  const issues: Array<{ row: number; field: string; severity: "ERROR" | "REVIEW"; message: string }> = [];
+export function validateOrder(row: Record<string, unknown>, rowNumber: number) {
+  const issues: ReviewIssue[] = [];
   for (const field of ["primaryReference", "originId", "destinationId", "earliestPickup", "latestDelivery"]) {
     if (!clean(row[field])) issues.push({ row: rowNumber, field, severity: "ERROR", message: `${field} is required.` });
   }
@@ -84,6 +88,34 @@ function validate(row: Record<string, unknown>, rowNumber: number) {
   return issues;
 }
 
+async function resolveFacilities(workspaceId: string, rows: Record<string, unknown>[]) {
+  const facilities = await listFacilitiesForWorkspace(workspaceId);
+  const corrections: ReviewCorrection[] = [];
+  const issues: ReviewIssue[] = [];
+  const resolve = (value: unknown) => {
+    const key = comparable(value);
+    if (!key) return [];
+    return facilities.filter((facility: any) => [facility.facilityId, facility.siteId, facility.name].some((candidate) => comparable(candidate) === key));
+  };
+  rows.forEach((row, index) => {
+    for (const field of ["originId", "destinationId"]) {
+      const source = row[field];
+      const matches = resolve(source);
+      if (matches.length === 1) {
+        const canonicalId = matches[0].facilityId;
+        if (clean(source) !== canonicalId) {
+          corrections.push({ row: index + 2, field, originalValue: source, proposedValue: canonicalId, reason: `Matched ${clean(source)} to facility ${matches[0].name}${matches[0].siteId ? ` (${matches[0].siteId})` : ""}.`, confidence: 1 });
+          row[field] = canonicalId;
+        }
+      } else if (matches.length > 1) issues.push({ row: index + 2, field, severity: "ERROR", code: "AMBIGUOUS_FACILITY", message: `${clean(source)} matches more than one facility.` });
+      else if (clean(source)) issues.push({ row: index + 2, field, severity: "ERROR", code: "FACILITY_NOT_FOUND", message: `${clean(source)} is not in the facility master.` });
+    }
+  });
+  return { corrections, issues };
+}
+
+export const orderDuplicateKey = (row: Record<string, unknown>) => [row.primaryReference, row.poNumber, row.materialTransferOrderNumber, row.meid].map(comparable).filter(Boolean).join("|");
+
 export function registerOrderRoutes(app: Express) {
   app.get("/api/orders", async (req, res) => {
     const context = requireWorkspace(req, res); if (!context) return;
@@ -93,10 +125,13 @@ export function registerOrderRoutes(app: Express) {
 
   app.post("/api/orders", async (req, res) => {
     const context = requireWorkspace(req, res); if (!context) return;
-    const canonical = canonicalize(req.body || {}, Object.fromEntries(fields.map((field) => [field, field])));
-    const issues = validate(canonical, 1);
+    const canonical = canonicalizeOrder(req.body || {}, Object.fromEntries(fields.map((field) => [field, field])));
+    const facilityReview = await resolveFacilities(context.orgScope, [canonical]);
+    const existing = await list(context.orgScope, "orders", localOrders);
+    const issues = [...validateOrder(canonical, 1), ...facilityReview.issues];
+    if (orderDuplicateKey(canonical) && existing.some((order) => orderDuplicateKey(order) === orderDuplicateKey(canonical))) issues.push({ row: 1, field: "primaryReference", severity: "ERROR", code: "DUPLICATE_ORDER", message: "An order with these references already exists." });
     const now = new Date().toISOString();
-    const order: OrderRecord = { ...canonical, orderId: randomUUID(), workspaceId: context.orgScope, primaryReference: clean(canonical.primaryReference), status: issues.some((i) => i.severity === "ERROR") ? "VALIDATION_REQUIRED" : "READY_TO_PLAN", issues, source: "MANUAL", createdBy: context.uid, createdAt: now, updatedAt: now } as OrderRecord;
+    const order: OrderRecord = { ...canonical, orderId: randomUUID(), workspaceId: context.orgScope, primaryReference: clean(canonical.primaryReference), status: issues.some((i) => i.severity === "ERROR") ? "VALIDATION_REQUIRED" : "READY_TO_PLAN", issues, corrections: facilityReview.corrections, source: "MANUAL", createdBy: context.uid, createdAt: now, updatedAt: now } as OrderRecord;
     await save(context.orgScope, "orders", order.orderId, order, localOrders);
     res.status(201).json({ order });
   });
@@ -111,7 +146,7 @@ export function registerOrderRoutes(app: Express) {
     const name = clean(req.body?.name, 120); const headers = Array.isArray(req.body?.headers) ? req.body.headers.map((header: unknown) => clean(header)) : [];
     if (!name || !headers.length) { res.status(400).json({ error: "Profile name and source headers are required." }); return; }
     const now = new Date().toISOString();
-    const profile = { profileId: randomUUID(), workspaceId: context.orgScope, name, mapping: { ...inferMapping(headers), ...(req.body?.mapping || {}) }, createdBy: context.uid, createdAt: now, updatedAt: now };
+    const profile = { profileId: randomUUID(), workspaceId: context.orgScope, name, mapping: { ...inferOrderMapping(headers), ...(req.body?.mapping || {}) }, createdBy: context.uid, createdAt: now, updatedAt: now };
     await save(context.orgScope, "orderIntakeProfiles", profile.profileId, profile, localProfiles);
     res.status(201).json({ profile });
   });
@@ -127,13 +162,29 @@ export function registerOrderRoutes(app: Express) {
     }
     if (!rows.length || typeof rows[0] !== "object") { res.status(400).json({ error: "At least one source row is required." }); return; }
     const headers = Object.keys(rows[0]);
-    const mapping = { ...inferMapping(headers), ...(req.body?.mapping || {}) };
-    const proposedRows = rows.map((row: any) => canonicalize(row, mapping));
-    const issues = proposedRows.flatMap((row, index) => validate(row, index + 2));
+    let storedProfile: any = null;
+    if (req.body?.profileId) storedProfile = (await list(context.orgScope, "orderIntakeProfiles", localProfiles)).find((profile) => profile.profileId === clean(req.body.profileId));
+    if (req.body?.profileId && !storedProfile) { res.status(404).json({ error: "Order intake profile not found in this workspace." }); return; }
+    const mapping = { ...inferOrderMapping(headers), ...(storedProfile?.mapping || {}), ...(req.body?.mapping || {}) };
+    const proposedRows = rows.map((row: any) => canonicalizeOrder(row, mapping));
+    const facilityReview = await resolveFacilities(context.orgScope, proposedRows);
+    const existingOrders = await list(context.orgScope, "orders", localOrders);
+    const existingKeys = new Set(existingOrders.map(orderDuplicateKey).filter(Boolean));
+    const batchKeys = new Set<string>();
+    const duplicateIssues: ReviewIssue[] = [];
+    proposedRows.forEach((row, index) => {
+      const key = orderDuplicateKey(row);
+      if (!key) return;
+      if (existingKeys.has(key)) duplicateIssues.push({ row: index + 2, field: "primaryReference", severity: "ERROR", code: "DUPLICATE_EXISTING", message: "This order already exists in the workspace." });
+      else if (batchKeys.has(key)) duplicateIssues.push({ row: index + 2, field: "primaryReference", severity: "ERROR", code: "DUPLICATE_FILE", message: "This order is duplicated within the uploaded file." });
+      batchKeys.add(key);
+    });
+    const issues = [...proposedRows.flatMap((row, index) => validateOrder(row, index + 2)), ...facilityReview.issues, ...duplicateIssues];
     const now = new Date().toISOString();
-    const review = { reviewId: randomUUID(), workspaceId: context.orgScope, profileId: clean(req.body?.profileId) || null, profileName: clean(req.body?.profileName) || "Ad hoc order intake", sourceName: clean(req.body?.sourceName) || "Uploaded file", mapping, originalRows: rows, proposedRows, issues, status: "PENDING_APPROVAL", createdBy: context.uid, createdAt: now };
+    const comparisons = proposedRows.slice(0, 100).map((proposed, index) => ({ row: index + 2, original: rows[index], proposed, corrections: facilityReview.corrections.filter((correction) => correction.row === index + 2), issues: issues.filter((issue) => issue.row === index + 2) }));
+    const review = { reviewId: randomUUID(), workspaceId: context.orgScope, profileId: storedProfile?.profileId || null, profileName: storedProfile?.name || clean(req.body?.profileName) || "Ad hoc order intake", sourceName: clean(req.body?.sourceName) || "Uploaded file", mapping, originalRows: rows, proposedRows, comparisons, corrections: facilityReview.corrections, issues, status: "PENDING_APPROVAL", createdBy: context.uid, createdAt: now };
     await save(context.orgScope, "orderIntakeReviews", review.reviewId, review, localReviews);
-    res.status(201).json({ review: { ...review, originalRows: undefined } });
+    res.status(201).json({ review: { ...review, originalRows: undefined, proposedRows: proposedRows.slice(0, 100), totalRows: proposedRows.length } });
   });
 
   app.post("/api/orders/intake-reviews/:reviewId/approve", async (req, res) => {

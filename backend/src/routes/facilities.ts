@@ -32,6 +32,11 @@ type Facility = {
 };
 
 const localFacilities = new Map<string, Facility[]>();
+export async function listFacilitiesForWorkspace(workspaceId: string): Promise<Facility[]> {
+  if (!isFirestorePrimaryEnabled()) return localFacilities.get(workspaceId) ?? [];
+  const snapshot = await intakeCollection(workspaceId, "facilities").orderBy("name").get();
+  return snapshot.docs.map((doc) => doc.data() as Facility).filter((facility) => facility.workspaceId === workspaceId);
+}
 type FacilityReview = {
   reviewId: string;
   workspaceId: string;
@@ -187,9 +192,7 @@ export function registerFacilityRoutes(app: Express) {
 
   app.get("/api/facilities", async (req: Request, res: Response) => {
     const workspaceId = intakeWorkspace(req);
-    if (!isFirestorePrimaryEnabled()) return res.json({ facilities: localFacilities.get(workspaceId) ?? [] });
-    const snapshot = await intakeCollection(workspaceId, "facilities").orderBy("name").get();
-    res.json({ facilities: snapshot.docs.map((doc) => doc.data()).filter((facility) => facility.workspaceId === workspaceId) });
+    res.json({ facilities: await listFacilitiesForWorkspace(workspaceId) });
   });
 
   app.post("/api/facilities", async (req: Request, res: Response) => {

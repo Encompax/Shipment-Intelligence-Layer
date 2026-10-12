@@ -74,7 +74,7 @@ export async function createOrder(payload: Record<string, unknown>) {
   return readJsonResponse(res, "Failed to create order");
 }
 
-export async function createOrderIntakeReview(payload: { rows?: Record<string, unknown>[]; uploadId?: number; sourceName?: string; profileName?: string; mapping?: Record<string, string> }) {
+export async function createOrderIntakeReview(payload: { rows?: Record<string, unknown>[]; uploadId?: number; sourceName?: string; profileName?: string; profileId?: string; mapping?: Record<string, string> }) {
   const res = await fetch(`${API_BASE}/orders/intake-reviews`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
   return readJsonResponse(res, "Failed to review order intake");
 }
@@ -82,6 +82,16 @@ export async function createOrderIntakeReview(payload: { rows?: Record<string, u
 export async function approveOrderIntakeReview(reviewId: string) {
   const res = await fetch(`${API_BASE}/orders/intake-reviews/${encodeURIComponent(reviewId)}/approve`, { method: "POST" });
   return readJsonResponse(res, "Failed to approve order intake");
+}
+
+export async function fetchOrderIntakeProfiles() {
+  const res = await fetch(`${API_BASE}/orders/intake-profiles`);
+  return readJsonResponse(res, "Failed to fetch order intake profiles");
+}
+
+export async function createOrderIntakeProfile(payload: { name: string; headers: string[]; mapping?: Record<string, string> }) {
+  const res = await fetch(`${API_BASE}/orders/intake-profiles`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+  return readJsonResponse(res, "Failed to create order intake profile");
 }
 
 // ── SIL (Shipment Intelligence Layer) ────────────────────────────────────────

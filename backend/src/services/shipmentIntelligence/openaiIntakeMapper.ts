@@ -1,6 +1,6 @@
 import OpenAI from "openai";
 
-export type IntakeMappingDataset = "LOADS" | "CARRIERS" | "LANE_RATES" | "UNSUPPORTED";
+export type IntakeMappingDataset = "ORDERS" | "LOADS" | "CARRIERS" | "LANE_RATES" | "UNSUPPORTED";
 
 export type IntakeMappingProposal = {
   dataset: IntakeMappingDataset;
@@ -11,6 +11,12 @@ export type IntakeMappingProposal = {
 };
 
 const MAPPABLE_FIELDS = {
+  ORDERS: [
+    "action", "primaryReference", "poNumber", "materialTransferOrderNumber", "meid", "businessUnit",
+    "earliestPickup", "latestPickup", "earliestDelivery", "latestDelivery", "originId", "destinationId",
+    "quantity", "quantityUom", "lines", "weight", "weightUom", "waterWeight", "equipmentType", "scac",
+    "modeType", "orderType", "handlingUnits", "handlingUnitsUom", "waterPallets",
+  ],
   LOADS: [
     "customerName", "customerId", "direction", "originFacility", "originAddress", "originCity", "originState",
     "originPostalCode", "destinationFacility", "destinationAddress", "destinationCity", "destinationState",
@@ -29,7 +35,7 @@ const schema = {
   additionalProperties: false,
   required: ["dataset", "mappings", "confidence", "summary", "reviewNotes"],
   properties: {
-    dataset: { type: "string", enum: ["LOADS", "CARRIERS", "LANE_RATES", "UNSUPPORTED"] },
+    dataset: { type: "string", enum: ["ORDERS", "LOADS", "CARRIERS", "LANE_RATES", "UNSUPPORTED"] },
     mappings: {
       type: "array",
       items: {
@@ -69,8 +75,10 @@ export async function proposeIntakeMapping(input: {
     max_output_tokens: 900,
     safety_identifier: input.safetyIdentifier,
     instructions: `You map organization-scoped transportation spreadsheet columns into Encompax SIL fields.
-Classify the file as LOADS, CARRIERS, LANE_RATES, or UNSUPPORTED. Only map an exact supplied source header.
-Never invent data, never infer values, and leave ambiguous fields unmapped. LOADS require customerName, originCity,
+Classify the file as ORDERS, LOADS, CARRIERS, LANE_RATES, or UNSUPPORTED. Use ORDERS for transfer, inbound, purchase,
+or shipment-order rows with references, facility IDs, quantities, and pickup/delivery windows. Only map an exact supplied source header.
+Never invent data, never infer values, and leave ambiguous fields unmapped. ORDERS require primaryReference, originId,
+destinationId, earliestPickup, and latestDelivery. LOADS require customerName, originCity,
 originState, destinationCity, and destinationState; call out missing required fields in reviewNotes. This is a governed
 proposal only: it cannot import records or alter data. Keep the summary practical for an operator reviewing the intake.`,
     input: JSON.stringify({ headers: input.headers, sampleRows: input.rows.slice(0, 10), mappableFields: MAPPABLE_FIELDS }),

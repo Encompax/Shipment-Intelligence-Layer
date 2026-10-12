@@ -3,6 +3,8 @@ import {
   createDatasource,
   createOrderIntakeReview,
   approveOrderIntakeReview,
+  createOrderIntakeProfile,
+  fetchOrderIntakeProfiles,
   createTransportationLoad,
   fetchDatasources,
   fetchUploadPreview,
@@ -35,7 +37,7 @@ type IntakeMode = "manual" | "file" | "pipeline";
 type MappingReview = {
   governanceStatus: "READY_FOR_OPERATOR_APPROVAL";
   proposal: {
-    dataset: "LOADS" | "CARRIERS" | "LANE_RATES" | "UNSUPPORTED";
+    dataset: "ORDERS" | "LOADS" | "CARRIERS" | "LANE_RATES" | "UNSUPPORTED";
     mapping: Record<string, string>;
     confidence: number;
     summary: string;
@@ -43,7 +45,15 @@ type MappingReview = {
   };
 };
 
-type OrderIntakeReview = { reviewId: string; proposedRows: Record<string, unknown>[]; issues: Array<{ row: number; severity: "ERROR" | "REVIEW"; field: string; message: string }> };
+type OrderIntakeProfile = { profileId: string; name: string; mapping: Record<string, string> };
+type OrderIntakeReview = { reviewId: string; totalRows: number; proposedRows: Record<string, unknown>[]; corrections: Array<{ row: number; field: string; originalValue: unknown; proposedValue: unknown; reason: string }>; comparisons: Array<{ row: number; original: Record<string, unknown>; proposed: Record<string, unknown>; corrections: unknown[]; issues: Array<{ severity: string; message: string }> }>; issues: Array<{ row: number; severity: "ERROR" | "REVIEW"; field: string; code?: string; message: string }> };
+
+const orderMappingFields = [
+  ["primaryReference", "Primary reference"], ["poNumber", "PO number"], ["materialTransferOrderNumber", "Transfer order number"], ["meid", "MEID"],
+  ["businessUnit", "Business unit"], ["earliestPickup", "Earliest pickup"], ["latestPickup", "Latest pickup"], ["earliestDelivery", "Earliest delivery"], ["latestDelivery", "Latest delivery"],
+  ["originId", "Origin site ID"], ["destinationId", "Destination site ID"], ["quantity", "Quantity"], ["quantityUom", "Quantity UOM"], ["lines", "Lines"], ["weight", "Weight"], ["weightUom", "Weight UOM"],
+  ["waterWeight", "Water weight"], ["equipmentType", "Equipment"], ["scac", "SCAC"], ["modeType", "Mode"], ["orderType", "Order type"], ["handlingUnits", "Handling units"], ["handlingUnitsUom", "Handling units UOM"], ["waterPallets", "Water pallets"],
+] as const;
 
 const sourceTypeOptions = [
   { value: "manual_loads", label: "Manual Loads", route: "Transportation Command" },
@@ -210,6 +220,10 @@ export default function DataSourcesPanel() {
   const [mapping, setMapping] = useState<Record<string, string>>({});
   const [mappingReview, setMappingReview] = useState<MappingReview | null>(null);
   const [orderReview, setOrderReview] = useState<OrderIntakeReview | null>(null);
+  const [orderProfiles, setOrderProfiles] = useState<OrderIntakeProfile[]>([]);
+  const [selectedOrderProfileId, setSelectedOrderProfileId] = useState("");
+  const [orderProfileName, setOrderProfileName] = useState("");
+  const [orderMapping, setOrderMapping] = useState<Record<string, string>>({});
   const [status, setStatus] = useState<string | null>(null);
   const [form, setForm] = useState({
     name: "Gopuff shipment workbook",
@@ -238,6 +252,7 @@ export default function DataSourcesPanel() {
 
   useEffect(() => {
     load();
+    fetchOrderIntakeProfiles().then((result) => setOrderProfiles(result.profiles ?? [])).catch(() => undefined);
   }, []);
 
   const selectedSource = useMemo(
@@ -441,6 +456,7 @@ export default function DataSourcesPanel() {
         });
         setMappingReview(null);
         setOrderReview(null);
+        setOrderMapping({});
       }
       setFile(null);
       setStatus(uploadId ? "Upload complete. Preview is ready for mapping." : "Upload complete. Ingest job recorded for review.");
@@ -455,6 +471,7 @@ export default function DataSourcesPanel() {
       setStatus("Encompax is reviewing the file structure and sample records...");
       const result = await proposeUploadMapping(preview.upload.id) as MappingReview;
       setMapping((current) => ({ ...current, ...result.proposal.mapping }));
+      if (result.proposal.dataset === "ORDERS") setOrderMapping((current) => ({ ...current, ...result.proposal.mapping }));
       setMappingReview(result);
       setStatus("Governed mapping proposal ready. Confirm the fields below before importing any records.");
     } catch (err) {
@@ -525,10 +542,21 @@ export default function DataSourcesPanel() {
     if (!preview) return;
     try {
       setStatus("Preparing a governed canonical order preview...");
-      const result = await createOrderIntakeReview({ uploadId: preview.upload.id, sourceName: preview.upload.originalName, profileName: selectedSource?.name || "Order intake" });
+      const result = await createOrderIntakeReview({ uploadId: preview.upload.id, sourceName: preview.upload.originalName, profileName: selectedSource?.name || "Order intake", profileId: selectedOrderProfileId || undefined, mapping: orderMapping });
       setOrderReview(result.review);
       setStatus("Order proposal ready. Rows with required-field errors will remain excluded until corrected.");
     } catch (err) { setStatus(err instanceof Error ? err.message : "Order review failed"); }
+  }
+
+  async function handleSaveOrderProfile() {
+    if (!preview || !orderProfileName.trim()) { setStatus("Enter a profile name before saving the mapping."); return; }
+    try {
+      const result = await createOrderIntakeProfile({ name: orderProfileName.trim(), headers: preview.headers, mapping: orderMapping });
+      setOrderProfiles((current) => [...current, result.profile]);
+      setSelectedOrderProfileId(result.profile.profileId);
+      setOrderProfileName("");
+      setStatus("Reusable order intake profile saved.");
+    } catch (err) { setStatus(err instanceof Error ? err.message : "Could not save order profile"); }
   }
 
   async function handleApproveOrders() {
@@ -1119,10 +1147,23 @@ export default function DataSourcesPanel() {
                     Approve Mapping and Import Loads
                   </button>
                   <div className="intake-governance-review">
-                    <div><p className="transport-eyebrow">Canonical order intake</p><strong>Stage orders before load planning</strong><p>Headers are normalized into the shared order model. Nothing enters the planning queue until you approve the preview.</p></div>
+                    <div><p className="transport-eyebrow">Canonical order intake</p><strong>Stage orders before load planning</strong><p>Map this source once, resolve facility references, and review duplicates or corrections before approval.</p></div>
                     <button className="btn btn-secondary" type="button" onClick={handleReviewOrders}>Review as orders</button>
                   </div>
-                  {orderReview && <div className="intake-governance-result"><span>Order proposal ready</span><strong>{orderReview.proposedRows.length} proposed / {orderReview.issues.filter((issue) => issue.severity === "ERROR").length} required-field issue(s)</strong><ul>{orderReview.issues.slice(0, 8).map((issue) => <li key={`${issue.row}-${issue.field}`}>Row {issue.row}: {issue.message}</li>)}</ul><button className="btn btn-primary" type="button" onClick={handleApproveOrders}>Approve valid orders</button></div>}
+                  <div className="manual-field-grid compact">
+                    <label>Saved profile<select value={selectedOrderProfileId} onChange={(event) => { const id = event.target.value; setSelectedOrderProfileId(id); const profile = orderProfiles.find((item) => item.profileId === id); if (profile) setOrderMapping(profile.mapping); }}><option value="">Automatic mapping</option>{orderProfiles.map((profile) => <option key={profile.profileId} value={profile.profileId}>{profile.name}</option>)}</select></label>
+                    <label>New profile name<input value={orderProfileName} placeholder="Example: DC1 transfers" onChange={(event) => setOrderProfileName(event.target.value)} /></label>
+                    <button className="btn btn-secondary" type="button" onClick={handleSaveOrderProfile}>Save this mapping</button>
+                  </div>
+                  <div className="manual-field-grid compact">
+                    {orderMappingFields.map(([field, label]) => <label key={field}>{label}<select value={orderMapping[field] ?? ""} onChange={(event) => { setOrderMapping((current) => ({ ...current, [field]: event.target.value })); setOrderReview(null); }}><option value="">Auto-detect / not mapped</option>{preview.headers.map((header) => <option key={header} value={header}>{header}</option>)}</select></label>)}
+                  </div>
+                  {orderReview && <div className="intake-governance-result">
+                    <span>Order proposal ready</span><strong>{orderReview.totalRows} proposed / {orderReview.issues.filter((issue) => issue.severity === "ERROR").length} blocking issue(s) / {orderReview.corrections.length} facility correction(s)</strong>
+                    <ul>{orderReview.issues.slice(0, 10).map((issue) => <li key={`${issue.row}-${issue.field}-${issue.code}`}>Row {issue.row}: {issue.message}</li>)}</ul>
+                    <div className="transport-table-wrap"><table className="transport-table"><thead><tr><th>Row</th><th>Original references</th><th>Proposed order</th><th>Review</th></tr></thead><tbody>{orderReview.comparisons.slice(0, 25).map((comparison) => <tr key={comparison.row}><td>{comparison.row}</td><td>{Object.entries(comparison.original).slice(0, 5).map(([key,value]) => `${key}: ${String(value)}`).join(" | ")}</td><td>{String(comparison.proposed.primaryReference || '--')} | {String(comparison.proposed.originId || '--')} to {String(comparison.proposed.destinationId || '--')}</td><td>{comparison.issues.map((issue) => issue.message).join(" | ") || (comparison.corrections.length ? "Facility IDs resolved" : "Ready")}</td></tr>)}</tbody></table></div>
+                    <button className="btn btn-primary" type="button" onClick={handleApproveOrders}>Approve valid orders</button>
+                  </div>}
                   <button className="btn btn-secondary" type="button" onClick={handleImportCarriers} disabled={!mappingReview}>
                     Approve Mapping and Import Carriers
                   </button>
