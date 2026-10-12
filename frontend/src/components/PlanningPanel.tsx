@@ -94,6 +94,15 @@ export default function PlanningPanel() {
   useEffect(() => { void load().catch((error) => setStatus(error instanceof Error ? error.message : "Lane registry unavailable.")); }, []);
 
   const visibleLanes = useMemo(() => lanes.filter((lane) => lane.laneType === activeType), [lanes, activeType]);
+  const eligibleCarrierCounts = useMemo(() => {
+    const laneTypeById = new Map(lanes.map((lane) => [lane.laneId, lane.laneType]));
+    const carriersByType = new Map<LaneType, Set<string>>(laneTypes.map((type) => [type.key, new Set<string>()]));
+    eligibility.forEach((item) => {
+      const laneType = laneTypeById.get(item.laneId);
+      if (laneType) carriersByType.get(laneType)?.add(item.externalPartnerId);
+    });
+    return Object.fromEntries(laneTypes.map((type) => [type.key, carriersByType.get(type.key)?.size ?? 0])) as Record<LaneType, number>;
+  }, [lanes, eligibility]);
   const selectedLane = lanes.find((lane) => lane.laneId === selectedLaneId) ?? visibleLanes[0];
   const facilityMap = useMemo(() => new Map(facilities.map((facility) => [facility.facilityId, facility])), [facilities]);
   const partnerMap = useMemo(() => new Map(partners.map((partner) => [partner.id, partner])), [partners]);
@@ -142,7 +151,7 @@ export default function PlanningPanel() {
   return <div className="lane-registry">
     <section className="transport-hero lane-hero">
       <div><p className="transport-eyebrow">Network planning</p><h2>Loads & lanes</h2><p>Build reusable lanes from facilities, then connect eligible carriers and governed awards.</p></div>
-      <div className="lane-metrics"><div><span>Lanes</span><strong>{lanes.length}</strong></div><div title="Lane-to-carrier approvals that control future tender access"><span>Carrier eligibility</span><strong>{eligibility.length}</strong></div><div><span>Active awards</span><strong>{awards.filter((award) => award.status === "ACTIVE").length}</strong></div></div>
+      <div className="lane-metrics"><div><span>Lanes</span><strong>{lanes.length}</strong></div><div title="Distinct carriers eligible for at least one Linehaul lane"><span>Linehaul carriers</span><strong>{eligibleCarrierCounts.LINEHAUL}</strong></div><div title="Distinct carriers eligible for at least one Final Mile lane"><span>Final Mile carriers</span><strong>{eligibleCarrierCounts.FINAL_MILE}</strong></div><div title="Distinct carriers eligible for at least one Inbound lane"><span>Inbound carriers</span><strong>{eligibleCarrierCounts.INBOUND}</strong></div><div title="Distinct carriers eligible for at least one Adhoc lane"><span>Adhoc carriers</span><strong>{eligibleCarrierCounts.ADHOC}</strong></div><div><span>Active awards</span><strong>{awards.filter((award) => award.status === "ACTIVE").length}</strong></div></div>
     </section>
     <div className="lane-type-tabs" role="tablist" aria-label="Lane types">{laneTypes.map((type) => <button key={type.key} type="button" className={activeType === type.key ? "active" : ""} onClick={() => chooseType(type.key)}>{type.label}<span>{lanes.filter((lane) => lane.laneType === type.key).length}</span></button>)}</div>
     {status ? <div className="ops-inline-alert lane-status">{status}</div> : null}
