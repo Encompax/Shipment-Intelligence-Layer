@@ -1421,6 +1421,7 @@ td {
 .lane-dispatch-days { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 16px; min-width: 0; margin: 0; padding: 10px 12px; border: 1px solid #3b516a; }
 .lane-dispatch-days legend { padding: 0 5px; color: #91a3b7; font-size: 12px; }
 .lane-dispatch-days label { display: inline-flex; grid-template-columns: auto auto; align-items: center; gap: 6px; color: #aab9c8; font-weight: 600; }
+.lane-dispatch-days .lane-day-link { padding-right: 14px; border-right: 1px solid #3b516a; color: #d2dce8; }
 .lane-dispatch-days input { width: 16px; min-height: 16px; margin: 0; accent-color: #23a89a; }
 .lane-dispatch-days small { margin-left: auto; color: #91a3b7; }
 .lane-form-grid textarea { min-height: 74px; resize: vertical; }
