@@ -5,11 +5,11 @@ import { intakeCollection } from "../services/intake/intakeStore";
 import { getSilFirestore, isFirestorePrimaryEnabled } from "../lib/firestore";
 import { omitUndefinedFields } from "../lib/firestoreDocument";
 
-type LaneType = "LINEHAUL" | "FINAL_MILE" | "INBOUND" | "ADHOC";
+export type LaneType = "LINEHAUL" | "FINAL_MILE" | "INBOUND" | "ADHOC";
 type AwardType = "PRIMARY" | "BACKUP" | "SPOT";
 type AdhocMode = "ONE_TIME" | "ROLLING_CONTINGENCY" | "TEMPORARY_RECURRING";
 
-type LaneRecord = {
+export type LaneRecord = {
   laneId: string;
   workspaceId: string;
   name: string;
@@ -46,7 +46,7 @@ type LaneRecord = {
   updatedAt: string;
 };
 
-type EligibilityRecord = {
+export type EligibilityRecord = {
   eligibilityId: string;
   workspaceId: string;
   laneId: string;
@@ -58,7 +58,7 @@ type EligibilityRecord = {
   updatedAt: string;
 };
 
-type AwardRecord = {
+export type AwardRecord = {
   awardId: string;
   workspaceId: string;
   laneId: string;
@@ -138,6 +138,16 @@ export async function listLaneBusinessUnits(workspaceId: string) {
   return String(organization.name || "").toLowerCase() === "gopuff"
     ? [{ id: "gopuff", name: "GoPuff", status: "active" }, { id: "bevmo", name: "BevMo", status: "active" }]
     : [];
+}
+
+export async function listLanePlanningRegistry(workspaceId: string) {
+  const [lanes, eligibility, awards, partners] = await Promise.all([
+    listCollection(workspaceId, "lanes", localLanes),
+    listCollection(workspaceId, "laneEligibility", localEligibility),
+    listCollection(workspaceId, "laneAwards", localAwards),
+    listLanePartners(workspaceId),
+  ]);
+  return { lanes, eligibility, awards, partners };
 }
 
 async function facilityExists(workspaceId: string, facilityId: string) {

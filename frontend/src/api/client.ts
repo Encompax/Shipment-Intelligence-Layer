@@ -79,6 +79,16 @@ export async function createOrder(payload: Record<string, unknown>) {
   return readJsonResponse(res, "Failed to create order");
 }
 
+export async function matchOrderToLane(orderId: string) {
+  const res = await fetch(`${API_BASE}/orders/${encodeURIComponent(orderId)}/planning-match`, { method: "POST" });
+  return readJsonResponse(res, "Failed to match order to lanes");
+}
+
+export async function fetchOrderPlanningMatch(orderId: string) {
+  const res = await fetch(`${API_BASE}/orders/${encodeURIComponent(orderId)}/planning-match`);
+  return readJsonResponse(res, "Failed to fetch order planning match");
+}
+
 export async function createOrderIntakeReview(payload: { rows?: Record<string, unknown>[]; uploadId?: number; sourceName?: string; profileName?: string; profileId?: string; mapping?: Record<string, string> }) {
   const res = await fetch(`${API_BASE}/orders/intake-reviews`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
   return readJsonResponse(res, "Failed to review order intake");
