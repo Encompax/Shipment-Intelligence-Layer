@@ -1411,7 +1411,7 @@ td {
 .planning-outcome.matched { border-color: #159e91; color: #75dfd3; }
 .planning-outcome.review_required { border-color: #b88b32; color: #f1ca74; }
 .planning-outcome.no_match { border-color: #a9505c; color: #ef9ba6; }
-.planning-recommendation { display: grid; grid-template-columns: 1.4fr .65fr .8fr 1.4fr; border-bottom: 1px solid #30445b; }
+.planning-recommendation { display: grid; grid-template-columns: 1.25fr .55fr 1fr .7fr 1.35fr; border-bottom: 1px solid #30445b; }
 .planning-recommendation > div { display: grid; gap: 4px; min-width: 0; padding: 13px 15px; border-right: 1px solid #30445b; }
 .planning-recommendation > div:last-child { border-right: 0; }
 .planning-recommendation span, .planning-recommendation small { color: #91a4b9; font-size: 11px; }

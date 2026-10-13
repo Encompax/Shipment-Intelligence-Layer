@@ -3,9 +3,10 @@ import { isFirestorePrimaryEnabled } from "../lib/firestore";
 import { intakeCollection } from "./intake/intakeStore";
 import type { AwardRecord, EligibilityRecord, LaneRecord, LaneType } from "../routes/lanes";
 import type { OrderRecord } from "../routes/orders";
+import { getEquipmentCapacityRule, weightInPounds } from "./equipmentCapacity";
 
 export type PlanningFinding = {
-  category: "ROUTE" | "BUSINESS_UNIT" | "SERVICE_TYPE" | "MODE" | "EQUIPMENT" | "EFFECTIVE_DATE" | "PICKUP_SCHEDULE" | "DELIVERY_SCHEDULE" | "ELIGIBILITY" | "AWARD";
+  category: "ROUTE" | "BUSINESS_UNIT" | "SERVICE_TYPE" | "MODE" | "EQUIPMENT" | "CAPACITY" | "EFFECTIVE_DATE" | "PICKUP_SCHEDULE" | "DELIVERY_SCHEDULE" | "ELIGIBILITY" | "AWARD";
   severity: "BLOCKER" | "WARNING" | "INFO";
   code: string;
   message: string;
@@ -38,6 +39,7 @@ export type LaneMatchCandidate = {
   findings: PlanningFinding[];
   eligibleCarriers: PlanningCarrier[];
   activeAwards: PlanningAward[];
+  capacityRule?: { equipmentType: string; maxWeightLbs: number; maxPallets: number };
   laneSnapshot: Pick<LaneRecord, "originFacilityId" | "destinationFacilityId" | "businessUnitId" | "businessUnitName" | "equipmentType" | "loadAssumption" | "dispatchDays" | "terminalArrivalDays" | "storeDeliveryDays" | "effectiveFrom" | "effectiveTo">;
 };
 
@@ -108,6 +110,17 @@ export function scoreOrderLane(input: {
   assess(!clean(order.equipmentType) || !lane.equipmentType || comparable(order.equipmentType) === comparable(lane.equipmentType), {
     category: "EQUIPMENT", severity: "BLOCKER", code: "EQUIPMENT_MISMATCH", message: `Order equipment ${clean(order.equipmentType)} does not match lane equipment ${lane.equipmentType}.`, scoreImpact: 10,
   });
+  const capacityRule = getEquipmentCapacityRule(lane.equipmentType || order.equipmentType);
+  const orderWeightLbs = weightInPounds(order.weight, order.weightUom);
+  const orderPallets = order.palletQuantity === "" || order.palletQuantity === null || order.palletQuantity === undefined ? null : Number(order.palletQuantity);
+  if (!capacityRule) {
+    addFinding(findings, { category: "CAPACITY", severity: "WARNING", code: "CAPACITY_RULE_NOT_FOUND", message: "No governed capacity rule is configured for this equipment type.", scoreImpact: 0 });
+  } else {
+    if (orderWeightLbs === null) addFinding(findings, { category: "CAPACITY", severity: "WARNING", code: "WEIGHT_REQUIRED_FOR_CAPACITY", message: `Add order weight to verify the ${capacityRule.maxWeightLbs.toLocaleString("en-US")} LBS ${capacityRule.equipmentType} limit.`, scoreImpact: 0 });
+    else assess(orderWeightLbs <= capacityRule.maxWeightLbs, { category: "CAPACITY", severity: "BLOCKER", code: "WEIGHT_CAPACITY_EXCEEDED", message: `Order weight ${Math.round(orderWeightLbs).toLocaleString("en-US")} LBS exceeds the ${capacityRule.maxWeightLbs.toLocaleString("en-US")} LBS ${capacityRule.equipmentType} limit.`, scoreImpact: 12 });
+    if (orderPallets === null || !Number.isFinite(orderPallets)) addFinding(findings, { category: "CAPACITY", severity: "WARNING", code: "PALLETS_REQUIRED_FOR_CAPACITY", message: `Add pallet quantity to verify the ${capacityRule.maxPallets}-pallet ${capacityRule.equipmentType} limit.`, scoreImpact: 0 });
+    else assess(orderPallets <= capacityRule.maxPallets, { category: "CAPACITY", severity: "BLOCKER", code: "PALLET_CAPACITY_EXCEEDED", message: `Order pallet quantity ${orderPallets} exceeds the ${capacityRule.maxPallets}-pallet ${capacityRule.equipmentType} limit.`, scoreImpact: 12 });
+  }
 
   const pickupDate = datePart(order.earliestPickup);
   const deliveryDate = datePart(order.latestDelivery);
@@ -161,6 +174,7 @@ export function scoreOrderLane(input: {
     findings,
     eligibleCarriers,
     activeAwards,
+    capacityRule: capacityRule ?? undefined,
     laneSnapshot: {
       originFacilityId: lane.originFacilityId, destinationFacilityId: lane.destinationFacilityId,
       businessUnitId: lane.businessUnitId, businessUnitName: lane.businessUnitName,

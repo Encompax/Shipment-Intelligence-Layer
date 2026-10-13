@@ -7,6 +7,7 @@ const order = {
   status: 'READY_TO_PLAN', originId: 'facility-origin', destinationId: 'facility-destination', businessUnit: 'Gopuff',
   earliestPickup: '2026-10-13T13:00', latestDelivery: '2026-10-15T18:30', modeType: 'TL',
   equipmentType: '53 FT DRY VAN', orderType: 'TRANSFER',
+  weight: 40000, weightUom: 'LBS', palletQuantity: 26,
 };
 const lane = {
   laneId: 'lane-1', workspaceId: 'org-1', name: 'Linehaul ATL', laneType: 'LINEHAUL', status: 'ACTIVE',
@@ -39,6 +40,19 @@ test('rejects route mismatches as ineligible candidates', () => {
   const result = scoreOrderLane({ order: { ...order, destinationId: 'facility-other' }, lane, eligibility, awards, partners });
   assert.equal(result.disposition, 'INELIGIBLE');
   assert.ok(result.findings.some((finding) => finding.code === 'ROUTE_MISMATCH' && finding.severity === 'BLOCKER'));
+});
+
+test('blocks an order that exceeds the selected equipment capacity', () => {
+  const result = scoreOrderLane({ order: { ...order, equipmentType: 'BOX TRUCK', modeType: 'LTL', weight: 10001, palletQuantity: 11 }, lane: { ...lane, equipmentType: 'BOX TRUCK', loadAssumption: 'LTL' }, eligibility, awards, partners });
+  assert.equal(result.disposition, 'INELIGIBLE');
+  assert.ok(result.findings.some((finding) => finding.code === 'WEIGHT_CAPACITY_EXCEEDED'));
+  assert.ok(result.findings.some((finding) => finding.code === 'PALLET_CAPACITY_EXCEEDED'));
+});
+
+test('converts kilograms before checking the governed weight limit', () => {
+  const result = scoreOrderLane({ order: { ...order, equipmentType: '26 FT DRY VAN', modeType: 'LTL', weight: 5500, weightUom: 'KG', palletQuantity: 12 }, lane: { ...lane, equipmentType: '26 FT DRY VAN', loadAssumption: 'LTL' }, eligibility, awards, partners });
+  assert.ok(result.findings.some((finding) => finding.code === 'WEIGHT_CAPACITY_EXCEEDED'));
+  assert.ok(!result.findings.some((finding) => finding.code === 'PALLET_CAPACITY_EXCEEDED'));
 });
 
 test('builds a tenant-scoped pending proposal with the best lane recommendation', () => {
