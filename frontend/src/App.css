@@ -1402,6 +1402,8 @@ td {
 .lane-form-grid input::placeholder { color: rgba(238, 244, 251, .48); }
 .lane-form-grid input[type="date"], .lane-award-form input[type="date"] { color-scheme: dark; }
 .lane-form-grid input[type="date"]::-webkit-calendar-picker-indicator, .lane-award-form input[type="date"]::-webkit-calendar-picker-indicator { width: 14px; height: 14px; padding: 2px; border-radius: 2px; background-color: #19a99a; opacity: 1; filter: none; cursor: pointer; }
+.lane-form-grid .order-datetime-input { color-scheme: dark; cursor: pointer; }
+.lane-form-grid .order-datetime-input::-webkit-calendar-picker-indicator { width: 14px; height: 14px; padding: 3px; border-radius: 50%; background-color: #19a99a; box-shadow: 0 0 0 2px rgba(25, 169, 154, .18); opacity: 1; filter: none; cursor: pointer; }
 .lane-time-picker { position: relative; }
 .lane-time-picker > input { padding-right: 38px; cursor: pointer; }
 .lane-time-trigger { position: absolute; top: 50%; right: 11px; width: 16px; height: 16px; padding: 0; transform: translateY(-50%); border: 2px solid #73e0d5; border-radius: 50%; background: #159e91; box-shadow: 0 0 0 2px rgba(21,158,145,.18); cursor: pointer; }
