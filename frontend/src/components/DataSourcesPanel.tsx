@@ -52,7 +52,7 @@ const orderMappingFields = [
   ["primaryReference", "Primary reference"], ["poNumber", "PO number"], ["materialTransferOrderNumber", "Transfer order number"], ["meid", "MEID"],
   ["businessUnit", "Business unit"], ["earliestPickup", "Earliest pickup"], ["latestPickup", "Latest pickup"], ["earliestDelivery", "Earliest delivery"], ["latestDelivery", "Latest delivery"],
   ["originId", "Origin site ID"], ["destinationId", "Destination site ID"], ["quantity", "Quantity"], ["quantityUom", "Quantity UOM"], ["lines", "Lines"], ["weight", "Weight"], ["weightUom", "Weight UOM"],
-  ["waterWeight", "Water weight"], ["equipmentType", "Equipment"], ["scac", "SCAC"], ["modeType", "Mode"], ["orderType", "Order type"], ["handlingUnits", "Handling units"], ["handlingUnitsUom", "Handling units UOM"], ["waterPallets", "Water pallets"],
+  ["waterWeight", "Water weight"], ["equipmentType", "Equipment"], ["scac", "SCAC"], ["modeType", "Mode"], ["orderType", "Order type"], ["handlingUnits", "Handling units"], ["handlingUnitsUom", "Handling units UOM"], ["waterPallets", "Water pallets"], ["eachQuantity", "Each quantity"], ["caseQuantity", "Case quantity"], ["palletQuantity", "Pallet quantity"],
 ] as const;
 
 const sourceTypeOptions = [

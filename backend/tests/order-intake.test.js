@@ -17,3 +17,11 @@ test('order duplicate identity normalizes reference formatting', () => {
   const second = orderDuplicateKey({ primaryReference: 'gusto 100', poNumber: 'gus-200', meid: 'm3' });
   assert.equal(first, second);
 });
+
+test('one order retains each, case, and pallet quantities together', () => {
+  const mapping = inferOrderMapping(['Primary reference', 'Origin ID', 'Destination ID', 'Earliest Pickup', 'Latest Delivery', 'Each Quantity', 'Case Quantity', 'Pallet Quantity']);
+  const order = canonicalizeOrder({ 'Primary reference': 'GUSTO-300', 'Origin ID': 'DC1', 'Destination ID': 'MFC1', 'Earliest Pickup': '2026-10-13T08:00', 'Latest Delivery': '2026-10-14T08:00', 'Each Quantity': '8', 'Case Quantity': '24', 'Pallet Quantity': '3' }, mapping);
+  assert.equal(order.eachQuantity, 8);
+  assert.equal(order.caseQuantity, 24);
+  assert.equal(order.palletQuantity, 3);
+});

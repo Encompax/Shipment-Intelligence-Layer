@@ -15,7 +15,7 @@ const MAPPABLE_FIELDS = {
     "action", "primaryReference", "poNumber", "materialTransferOrderNumber", "meid", "businessUnit",
     "earliestPickup", "latestPickup", "earliestDelivery", "latestDelivery", "originId", "destinationId",
     "quantity", "quantityUom", "lines", "weight", "weightUom", "waterWeight", "equipmentType", "scac",
-    "modeType", "orderType", "handlingUnits", "handlingUnitsUom", "waterPallets",
+    "modeType", "orderType", "handlingUnits", "handlingUnitsUom", "waterPallets", "eachQuantity", "caseQuantity", "palletQuantity",
   ],
   LOADS: [
     "customerName", "customerId", "direction", "originFacility", "originAddress", "originCity", "originState",

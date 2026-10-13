@@ -5,6 +5,7 @@ import { intakeCollection } from "../services/intake/intakeStore";
 import { isFirestorePrimaryEnabled } from "../lib/firestore";
 import { readUploadTable } from "./uploads";
 import { listFacilitiesForWorkspace } from "./facilities";
+import { listLaneBusinessUnits, listLanePartners } from "./lanes";
 
 type OrderStatus = "DRAFT" | "VALIDATION_REQUIRED" | "READY_TO_PLAN" | "ASSIGNED_TO_LOAD" | "TENDERED" | "IN_TRANSIT" | "DELIVERED";
 type OrderRecord = Record<string, unknown> & { orderId: string; workspaceId: string; primaryReference: string; status: OrderStatus };
@@ -18,6 +19,7 @@ const fields = [
   "earliestPickup", "latestPickup", "earliestDelivery", "latestDelivery", "originId", "destinationId",
   "quantity", "quantityUom", "lines", "weight", "weightUom", "waterWeight", "equipmentType", "scac",
   "modeType", "orderType", "handlingUnits", "handlingUnitsUom", "waterPallets",
+  "eachQuantity", "caseQuantity", "palletQuantity",
 ] as const;
 
 const aliases: Record<string, string[]> = {
@@ -31,6 +33,7 @@ const aliases: Record<string, string[]> = {
   equipmentType: ["equipment type", "equipment_type", "equipment"], scac: ["scac"], modeType: ["mode type", "mode_type", "mode"],
   orderType: ["order type", "order_type"], handlingUnits: ["handling units", "handling_units"], handlingUnitsUom: ["handling units unit of measure", "handling units uom", "handling_units_uom"],
   waterPallets: ["water pallets", "water_pallets"],
+  eachQuantity: ["each quantity", "each qty", "eaches"], caseQuantity: ["case quantity", "case qty", "cases"], palletQuantity: ["pallet quantity", "pallet qty", "pallets"],
 };
 
 const auth = (req: Request) => (req as AuthenticatedSilRequest).silAuth;
@@ -91,7 +94,7 @@ export function inferOrderMapping(headers: string[]) {
 export function canonicalizeOrder(row: Record<string, unknown>, mapping: Record<string, string>) {
   const output: Record<string, unknown> = {};
   for (const field of fields) output[field] = mapping[field] ? row[mapping[field]] ?? "" : "";
-  for (const field of ["quantity", "lines", "weight", "waterWeight", "handlingUnits", "waterPallets"]) output[field] = numberOrNull(output[field]);
+  for (const field of ["quantity", "lines", "weight", "waterWeight", "handlingUnits", "waterPallets", "eachQuantity", "caseQuantity", "palletQuantity"]) output[field] = numberOrNull(output[field]);
   output.action = clean(output.action || "CREATE").toUpperCase();
   output.primaryReference = clean(output.primaryReference);
   return output;
@@ -102,7 +105,7 @@ export function validateOrder(row: Record<string, unknown>, rowNumber: number) {
   for (const field of ["primaryReference", "originId", "destinationId", "earliestPickup", "latestDelivery"]) {
     if (!clean(row[field])) issues.push({ row: rowNumber, field, severity: "ERROR", message: `${field} is required.` });
   }
-  for (const field of ["quantity", "weight", "handlingUnits"]) {
+  for (const field of ["quantity", "weight", "handlingUnits", "eachQuantity", "caseQuantity", "palletQuantity"]) {
     if (row[field] != null && (!Number.isFinite(row[field]) || Number(row[field]) < 0)) issues.push({ row: rowNumber, field, severity: "ERROR", message: `${field} must be a non-negative number.` });
   }
   if (!clean(row.poNumber) && !clean(row.materialTransferOrderNumber)) issues.push({ row: rowNumber, field: "poNumber", severity: "REVIEW", message: "No PO or material transfer order number was supplied." });
@@ -150,6 +153,12 @@ export function registerOrderRoutes(app: Express) {
     const facilityReview = await resolveFacilities(context.orgScope, [canonical]);
     const existing = await list(context.orgScope, "orders", localOrders);
     const issues = [...validateOrder(canonical, 1), ...facilityReview.issues];
+    const businessUnits = await listLaneBusinessUnits(context.orgScope);
+    if (!businessUnits.some((unit: any) => comparable(unit.name) === comparable(canonical.businessUnit) || comparable(unit.id) === comparable(canonical.businessUnit))) issues.push({ row: 1, field: "businessUnit", severity: "ERROR", code: "BUSINESS_UNIT_NOT_FOUND", message: "Select a configured organization business unit." });
+    if (clean(canonical.scac)) {
+      const partners = await listLanePartners(context.orgScope);
+      if (!partners.some((partner: any) => comparable(partner.scac) === comparable(canonical.scac))) issues.push({ row: 1, field: "scac", severity: "ERROR", code: "SCAC_NOT_FOUND", message: "Select the SCAC of a registered external partner." });
+    }
     if (orderDuplicateKey(canonical) && existing.some((order) => orderDuplicateKey(order) === orderDuplicateKey(canonical))) issues.push({ row: 1, field: "primaryReference", severity: "ERROR", code: "DUPLICATE_ORDER", message: "An order with these references already exists." });
     const now = new Date().toISOString();
     const [silTestMeid] = await reserveSilTestMeids(context.orgScope, 1);

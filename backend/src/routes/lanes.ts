@@ -121,14 +121,14 @@ async function listCollection<T>(workspaceId: string, name: string, local: Map<s
   return snapshot.docs.map((doc) => doc.data()).filter((record) => record.workspaceId === workspaceId) as T[];
 }
 
-async function listPartners(workspaceId: string) {
+export async function listLanePartners(workspaceId: string) {
   const db = getSilFirestore();
   if (!db) return [];
   const snapshot = await db.collection("organizations").doc(workspaceId).collection("externalPartners").get();
   return snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() })).filter((partner: any) => partner.status !== "archived");
 }
 
-async function listBusinessUnits(workspaceId: string) {
+export async function listLaneBusinessUnits(workspaceId: string) {
   const db = getSilFirestore();
   if (!db) return [];
   const snapshot = await db.collection("organizations").doc(workspaceId).get();
@@ -172,8 +172,8 @@ export function registerLaneRoutes(app: Express) {
       listCollection(auth.orgScope, "lanes", localLanes),
       listCollection(auth.orgScope, "laneEligibility", localEligibility),
       listCollection(auth.orgScope, "laneAwards", localAwards),
-      listPartners(auth.orgScope),
-      listBusinessUnits(auth.orgScope),
+      listLanePartners(auth.orgScope),
+      listLaneBusinessUnits(auth.orgScope),
     ]);
     res.json({ lanes, eligibility, awards, partners, businessUnits });
   });
@@ -267,7 +267,7 @@ export function registerLaneRoutes(app: Express) {
     if (laneType !== "FINAL_MILE" && (!downlineCarrierTerminalFacilityId || !(await facilityExists(auth.orgScope, downlineCarrierTerminalFacilityId)))) {
       return res.status(400).json({ error: "Select a downline carrier terminal from this workspace's facilities." });
     }
-    const businessUnit = (await listBusinessUnits(auth.orgScope)).find((unit: any) => String(unit.id).toLowerCase() === businessUnitId);
+    const businessUnit = (await listLaneBusinessUnits(auth.orgScope)).find((unit: any) => String(unit.id).toLowerCase() === businessUnitId);
     if (!businessUnit) return res.status(400).json({ error: "Select an active business unit managed by this organization." });
     const now = new Date().toISOString();
     const lane: LaneRecord = {
