@@ -2,7 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { buildOrderPlanningProposal, hashOrderPlanningProposal, scoreOrderLane, verifyOrderPlanningProposal } = require('../dist/src/services/orderPlanningService');
 const { buildPlanningDecisionRecords, decideOrderPlanningProposal, hashOrderPlanningDecision, validatePlanningDecision, verifyOrderPlanningDecision } = require('../dist/src/services/orderPlanningDecisionService');
-const { buildTenderIssuance, hashTenderIssuance, issuePlannedLoadTender, verifyTenderIssuance } = require('../dist/src/services/tenderQueueService');
+const { buildTenderIssuance, hashTenderIssuance, issuePlannedLoadTender, respondToTender, retenderPlannedLoad, verifyTenderIssuance, verifyTenderResponse } = require('../dist/src/services/tenderQueueService');
 
 const order = {
   orderId: 'order-1', workspaceId: 'org-1', primaryReference: 'GUSTO-2225555', silTestMeid: '500000001',
@@ -145,4 +145,30 @@ test('tender issuance is idempotent while a carrier response is pending', async 
   assert.equal(retry.idempotent, true);
   assert.equal(retry.tender.tenderId, first.tender.tenderId);
   assert.equal(retry.state.status, 'AWAITING_RESPONSE');
+});
+
+test('records carrier rejection and a governed retender as linked append-only events', async () => {
+  const tenderOrder = { ...order, orderId: 'order-tender-3', primaryReference: 'GUSTO-TENDER-3' };
+  const proposal = buildOrderPlanningProposal({ workspaceId: 'org-1', order: tenderOrder, lanes: [lane], eligibility, awards, partners, actor: 'user-1' });
+  const approval = await decideOrderPlanningProposal({ workspaceId: 'org-1', order: tenderOrder, proposal, decision: 'APPROVED', actor: 'planner-1' });
+  const first = await issuePlannedLoadTender({ workspaceId: 'org-1', loadId: approval.load.loadId, actor: 'planner-1' });
+  await assert.rejects(() => respondToTender({ workspaceId: 'org-1', tenderId: first.tender.tenderId, externalPartnerId: 'other-carrier', response: 'ACCEPTED', actor: 'other-user' }), /different partner/);
+  const rejected = await respondToTender({ workspaceId: 'org-1', tenderId: first.tender.tenderId, externalPartnerId: 'carrier-1', response: 'REJECTED', reason: 'No driver capacity.', actor: 'carrier-user-1' });
+  assert.equal(rejected.state.status, 'REJECTED');
+  assert.equal(verifyTenderResponse(rejected.response).integrity, 'VERIFIED');
+  const second = await retenderPlannedLoad({ workspaceId: 'org-1', loadId: approval.load.loadId, actor: 'planner-1', reason: 'Carrier confirmed capacity on second review.' });
+  assert.equal(second.tender.attemptNumber, 2);
+  assert.equal(second.tender.priorTenderId, first.tender.tenderId);
+  assert.equal(second.tender.retenderReason, 'Carrier confirmed capacity on second review.');
+  assert.equal(second.state.status, 'AWAITING_RESPONSE');
+});
+
+test('acceptance is terminal and cannot be retendered', async () => {
+  const tenderOrder = { ...order, orderId: 'order-tender-4', primaryReference: 'GUSTO-TENDER-4' };
+  const proposal = buildOrderPlanningProposal({ workspaceId: 'org-1', order: tenderOrder, lanes: [lane], eligibility, awards, partners, actor: 'user-1' });
+  const approval = await decideOrderPlanningProposal({ workspaceId: 'org-1', order: tenderOrder, proposal, decision: 'APPROVED', actor: 'planner-1' });
+  const issued = await issuePlannedLoadTender({ workspaceId: 'org-1', loadId: approval.load.loadId, actor: 'planner-1' });
+  const accepted = await respondToTender({ workspaceId: 'org-1', tenderId: issued.tender.tenderId, externalPartnerId: 'carrier-1', response: 'ACCEPTED', actor: 'carrier-user-1' });
+  assert.equal(accepted.state.status, 'ACCEPTED');
+  await assert.rejects(() => retenderPlannedLoad({ workspaceId: 'org-1', loadId: approval.load.loadId, actor: 'planner-1', reason: 'Invalid retry.' }), /rejected or expired/);
 });

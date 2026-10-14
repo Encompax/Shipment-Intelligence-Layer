@@ -9,7 +9,7 @@ import { listLaneBusinessUnits, listLanePartners, listLanePlanningRegistry } fro
 import { buildOrderPlanningProposal, getLatestOrderPlanningProposal, listOrderPlanningProposals, saveOrderPlanningProposal } from "../services/orderPlanningService";
 import { decideOrderPlanningProposal, listOrderPlanningDecisions, PlanningDecisionConflict, PlanningDecisionValidationError, type PlanningDecisionType } from "../services/orderPlanningDecisionService";
 
-export type OrderStatus = "DRAFT" | "VALIDATION_REQUIRED" | "READY_TO_PLAN" | "ASSIGNED_TO_LOAD" | "TENDERED" | "IN_TRANSIT" | "DELIVERED";
+export type OrderStatus = "DRAFT" | "VALIDATION_REQUIRED" | "READY_TO_PLAN" | "ASSIGNED_TO_LOAD" | "TENDERED" | "CARRIER_ACCEPTED" | "TENDER_REJECTED" | "TENDER_EXPIRED" | "IN_TRANSIT" | "DELIVERED";
 export type OrderRecord = Record<string, unknown> & { orderId: string; workspaceId: string; primaryReference: string; status: OrderStatus };
 
 const localOrders = new Map<string, OrderRecord[]>();

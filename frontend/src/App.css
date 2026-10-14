@@ -1440,6 +1440,11 @@ td {
 .tender-release textarea { min-height: 54px; resize: vertical; }
 .tender-issued { display: grid; gap: 5px; padding: 15px; }
 .tender-issued span, .tender-issued small { color: #91a4b9; }
+.partner-tender-list { display: grid; gap: 12px; padding: 12px; }
+.partner-tender-response { display: grid; grid-template-columns: minmax(260px, 1fr) auto; gap: 12px; align-items: end; padding: 14px 15px; }
+.partner-tender-response label { display: grid; gap: 5px; color: #b9cadb; font-size: 12px; }
+.partner-tender-response textarea { min-height: 54px; resize: vertical; }
+.partner-tender-response > div { display: flex; gap: 8px; }
 .planning-outcome { padding: 5px 8px; border: 1px solid #49627e; color: #dce8f5; font-size: 11px; text-transform: uppercase; }
 .planning-outcome.matched { border-color: #159e91; color: #75dfd3; }
 .planning-outcome.review_required { border-color: #b88b32; color: #f1ca74; }
@@ -1521,6 +1526,7 @@ td {
   .tender-workbench, .tender-detail-grid, .tender-release { grid-template-columns: 1fr; }
   .tender-summary { grid-template-columns: 1fr; }
   .tender-summary > div { border-right: 0; border-bottom: 1px solid #30445b; }
+  .partner-tender-response { grid-template-columns: 1fr; }
   .planning-recommendation > div { border-right: 0; border-bottom: 1px solid #30445b; }
   .order-planning-actions { min-width: 0; flex-direction: column; }
   .lane-type-tabs { grid-template-columns: repeat(2, minmax(0, 1fr)); }

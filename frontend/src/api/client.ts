@@ -114,6 +114,26 @@ export async function issuePlannedLoadTender(loadId: string, payload: { response
   return readJsonResponse(res, "Failed to issue tender");
 }
 
+export async function expireTender(tenderId: string, reason?: string) {
+  const res = await fetch(`${API_BASE}/tenders/${encodeURIComponent(tenderId)}/expire`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ reason }) });
+  return readJsonResponse(res, "Failed to expire tender");
+}
+
+export async function retenderPlannedLoad(loadId: string, payload: { reason: string; responseDueAt?: string; note?: string }) {
+  const res = await fetch(`${API_BASE}/tenders/${encodeURIComponent(loadId)}/retender`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+  return readJsonResponse(res, "Failed to retender load");
+}
+
+export async function fetchPartnerTenders() {
+  const res = await fetch(`${API_BASE}/partner/tenders`);
+  return readJsonResponse(res, "Failed to fetch partner tenders");
+}
+
+export async function respondToPartnerTender(tenderId: string, payload: { response: "ACCEPTED" | "REJECTED"; reason?: string }) {
+  const res = await fetch(`${API_BASE}/partner/tenders/${encodeURIComponent(tenderId)}/respond`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+  return readJsonResponse(res, "Failed to record tender response");
+}
+
 export async function createOrderIntakeReview(payload: { rows?: Record<string, unknown>[]; uploadId?: number; sourceName?: string; profileName?: string; profileId?: string; mapping?: Record<string, string> }) {
   const res = await fetch(`${API_BASE}/orders/intake-reviews`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
   return readJsonResponse(res, "Failed to review order intake");
