@@ -104,6 +104,21 @@ export async function fetchOrderPlanningHistory(orderId: string) {
   return readJsonResponse(res, "Failed to fetch order planning history");
 }
 
+export async function fetchPlanningResolution(orderId: string) {
+  const res = await fetch(`${API_BASE}/orders/${encodeURIComponent(orderId)}/planning-resolution`);
+  return readJsonResponse(res, "Failed to load planning resolution assistance");
+}
+
+export async function createPlanningResolutionDraft(orderId: string, optionId: string) {
+  const res = await fetch(`${API_BASE}/orders/${encodeURIComponent(orderId)}/planning-resolution/drafts`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ optionId }) });
+  return readJsonResponse(res, "Failed to prepare planning resolution");
+}
+
+export async function decidePlanningResolutionDraft(orderId: string, draftId: string, decision: "APPROVED" | "REJECTED", reason = "") {
+  const res = await fetch(`${API_BASE}/orders/${encodeURIComponent(orderId)}/planning-resolution/drafts/${encodeURIComponent(draftId)}/decision`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ decision, reason }) });
+  return readJsonResponse(res, "Failed to decide planning resolution");
+}
+
 export async function decideOrderPlanningProposal(orderId: string, payload: { proposalId: string; decision: "APPROVED" | "REJECTED"; reason?: string }) {
   const res = await fetch(`${API_BASE}/orders/${encodeURIComponent(orderId)}/planning-decisions`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
   return readJsonResponse(res, "Failed to record planning decision");

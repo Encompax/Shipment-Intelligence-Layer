@@ -8,6 +8,7 @@ import { listFacilitiesForWorkspace } from "./facilities";
 import { listLaneBusinessUnits, listLanePartners, listLanePlanningRegistry } from "./lanes";
 import { buildOrderPlanningProposal, getLatestOrderPlanningProposal, listOrderPlanningProposals, saveOrderPlanningProposal } from "../services/orderPlanningService";
 import { decideOrderPlanningProposal, listOrderPlanningDecisions, PlanningDecisionConflict, PlanningDecisionValidationError, type PlanningDecisionType } from "../services/orderPlanningDecisionService";
+import { buildPlanningResolutionAnalysis, createPlanningResolutionDraft, getPlanningResolutionDraft, recordPlanningResolutionDecision } from "../services/planningResolutionService";
 
 export type OrderStatus = "DRAFT" | "VALIDATION_REQUIRED" | "READY_TO_PLAN" | "ASSIGNED_TO_LOAD" | "TENDERED" | "CARRIER_ACCEPTED" | "TENDER_REJECTED" | "TENDER_EXPIRED" | "IN_TRANSIT" | "DELIVERED";
 export type OrderRecord = Record<string, unknown> & { orderId: string; workspaceId: string; primaryReference: string; status: OrderStatus };
@@ -255,6 +256,55 @@ export function registerOrderRoutes(app: Express) {
     });
     await saveOrderPlanningProposal(proposal);
     res.status(201).json({ proposal });
+  });
+
+  app.get("/api/orders/:orderId/planning-resolution", async (req, res) => {
+    const context = requireWorkspace(req, res); if (!context) return;
+    const proposal = await getLatestOrderPlanningProposal(context.orgScope, req.params.orderId);
+    if (!proposal) { res.status(404).json({ error: "Run lane matching before requesting planning assistance." }); return; }
+    if (proposal.integrity !== "VERIFIED") { res.status(409).json({ error: "Planning evidence integrity must be verified before assistance can prepare a correction." }); return; }
+    res.json(buildPlanningResolutionAnalysis(proposal));
+  });
+
+  app.post("/api/orders/:orderId/planning-resolution/drafts", async (req, res) => {
+    const context = requireWorkspace(req, res); if (!context) return;
+    const proposal = await getLatestOrderPlanningProposal(context.orgScope, req.params.orderId);
+    if (!proposal || proposal.integrity !== "VERIFIED") { res.status(409).json({ error: "Verified current planning evidence is required." }); return; }
+    const analysis = buildPlanningResolutionAnalysis(proposal);
+    const option = analysis.options.find((item) => item.optionId === clean(req.body?.optionId));
+    if (!option) { res.status(400).json({ error: "Select a resolution produced from the current proposal." }); return; }
+    const draft = await createPlanningResolutionDraft({ workspaceId: context.orgScope, actor: context.uid, proposal, option });
+    res.status(201).json({ draft });
+  });
+
+  app.post("/api/orders/:orderId/planning-resolution/drafts/:draftId/decision", async (req, res) => {
+    const context = requireWorkspace(req, res); if (!context) return;
+    const decision = clean(req.body?.decision).toUpperCase();
+    if (!['APPROVED', 'REJECTED'].includes(decision)) { res.status(400).json({ error: "Decision must be APPROVED or REJECTED." }); return; }
+    const [draft, latest, orders] = await Promise.all([getPlanningResolutionDraft(context.orgScope, req.params.draftId), getLatestOrderPlanningProposal(context.orgScope, req.params.orderId), list(context.orgScope, "orders", localOrders)]);
+    if (!draft || draft.orderId !== req.params.orderId) { res.status(404).json({ error: "Resolution draft not found." }); return; }
+    if (draft.integrity !== "VERIFIED" || !latest || latest.proposalId !== draft.proposalId || latest.contentHash !== draft.proposalContentHash) { res.status(409).json({ error: "This draft is not based on the current verified planning proposal." }); return; }
+    if (decision === 'REJECTED') {
+      const record = await recordPlanningResolutionDecision({ workspaceId: context.orgScope, draftId: draft.draftId, decision: 'REJECTED', reason: clean(req.body?.reason, 1000), actor: context.uid });
+      res.status(201).json({ decision: record, order: null, proposal: null }); return;
+    }
+    if (!draft.option.executable) { res.status(409).json({ error: "This option requires an additional workflow and cannot be executed automatically yet." }); return; }
+    const order = orders.find((item) => item.orderId === req.params.orderId);
+    if (!order || order.status !== "READY_TO_PLAN") { res.status(409).json({ error: "Only an order that is ready to plan can be corrected." }); return; }
+    let updated: OrderRecord = { ...order, updatedAt: new Date().toISOString() };
+    if (draft.option.actionType === "CHANGE_ORDER_EQUIPMENT") updated = { ...updated, equipmentType: clean(draft.option.parameters.equipmentType) };
+    else if (draft.option.actionType === "CHANGE_ORDER_DELIVERY") updated = { ...updated, latestDelivery: clean(draft.option.parameters.latestDelivery) };
+    else { res.status(409).json({ error: "This correction does not have an approved execution handler." }); return; }
+    const registry = await listLanePlanningRegistry(context.orgScope);
+    const proposal = buildOrderPlanningProposal({ workspaceId: context.orgScope, order: updated, lanes: registry.lanes, eligibility: registry.eligibility, awards: registry.awards, partners: registry.partners, actor: context.uid, supersedesProposalId: latest.proposalId });
+    try {
+      const record = await recordPlanningResolutionDecision({ workspaceId: context.orgScope, draftId: draft.draftId, decision: 'APPROVED', reason: clean(req.body?.reason, 1000), actor: context.uid, resultingProposalIds: [proposal.proposalId] });
+      await save(context.orgScope, "orders", order.orderId, updated, localOrders);
+      await saveOrderPlanningProposal(proposal);
+      res.status(201).json({ decision: record, order: updated, proposal });
+    } catch (error) {
+      res.status(409).json({ error: error instanceof Error ? error.message : "The resolution decision could not be recorded." });
+    }
   });
 
   app.get("/api/orders/:orderId/planning-decisions", async (req, res) => {

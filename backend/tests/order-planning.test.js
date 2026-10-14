@@ -4,6 +4,7 @@ const { buildOrderPlanningProposal, hashOrderPlanningProposal, scoreOrderLane, v
 const { buildPlanningDecisionRecords, decideOrderPlanningProposal, hashOrderPlanningDecision, validatePlanningDecision, verifyOrderPlanningDecision } = require('../dist/src/services/orderPlanningDecisionService');
 const { buildTenderIssuance, hashTenderIssuance, issuePlannedLoadTender, listTenderQueue, respondToTender, retenderPlannedLoad, verifyTenderIssuance, verifyTenderResponse } = require('../dist/src/services/tenderQueueService');
 const { canonicalizeOrder, validateOrder } = require('../dist/src/routes/orders');
+const { buildPlanningResolutionAnalysis, createPlanningResolutionDraft, getPlanningResolutionDraft, recordPlanningResolutionDecision } = require('../dist/src/services/planningResolutionService');
 
 const order = {
   orderId: 'order-1', workspaceId: 'org-1', primaryReference: 'GUSTO-2225555', silTestMeid: '500000001',
@@ -217,4 +218,26 @@ test('manual order flows through planning, tender visibility, and carrier accept
   assert.equal(accepted.response.integrity, undefined);
   assert.equal(verifyTenderResponse(accepted.response).integrity, 'VERIFIED');
   assert.equal(JSON.stringify({ proposal, decision: approval.decision, load: approval.load }), planningEvidence);
+});
+
+test('planning resolution assistant explains capacity and schedule findings without changing the proposal', async () => {
+  const heavyOrder = { ...order, orderId: 'order-resolution-1', equipmentType: 'BOX TRUCK', modeType: 'LTL', weight: 15000, palletQuantity: 8, latestDelivery: '2026-10-13T18:30' };
+  const finalMile = { ...lane, laneId: 'lane-final-mile', name: 'ATL Final Mile', laneType: 'FINAL_MILE', equipmentType: 'BOX TRUCK', loadAssumption: 'LTL', storeDeliveryDays: ['WEDNESDAY'], terminalArrivalDays: [], workspaceId: 'org-1' };
+  const largerLane = { ...finalMile, laneId: 'lane-final-mile-53', name: 'ATL Final Mile 53', equipmentType: '53 FT DRY VAN' };
+  const proposal = buildOrderPlanningProposal({ workspaceId: 'org-1', order: heavyOrder, lanes: [finalMile, largerLane], eligibility: [], awards: [], partners: [], actor: 'planner-1' });
+  const original = JSON.stringify(proposal);
+  const analysis = buildPlanningResolutionAnalysis(proposal);
+  assert.ok(analysis.findings.some((finding) => finding.code === 'WEIGHT_CAPACITY_EXCEEDED'));
+  assert.ok(analysis.findings.some((finding) => finding.code === 'DELIVERY_DAY_MISMATCH'));
+  assert.ok(analysis.options.some((option) => option.actionType === 'SPLIT_ORDER' && option.parameters.loadCount === 2));
+  assert.ok(analysis.options.some((option) => option.actionType === 'CHANGE_ORDER_EQUIPMENT' && option.executable));
+  assert.ok(analysis.options.some((option) => option.actionType === 'CHANGE_ORDER_DELIVERY' && option.executable));
+  assert.equal(JSON.stringify(proposal), original);
+  const option = analysis.options.find((candidate) => candidate.actionType === 'CHANGE_ORDER_EQUIPMENT');
+  const draft = await createPlanningResolutionDraft({ workspaceId: 'org-1', actor: 'planner-1', proposal, option });
+  assert.equal(draft.integrity, 'VERIFIED');
+  assert.equal((await getPlanningResolutionDraft('org-other', draft.draftId)), null);
+  const decision = await recordPlanningResolutionDecision({ workspaceId: 'org-1', draftId: draft.draftId, decision: 'REJECTED', actor: 'planner-1' });
+  assert.equal(decision.integrity, 'VERIFIED');
+  await assert.rejects(() => recordPlanningResolutionDecision({ workspaceId: 'org-1', draftId: draft.draftId, decision: 'APPROVED', actor: 'planner-1' }), /already has a decision/);
 });
