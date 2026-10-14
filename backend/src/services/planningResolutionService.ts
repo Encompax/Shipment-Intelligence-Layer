@@ -41,11 +41,13 @@ const cost = (candidate: LaneMatchCandidate) => candidate.activeAwards.length
 export function buildPlanningResolutionAnalysis(proposal: OrderPlanningProposal) {
   const options: ResolutionOption[] = [];
   const order = proposal.orderSnapshot;
+  const routePlan = proposal.routePlans?.find((plan) => plan.routePlanId === proposal.recommendedRoutePlanId);
+  const analysisCandidates = routePlan?.planType === "HUB_SPOKE" ? routePlan.legs.map((leg) => leg.candidate) : proposal.candidates;
   const add = (option: Omit<ResolutionOption, "optionId" | "requiresApproval">) => {
     const key = `${option.actionType}:${canonical(option.parameters)}`;
     if (!options.some((item) => `${item.actionType}:${canonical(item.parameters)}` === key)) options.push({ ...option, optionId: createHash("sha256").update(`${proposal.proposalId}:${key}`).digest("hex").slice(0, 16), requiresApproval: true });
   };
-  for (const candidate of proposal.candidates) {
+  for (const candidate of analysisCandidates) {
     const codes = candidate.findings.map((finding) => finding.code);
     if (codes.some((code) => ["WEIGHT_CAPACITY_EXCEEDED", "PALLET_CAPACITY_EXCEEDED"].includes(code)) && candidate.capacityRule) {
       const weight = Number(order.weight || 0) * (String(order.weightUom || "LBS").toUpperCase() === "KG" ? 2.2046226218 : 1);
@@ -59,11 +61,16 @@ export function buildPlanningResolutionAnalysis(proposal: OrderPlanningProposal)
     if (deliveryFinding && nextDelivery) add({ actionType: "CHANGE_ORDER_DELIVERY", title: `Move delivery to ${weekday[new Date(nextDelivery).getDay()]}`, explanation: `Move the order's latest delivery to the next day allowed by ${candidate.laneName}.`, operationalEffect: "Changes the customer delivery commitment and runs lane matching again.", costEffect: cost(candidate), parameters: { latestDelivery: nextDelivery, laneId: candidate.laneId }, executable: true, evidenceCodes: [deliveryFinding.code] });
     if (deliveryFinding) add({ actionType: "CHANGE_LANE_SCHEDULE", title: `Review ${candidate.laneName} delivery days`, explanation: "Use this only if the lane schedule is wrong and the facility can receive on the requested day.", operationalEffect: "Would change the reusable lane policy and affect future orders.", costEffect: "No direct rate change is assumed, but carrier and facility commitments must be reconfirmed.", parameters: { laneId: candidate.laneId, requestedDay: weekday[new Date(String(order.latestDelivery)).getDay()] }, executable: false, evidenceCodes: [deliveryFinding.code] });
   }
-  const equipmentCandidates = proposal.candidates.filter((candidate) => candidate.capacityRule && !candidate.findings.some((finding) => ["ROUTE_MISMATCH", "BUSINESS_UNIT_MISMATCH", "WEIGHT_CAPACITY_EXCEEDED", "PALLET_CAPACITY_EXCEEDED"].includes(finding.code)));
+  const equipmentCandidates = analysisCandidates.filter((candidate) => candidate.capacityRule && !candidate.findings.some((finding) => ["ROUTE_MISMATCH", "BUSINESS_UNIT_MISMATCH", "WEIGHT_CAPACITY_EXCEEDED", "PALLET_CAPACITY_EXCEEDED"].includes(finding.code)));
   equipmentCandidates.forEach((candidate) => add({ actionType: "CHANGE_ORDER_EQUIPMENT", title: `Use ${candidate.capacityRule!.equipmentType}`, explanation: `Use the configured ${candidate.capacityRule!.maxWeightLbs.toLocaleString()} LBS / ${candidate.capacityRule!.maxPallets}-pallet capacity.`, operationalEffect: "Changes the order equipment request and reruns lane matching.", costEffect: cost(candidate), parameters: { equipmentType: candidate.capacityRule!.equipmentType, laneId: candidate.laneId }, executable: true, evidenceCodes: ["WEIGHT_CAPACITY_EXCEEDED", "PALLET_CAPACITY_EXCEEDED"] }));
-  if (proposal.candidates.some((candidate) => candidate.laneType === "LINEHAUL") && proposal.candidates.some((candidate) => candidate.laneType === "FINAL_MILE")) add({ actionType: "BUILD_ROUTE_CHAIN", title: "Build a Linehaul-to-Final-Mile route chain", explanation: "Plan the order through an intermediate terminal instead of requiring one lane to cover the entire movement.", operationalEffect: "Creates a multi-leg planning requirement with a governed handoff between legs.", costEffect: "Requires separate leg awards and exposes total landed transportation cost.", parameters: {}, executable: false, evidenceCodes: ["ROUTE_MISMATCH"] });
-  const findings = proposal.candidates.flatMap((candidate) => candidate.findings.map((finding: PlanningFinding) => ({ laneId: candidate.laneId, laneName: candidate.laneName, ...finding })));
-  return { proposalId: proposal.proposalId, orderId: proposal.orderId, outcome: proposal.outcome, findings, options, response: options.length ? "I found governed resolution paths below. Select one to prepare an action draft. Nothing changes until you explicitly approve an executable draft." : "I could not identify a safe automatic correction. Review the proposal evidence with a planner or Data Steward." };
+  if (!routePlan && proposal.candidates.some((candidate) => candidate.laneType === "LINEHAUL") && proposal.candidates.some((candidate) => candidate.laneType === "FINAL_MILE")) add({ actionType: "BUILD_ROUTE_CHAIN", title: "Build a Linehaul-to-Final-Mile route chain", explanation: "Plan the order through an intermediate terminal instead of requiring one lane to cover the entire movement.", operationalEffect: "Creates a multi-leg planning requirement with a governed handoff between legs.", costEffect: "Requires separate leg awards and exposes total landed transportation cost.", parameters: {}, executable: false, evidenceCodes: ["ROUTE_MISMATCH"] });
+  const findings = analysisCandidates.flatMap((candidate) => candidate.findings.map((finding: PlanningFinding) => ({ laneId: candidate.laneId, laneName: candidate.laneName, ...finding })));
+  const response = options.length
+    ? "I found governed resolution paths below. Select one to prepare an action draft. Nothing changes until you explicitly approve an executable draft."
+    : routePlan
+      ? `I reviewed the ${routePlan.planType === "HUB_SPOKE" ? "hub-and-spoke" : "direct"} route plan and found no correction that should be prepared automatically. Review the leg evidence and carrier awards before approval.`
+      : "I could not identify a safe automatic correction. Review the proposal evidence with a planner or Data Steward.";
+  return { proposalId: proposal.proposalId, orderId: proposal.orderId, outcome: proposal.outcome, findings, options, response };
 }
 
 export async function createPlanningResolutionDraft(input: { workspaceId: string; actor: string; proposal: OrderPlanningProposal; option: ResolutionOption }) {

@@ -73,6 +73,37 @@ test('builds a tenant-scoped pending proposal with the best lane recommendation'
   assert.equal(verifyOrderPlanningProposal(proposal).integrity, 'VERIFIED');
 });
 
+test('builds and approves a governed hub-and-spoke route as linked loads', () => {
+  const hubOrder = { ...order, orderId: 'order-hub-1', destinationId: 'facility-store', orderType: 'TRANSFER', weight: 8000, palletQuantity: 8, equipmentType: '' };
+  const linehaulLeg = { ...lane, laneId: 'lane-hub-linehaul', destinationFacilityId: 'facility-crossdock' };
+  const finalMileLeg = {
+    ...lane, laneId: 'lane-hub-final-mile', name: 'Crossdock to Store', laneType: 'FINAL_MILE', originFacilityId: 'facility-crossdock', destinationFacilityId: 'facility-store',
+    equipmentType: 'BOX TRUCK', loadAssumption: 'LTL', dispatchDays: [], terminalArrivalDays: [], storeDeliveryDays: [],
+  };
+  const hubEligibility = [
+    ...eligibility.map((item) => ({ ...item, eligibilityId: 'eligible-linehaul', laneId: linehaulLeg.laneId })),
+    ...eligibility.map((item) => ({ ...item, eligibilityId: 'eligible-final-mile', laneId: finalMileLeg.laneId })),
+  ];
+  const hubAwards = [
+    ...awards.map((item) => ({ ...item, awardId: 'award-linehaul', laneId: linehaulLeg.laneId })),
+    ...awards.map((item) => ({ ...item, awardId: 'award-final-mile', laneId: finalMileLeg.laneId })),
+  ];
+  const proposal = buildOrderPlanningProposal({
+    workspaceId: 'org-1', order: hubOrder, lanes: [linehaulLeg, finalMileLeg], eligibility: hubEligibility, awards: hubAwards, partners, actor: 'planner-1',
+    facilities: [{ facilityId: 'facility-crossdock', facilityType: 'CROSSDOCK', crossdockProcessingMinutes: 90 }],
+  });
+  const route = proposal.routePlans.find((item) => item.routePlanId === proposal.recommendedRoutePlanId);
+  assert.equal(route.planType, 'HUB_SPOKE');
+  assert.equal(route.crossdockProcessingMinutes, 90);
+  assert.deepEqual(route.legs.map((leg) => leg.role), ['LINEHAUL', 'FINAL_MILE']);
+  assert.ok(route.consolidationKey);
+  assert.ok(route.finalMileGroupKey);
+  const result = buildPlanningDecisionRecords({ workspaceId: 'org-1', order: hubOrder, proposal, decision: 'APPROVED', actor: 'planner-1' });
+  assert.equal(result.loads.length, 2);
+  assert.deepEqual(result.loads.map((load) => load.laneType), ['LINEHAUL', 'FINAL_MILE']);
+  assert.deepEqual(result.decision.plannedLoadIds, result.loads.map((load) => load.loadId));
+});
+
 test('detects proposal content changes and labels pre-versioned records as legacy', () => {
   const proposal = buildOrderPlanningProposal({ workspaceId: 'org-1', order, lanes: [lane], eligibility, awards, partners, actor: 'user-1' });
   assert.equal(verifyOrderPlanningProposal({ ...proposal, outcome: 'NO_MATCH' }).integrity, 'FAILED');

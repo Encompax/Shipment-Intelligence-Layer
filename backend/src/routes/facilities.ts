@@ -28,6 +28,7 @@ type Facility = {
   operatingHours?: string;
   regionalManager?: string;
   supplyChainBusinessPartner?: string;
+  crossdockProcessingMinutes?: number;
   updatedAt: string;
 };
 
@@ -119,6 +120,7 @@ const buildFacility = (workspaceId: string, row: Record<string, string>, timesta
     operatingHours: valueFor(row, [/operatinghours/, /operationhours/, /storehours/, /^hours$/]) || undefined,
     regionalManager: valueFor(row, [/regionalmanager/, /regionmanager/]) || undefined,
     supplyChainBusinessPartner: valueFor(row, [/supplychainbusinesspartner/, /supplychainpartner/, /scbp/]) || undefined,
+    crossdockProcessingMinutes: Number(valueFor(row, [/crossdockprocessingminutes/, /processingminutes/, /handoffminutes/])) || undefined,
     updatedAt: timestamp,
   };
 };

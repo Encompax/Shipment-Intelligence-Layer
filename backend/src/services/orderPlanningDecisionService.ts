@@ -17,6 +17,7 @@ export type OrderPlanningDecision = {
   decision: PlanningDecisionType;
   reason: string | null;
   plannedLoadId: string | null;
+  plannedLoadIds?: string[];
   decidedBy: string;
   decidedAt: string;
   contentHash: string;
@@ -79,6 +80,11 @@ function recommendedCandidate(proposal: OrderPlanningProposal) {
   return proposal.candidates.find((candidate) => candidate.laneId === proposal.recommendedLaneId);
 }
 
+function recommendedRouteLegs(proposal: OrderPlanningProposal) {
+  const routePlan = proposal.routePlans?.find((plan) => plan.routePlanId === proposal.recommendedRoutePlanId);
+  return routePlan?.legs?.length ? routePlan.legs : recommendedCandidate(proposal) ? [{ sequence: 1, role: "DIRECT" as const, candidate: recommendedCandidate(proposal)! }] : [];
+}
+
 export function validatePlanningDecision(input: {
   workspaceId: string;
   order: OrderRecord;
@@ -98,18 +104,20 @@ export function validatePlanningDecision(input: {
     throw new PlanningDecisionValidationError("A reason is required when rejecting a planning proposal.");
   }
   if (decision === "APPROVED") {
-    const candidate = recommendedCandidate(proposal);
-    if (!candidate || candidate.disposition === "INELIGIBLE") {
+    const legs = recommendedRouteLegs(proposal);
+    if (!legs.length || legs.some((leg) => leg.candidate.disposition === "INELIGIBLE")) {
       throw new PlanningDecisionValidationError("The proposal has no approvable lane recommendation.");
     }
-    if (candidate.findings.some((finding) => finding.severity === "BLOCKER")) {
+    if (legs.some((leg) => leg.candidate.findings.some((finding) => finding.severity === "BLOCKER"))) {
       throw new PlanningDecisionValidationError("Resolve blocking findings before approving this proposal.");
     }
-    if (!candidate.activeAwards.length) {
+    if (legs.some((leg) => !leg.candidate.activeAwards.length)) {
       throw new PlanningDecisionValidationError("An active carrier award is required before creating a planned load.");
     }
-    const selectedAward = candidate.activeAwards.find((item) => item.awardType === "PRIMARY") ?? candidate.activeAwards[0];
-    if (!candidate.eligibleCarriers.some((carrier) => carrier.externalPartnerId === selectedAward.carrier.externalPartnerId)) {
+    if (legs.some(({ candidate }) => {
+      const award = candidate.activeAwards.find((item) => item.awardType === "PRIMARY") ?? candidate.activeAwards[0];
+      return !candidate.eligibleCarriers.some((carrier) => carrier.externalPartnerId === award.carrier.externalPartnerId);
+    })) {
       throw new PlanningDecisionValidationError("The awarded carrier must be eligible for this lane before creating a planned load.");
     }
   }
@@ -128,8 +136,9 @@ export function buildPlanningDecisionRecords(input: {
   validatePlanningDecision(input);
   const decidedAt = input.now ?? new Date().toISOString();
   const decisionId = randomUUID();
-  const candidate = recommendedCandidate(input.proposal);
-  const loadId = input.decision === "APPROVED" ? input.loadId ?? randomUUID() : null;
+  const legs = recommendedRouteLegs(input.proposal);
+  const loadIds = input.decision === "APPROVED" ? legs.map((_, index) => index === 0 && input.loadId ? input.loadId : randomUUID()) : [];
+  const loadId = loadIds[0] ?? null;
   const withoutHash: Omit<OrderPlanningDecision, "contentHash"> = {
     schemaVersion: ORDER_PLANNING_DECISION_SCHEMA_VERSION,
     decisionId,
@@ -140,16 +149,20 @@ export function buildPlanningDecisionRecords(input: {
     decision: input.decision,
     reason: input.reason?.trim() || null,
     plannedLoadId: loadId,
+    plannedLoadIds: loadIds,
     decidedBy: input.actor,
     decidedAt,
   };
   const decision = { ...withoutHash, contentHash: hashOrderPlanningDecision(withoutHash) };
-  if (!candidate || !loadId) return { decision, load: null };
-  const award = candidate.activeAwards.find((item) => item.awardType === "PRIMARY") ?? candidate.activeAwards[0];
-  const load: PlannedLoadRecord = {
+  if (!legs.length || !loadId) return { decision, load: null, loads: [] };
+  const loads: PlannedLoadRecord[] = legs.map((leg, index) => {
+    const candidate = leg.candidate;
+    const award = candidate.activeAwards.find((item) => item.awardType === "PRIMARY") ?? candidate.activeAwards[0];
+    const legLoadId = loadIds[index];
+    return {
     schemaVersion: "1.0",
-    loadId,
-    displayId: `SIL-${loadId.replace(/-/g, "").slice(0, 10).toUpperCase()}`,
+    loadId: legLoadId,
+    displayId: `SIL-${legLoadId.replace(/-/g, "").slice(0, 10).toUpperCase()}`,
     workspaceId: input.workspaceId,
     status: "PLANNED",
     sourceProposalId: input.proposal.proposalId,
@@ -172,8 +185,8 @@ export function buildPlanningDecisionRecords(input: {
     plannedDelivery: input.order.latestDelivery,
     createdBy: input.actor,
     createdAt: decidedAt,
-  };
-  return { decision, load };
+  }});
+  return { decision, load: loads[0], loads };
 }
 
 export async function decideOrderPlanningProposal(input: {
@@ -189,12 +202,13 @@ export async function decideOrderPlanningProposal(input: {
     const existing = localDecisions.get(key);
     if (existing) {
       if (existing.decision !== input.decision) throw new PlanningDecisionConflict("This proposal already has a different decision.");
-      return { decision: verifyOrderPlanningDecision(existing), load: existing.plannedLoadId ? localLoads.get(existing.plannedLoadId) ?? null : null, order: input.order, idempotent: true };
+      const loads = (existing.plannedLoadIds ?? [existing.plannedLoadId].filter(Boolean) as string[]).map((id) => localLoads.get(id)).filter((load): load is PlannedLoadRecord => Boolean(load));
+      return { decision: verifyOrderPlanningDecision(existing), load: loads[0] ?? null, loads, order: input.order, idempotent: true };
     }
     const records = buildPlanningDecisionRecords(input);
     localDecisions.set(key, records.decision);
-    if (records.load) localLoads.set(records.load.loadId, records.load);
-    return { ...records, order: records.load ? { ...input.order, status: "ASSIGNED_TO_LOAD", plannedLoadId: records.load.loadId, updatedAt: records.decision.decidedAt } : input.order, idempotent: false };
+    records.loads.forEach((load) => localLoads.set(load.loadId, load));
+    return { ...records, order: records.load ? { ...input.order, status: "ASSIGNED_TO_LOAD", plannedLoadId: records.load.loadId, plannedLoadIds: records.loads.map((load) => load.loadId), updatedAt: records.decision.decidedAt } : input.order, idempotent: false };
   }
 
   const decisionRef = intakeCollection(input.workspaceId, "orderPlanningDecisions").doc(input.proposal.proposalId);
@@ -204,21 +218,19 @@ export async function decideOrderPlanningProposal(input: {
     if (decisionSnapshot.exists) {
       const existing = decisionSnapshot.data() as OrderPlanningDecision;
       if (existing.decision !== input.decision) throw new PlanningDecisionConflict("This proposal already has a different decision.");
-      const existingLoad = existing.plannedLoadId
-        ? (await transaction.get(intakeCollection(input.workspaceId, "plannedLoads").doc(existing.plannedLoadId))).data() as PlannedLoadRecord | undefined
-        : undefined;
-      return { decision: verifyOrderPlanningDecision(existing), load: existingLoad ?? null, order: orderSnapshot.data() as OrderRecord, idempotent: true };
+      const loadIds = existing.plannedLoadIds ?? [existing.plannedLoadId].filter(Boolean) as string[];
+      const loads = (await Promise.all(loadIds.map(async (id) => (await transaction.get(intakeCollection(input.workspaceId, "plannedLoads").doc(id))).data() as PlannedLoadRecord | undefined))).filter((load): load is PlannedLoadRecord => Boolean(load));
+      return { decision: verifyOrderPlanningDecision(existing), load: loads[0] ?? null, loads, order: orderSnapshot.data() as OrderRecord, idempotent: true };
     }
     const currentOrder = orderSnapshot.data() as OrderRecord | undefined;
     if (!currentOrder || currentOrder.workspaceId !== input.workspaceId) throw new PlanningDecisionValidationError("Order not found in this workspace.");
     const records = buildPlanningDecisionRecords({ ...input, order: currentOrder });
-    const loadRef = records.load ? intakeCollection(input.workspaceId, "plannedLoads").doc(records.load.loadId) : null;
     transaction.create(decisionRef, records.decision);
-    if (records.load && loadRef) {
-      transaction.create(loadRef, records.load);
-      transaction.update(orderRef, { status: "ASSIGNED_TO_LOAD", plannedLoadId: records.load.loadId, updatedAt: records.decision.decidedAt });
+    if (records.load) {
+      records.loads.forEach((load) => transaction.create(intakeCollection(input.workspaceId, "plannedLoads").doc(load.loadId), load));
+      transaction.update(orderRef, { status: "ASSIGNED_TO_LOAD", plannedLoadId: records.load.loadId, plannedLoadIds: records.loads.map((load) => load.loadId), updatedAt: records.decision.decidedAt });
     }
-    return { ...records, order: records.load ? { ...currentOrder, status: "ASSIGNED_TO_LOAD", plannedLoadId: records.load.loadId, updatedAt: records.decision.decidedAt } : currentOrder, idempotent: false };
+    return { ...records, order: records.load ? { ...currentOrder, status: "ASSIGNED_TO_LOAD", plannedLoadId: records.load.loadId, plannedLoadIds: records.loads.map((load) => load.loadId), updatedAt: records.decision.decidedAt } : currentOrder, idempotent: false };
   });
 }
 

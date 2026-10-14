@@ -87,7 +87,7 @@ async function save(workspaceId: string, name: string, id: string, value: any, l
 
 async function createAutomaticPlanningProposal(workspaceId: string, order: OrderRecord, actor: string, registry?: Awaited<ReturnType<typeof listLanePlanningRegistry>>) {
   const planningRegistry = registry ?? await listLanePlanningRegistry(workspaceId);
-  const previous = await getLatestOrderPlanningProposal(workspaceId, order.orderId);
+  const [previous, facilities] = await Promise.all([getLatestOrderPlanningProposal(workspaceId, order.orderId), listFacilitiesForWorkspace(workspaceId)]);
   const proposal = buildOrderPlanningProposal({
     workspaceId,
     order,
@@ -95,6 +95,7 @@ async function createAutomaticPlanningProposal(workspaceId: string, order: Order
     eligibility: planningRegistry.eligibility,
     awards: planningRegistry.awards,
     partners: planningRegistry.partners,
+    facilities,
     actor,
     supersedesProposalId: previous?.proposalId ?? null,
   });
@@ -198,15 +199,12 @@ export function registerOrderRoutes(app: Express) {
     ]);
     res.json({ orders: orders.sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt))).map((order) => {
       const proposal = planning.get(order.orderId);
-      const reviewedCandidate = proposal?.candidates.find((candidate) => candidate.laneId === proposal.recommendedLaneId)
-        ?? proposal?.candidates[0];
-      const findings = reviewedCandidate?.findings ?? [];
       return { ...order, planningSummary: proposal ? {
         proposalId: proposal.proposalId,
         outcome: proposal.outcome,
         integrity: proposal.integrity,
-        blockerCount: findings.filter((finding) => finding.severity === "BLOCKER").length,
-        warningCount: findings.filter((finding) => finding.severity === "WARNING").length,
+        blockerCount: proposal.recommendation?.blockerCount ?? (proposal.outcome === "NO_MATCH" ? 1 : 0),
+        warningCount: proposal.recommendation?.warningCount ?? 0,
         createdAt: proposal.createdAt,
       } : null };
     }) });
@@ -278,6 +276,7 @@ export function registerOrderRoutes(app: Express) {
     if (!order) { res.status(404).json({ error: "Order not found." }); return; }
     if (order.status !== "READY_TO_PLAN") { res.status(409).json({ error: "Only orders that are ready to plan can be matched to lanes." }); return; }
     const [registry, previous] = await Promise.all([listLanePlanningRegistry(context.orgScope), getLatestOrderPlanningProposal(context.orgScope, order.orderId)]);
+    const facilities = await listFacilitiesForWorkspace(context.orgScope);
     const proposal = buildOrderPlanningProposal({
       workspaceId: context.orgScope,
       order,
@@ -285,6 +284,7 @@ export function registerOrderRoutes(app: Express) {
       eligibility: registry.eligibility,
       awards: registry.awards,
       partners: registry.partners,
+      facilities,
       actor: context.uid,
       supersedesProposalId: previous?.proposalId ?? null,
     });

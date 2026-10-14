@@ -5,8 +5,8 @@ import type { AwardRecord, EligibilityRecord, LaneRecord, LaneType } from "../ro
 import type { OrderRecord } from "../routes/orders";
 import { EQUIPMENT_CAPACITY_POLICY_VERSION, EQUIPMENT_CAPACITY_RULES, getEquipmentCapacityRule, weightInPounds } from "./equipmentCapacity";
 
-export const ORDER_PLANNING_SCHEMA_VERSION = "1.0";
-export const ORDER_MATCHING_POLICY_VERSION = "2026-10-13.1";
+export const ORDER_PLANNING_SCHEMA_VERSION = "1.1";
+export const ORDER_MATCHING_POLICY_VERSION = "2026-10-14.1";
 export const ORDER_MATCHING_SCORE_WEIGHTS = {
   route: 35,
   businessUnit: 15,
@@ -23,7 +23,7 @@ export const ORDER_MATCHING_SCORE_WEIGHTS = {
 } as const;
 
 export type PlanningFinding = {
-  category: "ROUTE" | "BUSINESS_UNIT" | "SERVICE_TYPE" | "MODE" | "EQUIPMENT" | "CAPACITY" | "EFFECTIVE_DATE" | "PICKUP_SCHEDULE" | "DELIVERY_SCHEDULE" | "ELIGIBILITY" | "AWARD";
+  category: "ROUTE" | "BUSINESS_UNIT" | "SERVICE_TYPE" | "MODE" | "EQUIPMENT" | "CAPACITY" | "EFFECTIVE_DATE" | "PICKUP_SCHEDULE" | "DELIVERY_SCHEDULE" | "HANDOFF" | "ELIGIBILITY" | "AWARD";
   severity: "BLOCKER" | "WARNING" | "INFO";
   code: string;
   message: string;
@@ -60,6 +60,20 @@ export type LaneMatchCandidate = {
   laneSnapshot: Pick<LaneRecord, "originFacilityId" | "destinationFacilityId" | "businessUnitId" | "businessUnitName" | "equipmentType" | "loadAssumption" | "dispatchDays" | "terminalArrivalDays" | "storeDeliveryDays" | "effectiveFrom" | "effectiveTo">;
 };
 
+export type RoutePlanLeg = { sequence: number; role: "DIRECT" | "LINEHAUL" | "FINAL_MILE"; candidate: LaneMatchCandidate };
+export type RoutePlanRecommendation = {
+  routePlanId: string;
+  planType: "DIRECT" | "HUB_SPOKE";
+  hubFacilityId: string | null;
+  crossdockProcessingMinutes: number;
+  legs: RoutePlanLeg[];
+  disposition: LaneMatchCandidate["disposition"];
+  score: number;
+  findings: PlanningFinding[];
+  consolidationKey: string;
+  finalMileGroupKey: string;
+};
+
 export type OrderPlanningProposal = {
   schemaVersion: string;
   matchingPolicyVersion: string;
@@ -77,6 +91,8 @@ export type OrderPlanningProposal = {
   outcome: "MATCHED" | "REVIEW_REQUIRED" | "NO_MATCH";
   recommendedLaneId?: string;
   recommendation: { laneId: string; score: number; disposition: LaneMatchCandidate["disposition"]; blockerCount: number; warningCount: number } | null;
+  routePlans: RoutePlanRecommendation[];
+  recommendedRoutePlanId: string | null;
   candidates: LaneMatchCandidate[];
   supersedesProposalId: string | null;
   createdBy: string;
@@ -241,6 +257,7 @@ export function buildOrderPlanningProposal(input: {
   eligibility: EligibilityRecord[];
   awards: AwardRecord[];
   partners: PartnerRecord[];
+  facilities?: Array<{ facilityId: string; facilityType?: string; crossdockProcessingMinutes?: number }>;
   actor: string;
   supersedesProposalId?: string | null;
 }): OrderPlanningProposal {
@@ -250,6 +267,43 @@ export function buildOrderPlanningProposal(input: {
     .map((lane) => scoreOrderLane({ order: input.order, lane, eligibility: input.eligibility, awards: input.awards, partners: input.partners }))
     .sort((left, right) => right.score - left.score || left.laneName.localeCompare(right.laneName));
   const recommended = candidates.find((candidate) => candidate.disposition !== "INELIGIBLE");
+  const directPlans: RoutePlanRecommendation[] = candidates.map((candidate) => ({
+    routePlanId: `direct:${candidate.laneId}`, planType: "DIRECT", hubFacilityId: null, crossdockProcessingMinutes: 0,
+    legs: [{ sequence: 1, role: "DIRECT", candidate }], disposition: candidate.disposition, score: candidate.score,
+    findings: candidate.findings, consolidationKey: `${clean(input.order.businessUnit)}:${candidate.laneId}:${datePart(input.order.earliestPickup)}`,
+    finalMileGroupKey: `${candidate.laneId}:${datePart(input.order.latestDelivery)}`,
+  }));
+  const hubPlans: RoutePlanRecommendation[] = [];
+  const linehaulLanes = input.lanes.filter((lane) => lane.workspaceId === input.workspaceId && lane.status === "ACTIVE" && lane.laneType === "LINEHAUL" && comparable(lane.originFacilityId) === comparable(input.order.originId));
+  for (const linehaul of linehaulLanes) {
+    const hubFacility = input.facilities?.find((facility) => comparable(facility.facilityId) === comparable(linehaul.destinationFacilityId));
+    if (hubFacility && !["CROSSDOCK", "DC", "MFC"].includes(clean(hubFacility.facilityType).toUpperCase())) continue;
+    const finalMileLanes = input.lanes.filter((lane) => lane.workspaceId === input.workspaceId && lane.status === "ACTIVE" && lane.laneType === "FINAL_MILE" && comparable(lane.originFacilityId) === comparable(linehaul.destinationFacilityId) && comparable(lane.destinationFacilityId) === comparable(input.order.destinationId));
+    for (const finalMile of finalMileLanes) {
+      const first = scoreOrderLane({ order: { ...input.order, destinationId: linehaul.destinationFacilityId, orderType: "LINEHAUL", modeType: linehaul.loadAssumption, equipmentType: linehaul.equipmentType }, lane: linehaul, eligibility: input.eligibility, awards: input.awards, partners: input.partners });
+      const second = scoreOrderLane({ order: { ...input.order, originId: finalMile.originFacilityId, orderType: "FINAL_MILE", modeType: finalMile.loadAssumption, equipmentType: finalMile.equipmentType }, lane: finalMile, eligibility: input.eligibility, awards: input.awards, partners: input.partners });
+      const processingMinutes = hubFacility?.crossdockProcessingMinutes ?? 120;
+      const handoffFinding: PlanningFinding = linehaul.terminalArrivalDays?.length && finalMile.dispatchDays?.length
+        ? { category: "HANDOFF", severity: "INFO", code: "HANDOFF_BUFFER_APPLIED", message: `${processingMinutes} minutes of processing time is reserved at the intermediate facility before final-mile dispatch.`, scoreImpact: 0 }
+        : { category: "HANDOFF", severity: "WARNING", code: "HANDOFF_SCHEDULE_INCOMPLETE", message: "Complete the linehaul arrival and final-mile departure days to verify the cross-dock connection.", scoreImpact: 0 };
+      const findings = [...first.findings, ...second.findings, handoffFinding];
+      const disposition = findings.some((finding) => finding.severity === "BLOCKER") ? "INELIGIBLE" : findings.some((finding) => finding.severity === "WARNING") ? "REVIEW" : "MATCH";
+      hubPlans.push({
+        routePlanId: `hub:${linehaul.laneId}:${finalMile.laneId}`, planType: "HUB_SPOKE", hubFacilityId: linehaul.destinationFacilityId,
+        crossdockProcessingMinutes: processingMinutes,
+        legs: [{ sequence: 1, role: "LINEHAUL", candidate: first }, { sequence: 2, role: "FINAL_MILE", candidate: second }],
+        disposition, score: Math.round((first.score + second.score) / 2), findings,
+        consolidationKey: `${clean(input.order.businessUnit)}:${linehaul.laneId}:${datePart(input.order.earliestPickup)}`,
+        finalMileGroupKey: `${finalMile.laneId}:${datePart(input.order.latestDelivery)}`,
+      });
+    }
+  }
+  const routePlans = [...directPlans, ...hubPlans].sort((left, right) => {
+    const rank = { MATCH: 2, REVIEW: 1, INELIGIBLE: 0 };
+    return rank[right.disposition] - rank[left.disposition] || right.score - left.score;
+  });
+  const recommendedRoutePlan = routePlans.find((plan) => plan.disposition !== "INELIGIBLE") ?? routePlans[0] ?? null;
+  const routeRecommendedCandidate = recommendedRoutePlan?.legs[0]?.candidate ?? recommended;
   const proposalWithoutHash: Omit<OrderPlanningProposal, "contentHash"> = {
     schemaVersion: ORDER_PLANNING_SCHEMA_VERSION,
     matchingPolicyVersion: ORDER_MATCHING_POLICY_VERSION,
@@ -259,13 +313,14 @@ export function buildOrderPlanningProposal(input: {
     orderSnapshot: cloneSerializable(input.order),
     policySnapshot: { scoringWeights: { ...ORDER_MATCHING_SCORE_WEIGHTS }, equipmentCapacityRules: cloneSerializable(EQUIPMENT_CAPACITY_RULES) },
     status: "PENDING_REVIEW",
-    outcome: !recommended ? "NO_MATCH" : recommended.disposition === "MATCH" ? "MATCHED" : "REVIEW_REQUIRED",
-    recommendedLaneId: recommended?.laneId,
-    recommendation: recommended ? {
-      laneId: recommended.laneId, score: recommended.score, disposition: recommended.disposition,
-      blockerCount: recommended.findings.filter((finding) => finding.severity === "BLOCKER").length,
-      warningCount: recommended.findings.filter((finding) => finding.severity === "WARNING").length,
+    outcome: !recommendedRoutePlan || recommendedRoutePlan.disposition === "INELIGIBLE" ? "NO_MATCH" : recommendedRoutePlan.disposition === "MATCH" ? "MATCHED" : "REVIEW_REQUIRED",
+    recommendedLaneId: routeRecommendedCandidate?.laneId,
+    recommendation: routeRecommendedCandidate ? {
+      laneId: routeRecommendedCandidate.laneId, score: recommendedRoutePlan?.score ?? routeRecommendedCandidate.score, disposition: recommendedRoutePlan?.disposition ?? routeRecommendedCandidate.disposition,
+      blockerCount: recommendedRoutePlan?.findings.filter((finding) => finding.severity === "BLOCKER").length ?? 0,
+      warningCount: recommendedRoutePlan?.findings.filter((finding) => finding.severity === "WARNING").length ?? 0,
     } : null,
+    routePlans: routePlans.slice(0, 10), recommendedRoutePlanId: recommendedRoutePlan?.routePlanId ?? null,
     candidates: candidates.slice(0, 10), supersedesProposalId: input.supersedesProposalId ?? null,
     createdBy: input.actor, createdAt: new Date().toISOString(),
   };

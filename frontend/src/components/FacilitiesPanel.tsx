@@ -18,6 +18,7 @@ type Facility = {
   operatingHours?: string;
   regionalManager?: string;
   supplyChainBusinessPartner?: string;
+  crossdockProcessingMinutes?: number;
 };
 
 const contactDetails = (facility: Facility) => [
@@ -48,7 +49,7 @@ const emptyManualFacility: ManualFacility = {
   name: "", siteId: "", address: "", city: "", state: "", postalCode: "",
   facilityType: "OTHER", propertyType: "COMMERCIAL", primaryContactName: "",
   primaryContactTitle: "", primaryContactEmail: "", primaryContactPhone: "", operatingHours: "",
-  regionalManager: "", supplyChainBusinessPartner: "",
+  regionalManager: "", supplyChainBusinessPartner: "", crossdockProcessingMinutes: undefined,
 };
 
 export default function FacilitiesPanel() {
@@ -126,7 +127,7 @@ export default function FacilitiesPanel() {
     }
   };
 
-  const updateManual = (field: keyof ManualFacility, value: string) => {
+  const updateManual = <K extends keyof ManualFacility>(field: K, value: ManualFacility[K]) => {
     setManualFacility((current) => ({ ...current, [field]: value }));
   };
 
@@ -227,6 +228,7 @@ export default function FacilitiesPanel() {
             <label>Site ID<input value={manualFacility.siteId} onChange={(event) => updateManual("siteId", event.target.value)} /></label>
             <label>Facility type<select value={manualFacility.facilityType} onChange={(event) => updateManual("facilityType", event.target.value)}><option value="SUPPLIER">Supplier</option><option value="CROSSDOCK">Cross-dock</option><option value="DC">DC</option><option value="MFC">MFC</option><option value="OTHER">Other</option></select></label>
             <label>Property type<select value={manualFacility.propertyType} onChange={(event) => updateManual("propertyType", event.target.value)}><option value="COMMERCIAL">Commercial</option><option value="RESIDENTIAL">Residential</option></select></label>
+            <label>Cross-dock processing minutes<input min="0" step="15" type="number" value={manualFacility.crossdockProcessingMinutes ?? ""} onChange={(event) => updateManual("crossdockProcessingMinutes", event.target.value ? Number(event.target.value) : undefined)} /></label>
             <label className="facility-address-field">Street address<input required value={manualFacility.address} onChange={(event) => updateManual("address", event.target.value)} /></label>
             <label>City<input required value={manualFacility.city} onChange={(event) => updateManual("city", event.target.value)} /></label>
             <label>State / province<input required value={manualFacility.state} onChange={(event) => updateManual("state", event.target.value)} /></label>
