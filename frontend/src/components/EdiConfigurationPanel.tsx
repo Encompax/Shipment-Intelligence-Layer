@@ -4,7 +4,7 @@ import { createEdiConfiguration, fetchEdiConfigurations } from "../api/client";
 type Configuration = { configurationId: string; partnerName: string; partnerCode: string; interchangeId: string; interchangeQualifier: string; transport: string; stewardshipModel: string; stewardName?: string | null; stewardEmail?: string | null; version: number; status: string; integrity: string; documentPolicy: Record<string, string | boolean> };
 const empty = { partnerName: "", partnerCode: "", interchangeId: "", interchangeQualifier: "ZZ", transport: "SFTP", connectionReference: "", stewardshipModel: "INTERNAL_DATA_STEWARD", stewardName: "", stewardEmail: "" };
 
-export default function EdiConfigurationPanel() {
+export function EdiConnectionSetup({ embedded = false }: { embedded?: boolean }) {
   const [form, setForm] = useState(empty);
   const [configurations, setConfigurations] = useState<Configuration[]>([]);
   const [message, setMessage] = useState("");
@@ -17,8 +17,8 @@ export default function EdiConfigurationPanel() {
     catch (error) { setMessage(error instanceof Error ? error.message : "Could not save EDI configuration."); }
   };
   const humanSteward = form.stewardshipModel !== "MARENGO";
-  return <div className="data-intake">
-    <section className="transport-hero intake-hero"><div><p className="transport-eyebrow">Governed data exchange</p><h2>EDI connections</h2><p>Configure tenant-specific trading partners and accountable stewardship before activating document exchange.</p></div></section>
+  return <div className={embedded ? "edi-connection-setup" : "data-intake"}>
+    {!embedded && <section className="transport-hero intake-hero"><div><p className="transport-eyebrow">Governed data exchange</p><h2>EDI connections</h2><p>Configure tenant-specific trading partners and accountable stewardship before activating document exchange.</p></div></section>}
     <section className="transport-panel"><div className="transport-panel-header"><div><p className="transport-eyebrow">Trading partner</p><h3>Connection configuration</h3></div><span>Review required</span></div>
       <form className="lane-form-grid" onSubmit={submit}>
         <label>Partner name<input required value={form.partnerName} onChange={(event) => update("partnerName", event.target.value)} /></label>
@@ -41,3 +41,5 @@ export default function EdiConfigurationPanel() {
     </section>
   </div>;
 }
+
+export default EdiConnectionSetup;
