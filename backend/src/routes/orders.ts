@@ -6,7 +6,7 @@ import { isFirestorePrimaryEnabled } from "../lib/firestore";
 import { readUploadTable } from "./uploads";
 import { listFacilitiesForWorkspace } from "./facilities";
 import { listLaneBusinessUnits, listLanePartners, listLanePlanningRegistry } from "./lanes";
-import { buildOrderPlanningProposal, getLatestOrderPlanningProposal, saveOrderPlanningProposal } from "../services/orderPlanningService";
+import { buildOrderPlanningProposal, getLatestOrderPlanningProposal, listOrderPlanningProposals, saveOrderPlanningProposal } from "../services/orderPlanningService";
 
 export type OrderStatus = "DRAFT" | "VALIDATION_REQUIRED" | "READY_TO_PLAN" | "ASSIGNED_TO_LOAD" | "TENDERED" | "IN_TRANSIT" | "DELIVERED";
 export type OrderRecord = Record<string, unknown> & { orderId: string; workspaceId: string; primaryReference: string; status: OrderStatus };
@@ -194,13 +194,21 @@ export function registerOrderRoutes(app: Express) {
     res.json({ proposal });
   });
 
+  app.get("/api/orders/:orderId/planning-matches", async (req, res) => {
+    const context = requireWorkspace(req, res); if (!context) return;
+    const orders = await list(context.orgScope, "orders", localOrders);
+    if (!orders.some((item) => item.orderId === req.params.orderId)) { res.status(404).json({ error: "Order not found." }); return; }
+    const proposals = await listOrderPlanningProposals(context.orgScope, req.params.orderId);
+    res.json({ count: proposals.length, proposals });
+  });
+
   app.post("/api/orders/:orderId/planning-match", async (req, res) => {
     const context = requireWorkspace(req, res); if (!context) return;
     const orders = await list(context.orgScope, "orders", localOrders);
     const order = orders.find((item) => item.orderId === req.params.orderId);
     if (!order) { res.status(404).json({ error: "Order not found." }); return; }
     if (order.status !== "READY_TO_PLAN") { res.status(409).json({ error: "Only orders that are ready to plan can be matched to lanes." }); return; }
-    const registry = await listLanePlanningRegistry(context.orgScope);
+    const [registry, previous] = await Promise.all([listLanePlanningRegistry(context.orgScope), getLatestOrderPlanningProposal(context.orgScope, order.orderId)]);
     const proposal = buildOrderPlanningProposal({
       workspaceId: context.orgScope,
       order,
@@ -209,6 +217,7 @@ export function registerOrderRoutes(app: Express) {
       awards: registry.awards,
       partners: registry.partners,
       actor: context.uid,
+      supersedesProposalId: previous?.proposalId ?? null,
     });
     await saveOrderPlanningProposal(proposal);
     res.status(201).json({ proposal });

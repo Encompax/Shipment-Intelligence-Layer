@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { buildOrderPlanningProposal, scoreOrderLane } = require('../dist/src/services/orderPlanningService');
+const { buildOrderPlanningProposal, hashOrderPlanningProposal, scoreOrderLane, verifyOrderPlanningProposal } = require('../dist/src/services/orderPlanningService');
 
 const order = {
   orderId: 'order-1', workspaceId: 'org-1', primaryReference: 'GUSTO-2225555', silTestMeid: '500000001',
@@ -56,12 +56,24 @@ test('converts kilograms before checking the governed weight limit', () => {
 });
 
 test('builds a tenant-scoped pending proposal with the best lane recommendation', () => {
-  const proposal = buildOrderPlanningProposal({ workspaceId: 'org-1', order, lanes: [lane], eligibility, awards, partners, actor: 'user-1' });
+  const proposal = buildOrderPlanningProposal({ workspaceId: 'org-1', order, lanes: [lane], eligibility, awards, partners, actor: 'user-1', supersedesProposalId: 'proposal-previous' });
   assert.equal(proposal.workspaceId, 'org-1');
   assert.equal(proposal.orderMeid, '500000001');
   assert.equal(proposal.outcome, 'MATCHED');
   assert.equal(proposal.recommendedLaneId, 'lane-1');
   assert.equal(proposal.status, 'PENDING_REVIEW');
+  assert.equal(proposal.supersedesProposalId, 'proposal-previous');
+  assert.equal(proposal.orderSnapshot.primaryReference, 'GUSTO-2225555');
+  assert.equal(proposal.policySnapshot.equipmentCapacityRules['53 FT DRY VAN'].maxWeightLbs, 45000);
+  assert.equal(proposal.contentHash, hashOrderPlanningProposal(proposal));
+  assert.equal(verifyOrderPlanningProposal(proposal).integrity, 'VERIFIED');
+});
+
+test('detects proposal content changes and labels pre-versioned records as legacy', () => {
+  const proposal = buildOrderPlanningProposal({ workspaceId: 'org-1', order, lanes: [lane], eligibility, awards, partners, actor: 'user-1' });
+  assert.equal(verifyOrderPlanningProposal({ ...proposal, outcome: 'NO_MATCH' }).integrity, 'FAILED');
+  const { contentHash, schemaVersion, ...legacy } = proposal;
+  assert.equal(verifyOrderPlanningProposal(legacy).integrity, 'LEGACY_UNVERIFIED');
 });
 
 test('refuses to create a proposal across tenant boundaries', () => {

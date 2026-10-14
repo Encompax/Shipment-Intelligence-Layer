@@ -1407,6 +1407,11 @@ td {
 .order-planning-actions { display: flex; gap: 6px; min-width: 210px; }
 .order-planning-actions .btn { min-height: 34px; padding: 6px 10px; white-space: nowrap; }
 .order-planning-review { display: grid; gap: 0; }
+.planning-audit-bar { display: flex; flex-wrap: wrap; gap: 8px 18px; padding: 10px 14px; border-bottom: 1px solid #30445b; color: #91a4b9; font-size: 11px; }
+.planning-audit-bar strong { color: #dce8f5; font-weight: 600; }
+.planning-audit-bar strong.verified { color: #75dfd3; }
+.planning-audit-bar strong.failed { color: #ef9ba6; }
+.planning-audit-bar strong.legacy_unverified { color: #f1ca74; }
 .planning-outcome { padding: 5px 8px; border: 1px solid #49627e; color: #dce8f5; font-size: 11px; text-transform: uppercase; }
 .planning-outcome.matched { border-color: #159e91; color: #75dfd3; }
 .planning-outcome.review_required { border-color: #b88b32; color: #f1ca74; }
@@ -1430,6 +1435,11 @@ td {
 .planning-findings p.blocker span { color: #ef9ba6; }
 .planning-findings p.warning span { color: #f1ca74; }
 .planning-findings p.info span { color: #75dfd3; }
+.planning-history { display: flex; align-items: stretch; gap: 8px; padding: 12px 14px; overflow-x: auto; border-top: 1px solid #30445b; }
+.planning-history > span { align-self: center; min-width: 92px; color: #91a4b9; font-size: 11px; text-transform: uppercase; }
+.planning-history button { display: grid; gap: 3px; min-width: 190px; padding: 8px 10px; border: 1px solid #30445b; background: #0d1724; color: #dce8f5; text-align: left; cursor: pointer; }
+.planning-history button.active { border-color: #159e91; background: #142a31; }
+.planning-history button small { color: #91a4b9; }
 .lane-time-picker { position: relative; }
 .lane-time-picker > input { padding-right: 38px; cursor: pointer; }
 .lane-time-trigger { position: absolute; top: 50%; right: 11px; width: 16px; height: 16px; padding: 0; transform: translateY(-50%); border: 2px solid #73e0d5; border-radius: 50%; background: #159e91; box-shadow: 0 0 0 2px rgba(21,158,145,.18); cursor: pointer; }

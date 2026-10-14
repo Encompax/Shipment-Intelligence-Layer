@@ -4,6 +4,8 @@ export type EquipmentCapacityRule = {
   maxPallets: number;
 };
 
+export const EQUIPMENT_CAPACITY_POLICY_VERSION = "2026-10-13.1";
+
 export const EQUIPMENT_CAPACITY_RULES: Record<EquipmentCapacityRule["equipmentType"], EquipmentCapacityRule> = {
   "BOX TRUCK": { equipmentType: "BOX TRUCK", maxWeightLbs: 10_000, maxPallets: 10 },
   "26 FT DRY VAN": { equipmentType: "26 FT DRY VAN", maxWeightLbs: 12_000, maxPallets: 12 },

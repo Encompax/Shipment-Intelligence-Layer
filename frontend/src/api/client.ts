@@ -89,6 +89,11 @@ export async function fetchOrderPlanningMatch(orderId: string) {
   return readJsonResponse(res, "Failed to fetch order planning match");
 }
 
+export async function fetchOrderPlanningHistory(orderId: string) {
+  const res = await fetch(`${API_BASE}/orders/${encodeURIComponent(orderId)}/planning-matches`);
+  return readJsonResponse(res, "Failed to fetch order planning history");
+}
+
 export async function createOrderIntakeReview(payload: { rows?: Record<string, unknown>[]; uploadId?: number; sourceName?: string; profileName?: string; profileId?: string; mapping?: Record<string, string> }) {
   const res = await fetch(`${API_BASE}/orders/intake-reviews`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
   return readJsonResponse(res, "Failed to review order intake");
