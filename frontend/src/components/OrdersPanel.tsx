@@ -52,8 +52,13 @@ export default function OrdersPanel() {
     ].join(" ").toLowerCase().includes(query));
   }, [orders, search, facilityLookup]);
   const update = (field: keyof typeof form, value: string) => setForm((current) => ({ ...current, [field]: value }));
+  const orderTimingError = form.earliestPickup && form.latestDelivery && Date.parse(form.latestDelivery) < Date.parse(form.earliestPickup)
+    ? "Latest delivery must be at or after earliest pickup."
+    : null;
   const submit = async (event: React.FormEvent) => {
-    event.preventDefault(); setMessage("Saving order...");
+    event.preventDefault();
+    if (orderTimingError) { setMessage(orderTimingError); return; }
+    setMessage("Saving order...");
     try { await createOrder(form); setForm(empty); setMessage("Order saved and validated for planning."); await load(); }
     catch (error) { setMessage(error instanceof Error ? error.message : "Could not save order."); }
   };
@@ -85,7 +90,7 @@ export default function OrdersPanel() {
         <label>Origin<input required list="order-origin-facilities" placeholder="Search facilities" value={form.originId} onChange={(e) => update('originId',e.target.value)} /><datalist id="order-origin-facilities">{facilities.map((facility) => <option key={facility.facilityId} value={facility.siteId || facility.facilityId}>{facility.name}{facility.city ? ` - ${facility.city}, ${facility.state}` : ''}</option>)}</datalist></label>
         <label>Destination<input required list="order-destination-facilities" placeholder="Search facilities" value={form.destinationId} onChange={(e) => update('destinationId',e.target.value)} /><datalist id="order-destination-facilities">{facilities.map((facility) => <option key={facility.facilityId} value={facility.siteId || facility.facilityId}>{facility.name}{facility.city ? ` - ${facility.city}, ${facility.state}` : ''}</option>)}</datalist></label>
         <label>Earliest pickup (Req Ship Date)<input className="order-datetime-input" required type="datetime-local" value={form.earliestPickup} onChange={(e) => update('earliestPickup',e.target.value)} /></label>
-        <label>Latest delivery<input className="order-datetime-input" required type="datetime-local" value={form.latestDelivery} onChange={(e) => update('latestDelivery',e.target.value)} /></label>
+        <label>Latest delivery<input aria-invalid={Boolean(orderTimingError)} className="order-datetime-input" required min={form.earliestPickup || undefined} type="datetime-local" value={form.latestDelivery} onChange={(e) => update('latestDelivery',e.target.value)} />{orderTimingError && <small role="alert">{orderTimingError}</small>}</label>
         <label>Each quantity<input min="0" step="1" type="number" value={form.eachQuantity} onChange={(e) => update('eachQuantity',e.target.value)} /></label>
         <label>Case quantity<input min="0" step="1" type="number" value={form.caseQuantity} onChange={(e) => update('caseQuantity',e.target.value)} /></label>
         <label>Pallet quantity<input min="0" step="1" type="number" value={form.palletQuantity} onChange={(e) => update('palletQuantity',e.target.value)} /></label>

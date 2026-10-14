@@ -25,3 +25,15 @@ test('one order retains each, case, and pallet quantities together', () => {
   assert.equal(order.caseQuantity, 24);
   assert.equal(order.palletQuantity, 3);
 });
+
+test('rejects reversed pickup and delivery chronology', () => {
+  const base = { primaryReference: 'GUSTO-400', originId: 'DC1', destinationId: 'MFC1', earliestPickup: '2026-10-14T12:00', latestDelivery: '2026-10-14T10:00' };
+  assert.ok(validateOrder(base, 1).some((issue) => issue.code === 'DELIVERY_BEFORE_PICKUP'));
+  assert.ok(validateOrder({ ...base, latestDelivery: '2026-10-15T10:00', latestPickup: '2026-10-14T11:00' }, 1).some((issue) => issue.code === 'PICKUP_WINDOW_REVERSED'));
+  assert.ok(validateOrder({ ...base, latestDelivery: '2026-10-15T10:00', earliestDelivery: '2026-10-15T12:00' }, 1).some((issue) => issue.code === 'DELIVERY_WINDOW_REVERSED'));
+});
+
+test('rejects invalid order date values', () => {
+  const issues = validateOrder({ primaryReference: 'GUSTO-500', originId: 'DC1', destinationId: 'MFC1', earliestPickup: 'not-a-date', latestDelivery: '2026-10-15T10:00' }, 1);
+  assert.ok(issues.some((issue) => issue.field === 'earliestPickup' && issue.code === 'INVALID_DATETIME'));
+});

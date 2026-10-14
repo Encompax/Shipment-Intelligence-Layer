@@ -122,6 +122,23 @@ export function validateOrder(row: Record<string, unknown>, rowNumber: number) {
   for (const field of ["quantity", "weight", "handlingUnits", "eachQuantity", "caseQuantity", "palletQuantity"]) {
     if (row[field] != null && (!Number.isFinite(row[field]) || Number(row[field]) < 0)) issues.push({ row: rowNumber, field, severity: "ERROR", message: `${field} must be a non-negative number.` });
   }
+  const timestamps = Object.fromEntries(["earliestPickup", "latestPickup", "earliestDelivery", "latestDelivery"].map((field) => {
+    const value = clean(row[field]);
+    const timestamp = value ? Date.parse(value) : null;
+    if (value && !Number.isFinite(timestamp)) issues.push({ row: rowNumber, field, severity: "ERROR", code: "INVALID_DATETIME", message: `${field} must contain a valid date and time.` });
+    return [field, Number.isFinite(timestamp) ? timestamp : null];
+  })) as Record<string, number | null>;
+  if (timestamps.earliestPickup != null && timestamps.latestPickup != null && timestamps.latestPickup < timestamps.earliestPickup) {
+    issues.push({ row: rowNumber, field: "latestPickup", severity: "ERROR", code: "PICKUP_WINDOW_REVERSED", message: "Latest pickup cannot be earlier than earliest pickup." });
+  }
+  if (timestamps.earliestDelivery != null && timestamps.latestDelivery != null && timestamps.latestDelivery < timestamps.earliestDelivery) {
+    issues.push({ row: rowNumber, field: "latestDelivery", severity: "ERROR", code: "DELIVERY_WINDOW_REVERSED", message: "Latest delivery cannot be earlier than earliest delivery." });
+  }
+  const pickupBoundary = timestamps.latestPickup ?? timestamps.earliestPickup;
+  const deliveryBoundary = timestamps.earliestDelivery ?? timestamps.latestDelivery;
+  if (pickupBoundary != null && deliveryBoundary != null && deliveryBoundary < pickupBoundary) {
+    issues.push({ row: rowNumber, field: timestamps.earliestDelivery != null ? "earliestDelivery" : "latestDelivery", severity: "ERROR", code: "DELIVERY_BEFORE_PICKUP", message: "The delivery window cannot begin before the pickup window ends." });
+  }
   if (!clean(row.poNumber) && !clean(row.materialTransferOrderNumber)) issues.push({ row: rowNumber, field: "poNumber", severity: "REVIEW", message: "No PO or material transfer order number was supplied." });
   return issues;
 }
@@ -174,6 +191,10 @@ export function registerOrderRoutes(app: Express) {
       if (!partners.some((partner: any) => comparable(partner.scac) === comparable(canonical.scac))) issues.push({ row: 1, field: "scac", severity: "ERROR", code: "SCAC_NOT_FOUND", message: "Select the SCAC of a registered external partner." });
     }
     if (orderDuplicateKey(canonical) && existing.some((order) => orderDuplicateKey(order) === orderDuplicateKey(canonical))) issues.push({ row: 1, field: "primaryReference", severity: "ERROR", code: "DUPLICATE_ORDER", message: "An order with these references already exists." });
+    if (issues.some((issue) => issue.severity === "ERROR")) {
+      res.status(422).json({ error: issues[0].message, issues, corrections: facilityReview.corrections });
+      return;
+    }
     const now = new Date().toISOString();
     const [silTestMeid] = await reserveSilTestMeids(context.orgScope, 1);
     const order: OrderRecord = { ...canonical, externalMeid: clean(canonical.meid) || null, meid: silTestMeid, silTestMeid, identifierType: "SIL_TEST_MEID", identifierSource: "SIL", environment: "TEST", orderId: randomUUID(), workspaceId: context.orgScope, primaryReference: clean(canonical.primaryReference), status: issues.some((i) => i.severity === "ERROR") ? "VALIDATION_REQUIRED" : "READY_TO_PLAN", issues, corrections: facilityReview.corrections, source: "MANUAL", createdBy: context.uid, createdAt: now, updatedAt: now } as OrderRecord;
