@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { createOrder, fetchFacilities, fetchLaneRegistry, fetchOrderPlanningHistory, fetchOrders, generateOrderTestMeid, matchOrderToLane } from "../api/client";
+import { createOrder, decideOrderPlanningProposal, fetchFacilities, fetchLaneRegistry, fetchOrderPlanningDecisions, fetchOrderPlanningHistory, fetchOrders, generateOrderTestMeid, matchOrderToLane } from "../api/client";
 
 type Order = { orderId: string; primaryReference: string; meid?: string; externalMeid?: string; poNumber?: string; materialTransferOrderNumber?: string; originId?: string; destinationId?: string; businessUnit?: string; earliestPickup?: string; latestDelivery?: string; status: string };
 type Facility = { facilityId: string; siteId?: string; name: string; city?: string; state?: string };
@@ -9,6 +9,7 @@ type PlanningFinding = { category: string; severity: "BLOCKER" | "WARNING" | "IN
 type PlanningAward = { awardId: string; awardType: string; rate: number; currency: string; rateUnit: string; carrier: { name: string; scac?: string } };
 type LaneCandidate = { laneId: string; laneName: string; laneType: string; score: number; disposition: "MATCH" | "REVIEW" | "INELIGIBLE"; findings: PlanningFinding[]; eligibleCarriers: { externalPartnerId: string; name: string; scac?: string }[]; activeAwards: PlanningAward[]; capacityRule?: { equipmentType: string; maxWeightLbs: number; maxPallets: number } };
 type PlanningProposal = { proposalId: string; orderId: string; orderMeid?: string; outcome: "MATCHED" | "REVIEW_REQUIRED" | "NO_MATCH"; recommendedLaneId?: string; candidates: LaneCandidate[]; createdAt: string; schemaVersion?: string; matchingPolicyVersion?: string; contentHash?: string; integrity?: "VERIFIED" | "FAILED" | "LEGACY_UNVERIFIED"; supersedesProposalId?: string | null };
+type PlanningDecision = { decisionId: string; proposalId: string; decision: "APPROVED" | "REJECTED"; reason?: string | null; plannedLoadId?: string | null; decidedAt: string };
 const empty = { primaryReference: "", poNumber: "", materialTransferOrderNumber: "", businessUnit: "", originId: "", destinationId: "", earliestPickup: "", latestDelivery: "", eachQuantity: "", caseQuantity: "", palletQuantity: "", weight: "", weightUom: "LBS", equipmentType: "53 FT DRY VAN", scac: "", modeType: "TL", orderType: "TRANSFER" };
 
 export default function OrdersPanel() {
@@ -22,6 +23,10 @@ export default function OrdersPanel() {
   const [planningProposal, setPlanningProposal] = useState<PlanningProposal | null>(null);
   const [planningHistory, setPlanningHistory] = useState<PlanningProposal[]>([]);
   const [planningOrderId, setPlanningOrderId] = useState<string | null>(null);
+  const [planningDecisions, setPlanningDecisions] = useState<PlanningDecision[]>([]);
+  const [decisionReason, setDecisionReason] = useState("");
+  const [decisionPending, setDecisionPending] = useState(false);
+  const [plannedLoadDisplayId, setPlannedLoadDisplayId] = useState<string | null>(null);
   const load = async () => { try { const [orderResult, facilityResult, registry] = await Promise.all([fetchOrders(), fetchFacilities(), fetchLaneRegistry()]); setOrders(orderResult.orders ?? []); setFacilities(facilityResult.facilities ?? []); setBusinessUnits(registry.businessUnits ?? []); setPartners((registry.partners ?? []).filter((partner: Partner) => partner.scac && partner.status !== "archived")); } catch (error) { setMessage(error instanceof Error ? error.message : "Could not load order setup data."); } };
   useEffect(() => { void load(); }, []);
   const facilityLookup = useMemo(() => {
@@ -54,8 +59,23 @@ export default function OrdersPanel() {
   };
   const generateMeid = async (orderId: string) => { try { setMessage("Generating SIL test MEID..."); await generateOrderTestMeid(orderId); setMessage("SIL test MEID assigned."); await load(); } catch (error) { setMessage(error instanceof Error ? error.message : "Could not generate test MEID."); } };
   const matchLane = async (orderId: string) => { try { setPlanningOrderId(orderId); setMessage("Scoring lane matches..."); const result = await matchOrderToLane(orderId); setPlanningProposal(result.proposal); setPlanningHistory((current) => [result.proposal, ...current.filter((proposal) => proposal.proposalId !== result.proposal.proposalId)]); setMessage("Lane match is ready for review."); } catch (error) { setMessage(error instanceof Error ? error.message : "Could not match this order to a lane."); } finally { setPlanningOrderId(null); } };
-  const reviewPlan = async (orderId: string) => { try { setPlanningOrderId(orderId); setMessage("Loading planning review..."); const result = await fetchOrderPlanningHistory(orderId); const proposals = result.proposals ?? []; setPlanningHistory(proposals); setPlanningProposal(proposals[0] ?? null); setMessage(proposals.length ? "Planning review loaded." : "No planning review is available for this order."); } catch (error) { setMessage(error instanceof Error ? error.message : "No planning review is available for this order."); } finally { setPlanningOrderId(null); } };
+  const reviewPlan = async (orderId: string) => { try { setPlanningOrderId(orderId); setMessage("Loading planning review..."); const [result, decisionResult] = await Promise.all([fetchOrderPlanningHistory(orderId), fetchOrderPlanningDecisions(orderId)]); const proposals = result.proposals ?? []; setPlanningHistory(proposals); setPlanningProposal(proposals[0] ?? null); setPlanningDecisions(decisionResult.decisions ?? []); setPlannedLoadDisplayId(null); setDecisionReason(""); setMessage(proposals.length ? "Planning review loaded." : "No planning review is available for this order."); } catch (error) { setMessage(error instanceof Error ? error.message : "No planning review is available for this order."); } finally { setPlanningOrderId(null); } };
+  const decidePlan = async (decision: "APPROVED" | "REJECTED") => {
+    if (!planningProposal) return;
+    try {
+      setDecisionPending(true); setMessage(decision === "APPROVED" ? "Creating planned load..." : "Recording rejection...");
+      const result = await decideOrderPlanningProposal(planningProposal.orderId, { proposalId: planningProposal.proposalId, decision, reason: decisionReason });
+      setPlanningDecisions((current) => [result.decision, ...current.filter((item) => item.decisionId !== result.decision.decisionId)]);
+      setPlannedLoadDisplayId(result.load?.displayId ?? null);
+      setDecisionReason("");
+      setMessage(result.load ? `Planned load ${result.load.displayId} created. It has not been tendered.` : "Planning rejection recorded. The order remains ready to plan.");
+      await load();
+    } catch (error) { setMessage(error instanceof Error ? error.message : "Could not record the planning decision."); }
+    finally { setDecisionPending(false); }
+  };
   const recommendedCandidate = planningProposal?.candidates.find((candidate) => candidate.laneId === planningProposal.recommendedLaneId);
+  const proposalDecision = planningProposal ? planningDecisions.find((decision) => decision.proposalId === planningProposal.proposalId) : undefined;
+  const isLatestProposal = planningProposal?.proposalId === planningHistory[0]?.proposalId;
   return <div className="data-intake">
     <section className="transport-hero intake-hero"><div><p className="transport-eyebrow">Order management</p><h2>Orders</h2><p>Create and review demand before it is consolidated into loads, assigned to lanes, or tendered.</p></div></section>
     <details className="transport-panel facility-manual-entry"><summary><span><span className="transport-eyebrow">Manual entry</span><strong>Create an order</strong></span><span className="facility-manual-toggle">Open form</span></summary>
@@ -88,6 +108,11 @@ export default function OrdersPanel() {
       <div className="planning-audit-bar"><span>Proposal <strong>{planningProposal.proposalId}</strong></span><span>Policy <strong>{planningProposal.matchingPolicyVersion || 'Legacy'}</strong></span><span>Integrity <strong className={(planningProposal.integrity || 'verified').toLowerCase()}>{planningProposal.integrity || 'VERIFIED'}</strong></span><span>Created <strong>{new Date(planningProposal.createdAt).toLocaleString()}</strong></span><span>History <strong>{planningHistory.length || 1}</strong></span></div>
       {recommendedCandidate ? <div className="planning-recommendation"><div><span>Recommended lane</span><strong>{recommendedCandidate.laneName}</strong><small>{recommendedCandidate.laneType.replaceAll('_', ' ')}</small></div><div><span>Match score</span><strong>{recommendedCandidate.score}</strong><small>{recommendedCandidate.disposition}</small></div><div><span>Equipment capacity</span><strong>{recommendedCandidate.capacityRule?.equipmentType || 'Not configured'}</strong><small>{recommendedCandidate.capacityRule ? `${recommendedCandidate.capacityRule.maxWeightLbs.toLocaleString()} LBS / ${recommendedCandidate.capacityRule.maxPallets} pallets` : 'Review required'}</small></div><div><span>Eligible carriers</span><strong>{recommendedCandidate.eligibleCarriers.length}</strong><small>{recommendedCandidate.eligibleCarriers.map((carrier) => carrier.scac || carrier.name).join(', ') || 'None assigned'}</small></div><div><span>Active awards</span><strong>{recommendedCandidate.activeAwards.length}</strong><small>{recommendedCandidate.activeAwards.map((award) => `${award.carrier.scac || award.carrier.name} ${award.currency} ${award.rate} ${award.rateUnit.replaceAll('_', ' ').toLowerCase()}`).join(' | ') || 'No active award'}</small></div></div> : <p className="ops-note">No lane passed the required route, business-unit, service, mode, equipment, and effective-date checks.</p>}
       <div className="planning-candidates">{planningProposal.candidates.map((candidate) => <article key={candidate.laneId} className={candidate.laneId === planningProposal.recommendedLaneId ? 'recommended' : ''}><header><div><strong>{candidate.laneName}</strong><span>{candidate.laneType.replaceAll('_', ' ')}</span></div><b>{candidate.score}</b></header><div className="planning-findings">{candidate.findings.length ? candidate.findings.map((finding) => <p key={`${finding.code}-${finding.message}`} className={finding.severity.toLowerCase()}><span>{finding.severity}</span>{finding.message}</p>) : <p className="info"><span>MATCH</span>All current lane requirements matched.</p>}</div></article>)}</div>
+      <div className="planning-decision-panel">
+        <div><span>Planning decision</span><strong>{proposalDecision ? proposalDecision.decision : "Awaiting review"}</strong><small>{proposalDecision ? `${new Date(proposalDecision.decidedAt).toLocaleString()}${proposalDecision.reason ? ` | ${proposalDecision.reason}` : ""}` : "Approval creates a planned load only. Tendering remains a separate step."}</small>{plannedLoadDisplayId && <small>Created load: {plannedLoadDisplayId}</small>}</div>
+        {!proposalDecision && isLatestProposal && <><label>Decision note<textarea rows={2} placeholder="Required for rejection; optional for approval" value={decisionReason} onChange={(event) => setDecisionReason(event.target.value)} /></label><div className="planning-decision-actions"><button className="btn btn-secondary" type="button" disabled={decisionPending || !decisionReason.trim()} onClick={() => void decidePlan("REJECTED")}>Reject proposal</button><button className="btn btn-primary" type="button" disabled={decisionPending || planningProposal.integrity !== "VERIFIED" || !recommendedCandidate || !recommendedCandidate.activeAwards.length} onClick={() => void decidePlan("APPROVED")}>{decisionPending ? "Recording..." : "Approve and create load"}</button></div></>}
+        {!proposalDecision && !isLatestProposal && <small>Historical proposals remain available for audit but cannot be decided.</small>}
+      </div>
       {planningHistory.length > 1 && <div className="planning-history"><span>Proposal history</span>{planningHistory.map((proposal) => <button className={proposal.proposalId === planningProposal.proposalId ? 'active' : ''} key={proposal.proposalId} type="button" onClick={() => setPlanningProposal(proposal)}><strong>{new Date(proposal.createdAt).toLocaleString()}</strong><small>{proposal.outcome.replaceAll('_', ' ')} | {proposal.integrity || 'LEGACY UNVERIFIED'}</small></button>)}</div>}
     </section>}
   </div>;

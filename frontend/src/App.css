@@ -1412,6 +1412,13 @@ td {
 .planning-audit-bar strong.verified { color: #75dfd3; }
 .planning-audit-bar strong.failed { color: #ef9ba6; }
 .planning-audit-bar strong.legacy_unverified { color: #f1ca74; }
+.planning-decision-panel { display: grid; grid-template-columns: minmax(220px, 1fr) minmax(260px, 1.4fr) auto; align-items: end; gap: 14px; padding: 14px 15px; border-bottom: 1px solid #30445b; }
+.planning-decision-panel > div:first-child { display: grid; gap: 4px; }
+.planning-decision-panel span, .planning-decision-panel small { color: #91a4b9; font-size: 11px; }
+.planning-decision-panel strong { color: #edf4fb; }
+.planning-decision-panel label { display: grid; gap: 5px; color: #b9cadb; font-size: 12px; }
+.planning-decision-panel textarea { min-height: 54px; resize: vertical; }
+.planning-decision-actions { display: flex; gap: 8px; }
 .planning-outcome { padding: 5px 8px; border: 1px solid #49627e; color: #dce8f5; font-size: 11px; text-transform: uppercase; }
 .planning-outcome.matched { border-color: #159e91; color: #75dfd3; }
 .planning-outcome.review_required { border-color: #b88b32; color: #f1ca74; }
@@ -1488,6 +1495,8 @@ td {
 
 @media (max-width: 760px) {
   .planning-recommendation, .planning-candidates { grid-template-columns: 1fr; }
+  .planning-decision-panel { grid-template-columns: 1fr; align-items: stretch; }
+  .planning-decision-actions { flex-wrap: wrap; }
   .planning-recommendation > div { border-right: 0; border-bottom: 1px solid #30445b; }
   .order-planning-actions { min-width: 0; flex-direction: column; }
   .lane-type-tabs { grid-template-columns: repeat(2, minmax(0, 1fr)); }

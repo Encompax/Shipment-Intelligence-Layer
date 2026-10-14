@@ -7,6 +7,7 @@ import { readUploadTable } from "./uploads";
 import { listFacilitiesForWorkspace } from "./facilities";
 import { listLaneBusinessUnits, listLanePartners, listLanePlanningRegistry } from "./lanes";
 import { buildOrderPlanningProposal, getLatestOrderPlanningProposal, listOrderPlanningProposals, saveOrderPlanningProposal } from "../services/orderPlanningService";
+import { decideOrderPlanningProposal, listOrderPlanningDecisions, PlanningDecisionConflict, PlanningDecisionValidationError, type PlanningDecisionType } from "../services/orderPlanningDecisionService";
 
 export type OrderStatus = "DRAFT" | "VALIDATION_REQUIRED" | "READY_TO_PLAN" | "ASSIGNED_TO_LOAD" | "TENDERED" | "IN_TRANSIT" | "DELIVERED";
 export type OrderRecord = Record<string, unknown> & { orderId: string; workspaceId: string; primaryReference: string; status: OrderStatus };
@@ -221,6 +222,36 @@ export function registerOrderRoutes(app: Express) {
     });
     await saveOrderPlanningProposal(proposal);
     res.status(201).json({ proposal });
+  });
+
+  app.get("/api/orders/:orderId/planning-decisions", async (req, res) => {
+    const context = requireWorkspace(req, res); if (!context) return;
+    const orders = await list(context.orgScope, "orders", localOrders);
+    if (!orders.some((item) => item.orderId === req.params.orderId)) { res.status(404).json({ error: "Order not found." }); return; }
+    const decisions = await listOrderPlanningDecisions(context.orgScope, req.params.orderId);
+    res.json({ count: decisions.length, decisions });
+  });
+
+  app.post("/api/orders/:orderId/planning-decisions", async (req, res) => {
+    const context = requireWorkspace(req, res); if (!context) return;
+    const decision = clean(req.body?.decision).toUpperCase() as PlanningDecisionType;
+    if (!(["APPROVED", "REJECTED"] as string[]).includes(decision)) { res.status(400).json({ error: "Decision must be APPROVED or REJECTED." }); return; }
+    const orders = await list(context.orgScope, "orders", localOrders);
+    const order = orders.find((item) => item.orderId === req.params.orderId);
+    if (!order) { res.status(404).json({ error: "Order not found." }); return; }
+    const latest = await getLatestOrderPlanningProposal(context.orgScope, order.orderId);
+    if (!latest) { res.status(404).json({ error: "No planning proposal is available for this order." }); return; }
+    const proposalId = clean(req.body?.proposalId);
+    if (!proposalId || proposalId !== latest.proposalId) { res.status(409).json({ error: "Only the latest planning proposal can be decided." }); return; }
+    try {
+      const result = await decideOrderPlanningProposal({ workspaceId: context.orgScope, order, proposal: latest, decision, reason: clean(req.body?.reason, 1000), actor: context.uid });
+      if (!isFirestorePrimaryEnabled() && result.load) await save(context.orgScope, "orders", order.orderId, result.order, localOrders);
+      res.status(result.idempotent ? 200 : 201).json(result);
+    } catch (error) {
+      if (error instanceof PlanningDecisionConflict) { res.status(409).json({ error: error.message }); return; }
+      if (error instanceof PlanningDecisionValidationError) { res.status(422).json({ error: error.message }); return; }
+      throw error;
+    }
   });
 
   app.post("/api/orders/intake-profiles", async (req, res) => {

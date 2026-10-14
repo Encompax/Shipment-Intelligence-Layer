@@ -1,6 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { buildOrderPlanningProposal, hashOrderPlanningProposal, scoreOrderLane, verifyOrderPlanningProposal } = require('../dist/src/services/orderPlanningService');
+const { buildPlanningDecisionRecords, decideOrderPlanningProposal, hashOrderPlanningDecision, validatePlanningDecision, verifyOrderPlanningDecision } = require('../dist/src/services/orderPlanningDecisionService');
 
 const order = {
   orderId: 'order-1', workspaceId: 'org-1', primaryReference: 'GUSTO-2225555', silTestMeid: '500000001',
@@ -78,4 +79,43 @@ test('detects proposal content changes and labels pre-versioned records as legac
 
 test('refuses to create a proposal across tenant boundaries', () => {
   assert.throws(() => buildOrderPlanningProposal({ workspaceId: 'org-2', order, lanes: [], eligibility: [], awards: [], partners: [], actor: 'user-2' }), /does not belong/);
+});
+
+test('creates an immutable approval decision and planned load from the proposal snapshot', () => {
+  const proposal = buildOrderPlanningProposal({ workspaceId: 'org-1', order, lanes: [lane], eligibility, awards, partners, actor: 'user-1' });
+  const result = buildPlanningDecisionRecords({ workspaceId: 'org-1', order, proposal, decision: 'APPROVED', actor: 'planner-1', now: '2026-10-13T20:00:00.000Z', loadId: 'load-1' });
+  assert.equal(result.decision.decision, 'APPROVED');
+  assert.equal(result.decision.plannedLoadId, 'load-1');
+  assert.equal(result.decision.contentHash, hashOrderPlanningDecision(result.decision));
+  assert.equal(verifyOrderPlanningDecision(result.decision).integrity, 'VERIFIED');
+  assert.equal(verifyOrderPlanningDecision({ ...result.decision, decision: 'REJECTED' }).integrity, 'FAILED');
+  assert.equal(result.load.status, 'PLANNED');
+  assert.deepEqual(result.load.orderIds, ['order-1']);
+  assert.equal(result.load.laneId, 'lane-1');
+  assert.equal(result.load.carrier.scac, 'WARP');
+  assert.equal(result.load.award.rate, 1200);
+  assert.equal(result.load.sourceProposalContentHash, proposal.contentHash);
+});
+
+test('records a rejection without creating a load and requires a reason', () => {
+  const proposal = buildOrderPlanningProposal({ workspaceId: 'org-1', order, lanes: [lane], eligibility, awards, partners, actor: 'user-1' });
+  assert.throws(() => validatePlanningDecision({ workspaceId: 'org-1', order, proposal, decision: 'REJECTED' }), /reason is required/);
+  const result = buildPlanningDecisionRecords({ workspaceId: 'org-1', order, proposal, decision: 'REJECTED', reason: 'Pickup schedule needs correction.', actor: 'planner-1' });
+  assert.equal(result.load, null);
+  assert.equal(result.decision.reason, 'Pickup schedule needs correction.');
+});
+
+test('blocks approval when no active carrier award is available', () => {
+  const proposal = buildOrderPlanningProposal({ workspaceId: 'org-1', order, lanes: [lane], eligibility, awards: [], partners, actor: 'user-1' });
+  assert.throws(() => buildPlanningDecisionRecords({ workspaceId: 'org-1', order, proposal, decision: 'APPROVED', actor: 'planner-1' }), /active carrier award/);
+});
+
+test('returns the original approval and load for an idempotent retry', async () => {
+  const proposal = buildOrderPlanningProposal({ workspaceId: 'org-1', order, lanes: [lane], eligibility, awards, partners, actor: 'user-1' });
+  const first = await decideOrderPlanningProposal({ workspaceId: 'org-1', order, proposal, decision: 'APPROVED', actor: 'planner-1' });
+  const retry = await decideOrderPlanningProposal({ workspaceId: 'org-1', order: first.order, proposal, decision: 'APPROVED', actor: 'planner-1' });
+  assert.equal(first.idempotent, false);
+  assert.equal(retry.idempotent, true);
+  assert.equal(retry.decision.decisionId, first.decision.decisionId);
+  assert.equal(retry.load.loadId, first.load.loadId);
 });
