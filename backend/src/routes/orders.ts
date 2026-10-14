@@ -6,7 +6,7 @@ import { isFirestorePrimaryEnabled } from "../lib/firestore";
 import { readUploadTable } from "./uploads";
 import { listFacilitiesForWorkspace } from "./facilities";
 import { listLaneBusinessUnits, listLanePartners, listLanePlanningRegistry } from "./lanes";
-import { buildOrderPlanningProposal, getLatestOrderPlanningProposal, listOrderPlanningProposals, saveOrderPlanningProposal } from "../services/orderPlanningService";
+import { buildOrderPlanningProposal, getLatestOrderPlanningProposal, listLatestOrderPlanningProposals, listOrderPlanningProposals, saveOrderPlanningProposal, type OrderPlanningProposal } from "../services/orderPlanningService";
 import { decideOrderPlanningProposal, listOrderPlanningDecisions, PlanningDecisionConflict, PlanningDecisionValidationError, type PlanningDecisionType } from "../services/orderPlanningDecisionService";
 import { buildPlanningResolutionAnalysis, createPlanningResolutionDraft, getPlanningResolutionDraft, recordPlanningResolutionDecision } from "../services/planningResolutionService";
 
@@ -83,6 +83,23 @@ async function list(workspaceId: string, name: string, local: Map<string, any[]>
 async function save(workspaceId: string, name: string, id: string, value: any, local: Map<string, any[]>) {
   if (isFirestorePrimaryEnabled()) await intakeCollection(workspaceId, name).doc(id).set(value);
   else local.set(workspaceId, [...(local.get(workspaceId) ?? []).filter((item) => item.orderId !== id && item.profileId !== id && item.reviewId !== id), value]);
+}
+
+async function createAutomaticPlanningProposal(workspaceId: string, order: OrderRecord, actor: string, registry?: Awaited<ReturnType<typeof listLanePlanningRegistry>>) {
+  const planningRegistry = registry ?? await listLanePlanningRegistry(workspaceId);
+  const previous = await getLatestOrderPlanningProposal(workspaceId, order.orderId);
+  const proposal = buildOrderPlanningProposal({
+    workspaceId,
+    order,
+    lanes: planningRegistry.lanes,
+    eligibility: planningRegistry.eligibility,
+    awards: planningRegistry.awards,
+    partners: planningRegistry.partners,
+    actor,
+    supersedesProposalId: previous?.proposalId ?? null,
+  });
+  await saveOrderPlanningProposal(proposal);
+  return proposal;
 }
 
 export async function markLocalOrdersTenderState(workspaceId: string, orderIds: string[], status: OrderStatus, activeTenderId: string | null, updatedAt: string) {
@@ -175,8 +192,24 @@ export const orderDuplicateKey = (row: Record<string, unknown>) => [row.primaryR
 export function registerOrderRoutes(app: Express) {
   app.get("/api/orders", async (req, res) => {
     const context = requireWorkspace(req, res); if (!context) return;
-    const orders = await list(context.orgScope, "orders", localOrders);
-    res.json({ orders: orders.sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt))) });
+    const [orders, planning] = await Promise.all([
+      list(context.orgScope, "orders", localOrders),
+      listLatestOrderPlanningProposals(context.orgScope),
+    ]);
+    res.json({ orders: orders.sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt))).map((order) => {
+      const proposal = planning.get(order.orderId);
+      const reviewedCandidate = proposal?.candidates.find((candidate) => candidate.laneId === proposal.recommendedLaneId)
+        ?? proposal?.candidates[0];
+      const findings = reviewedCandidate?.findings ?? [];
+      return { ...order, planningSummary: proposal ? {
+        proposalId: proposal.proposalId,
+        outcome: proposal.outcome,
+        integrity: proposal.integrity,
+        blockerCount: findings.filter((finding) => finding.severity === "BLOCKER").length,
+        warningCount: findings.filter((finding) => finding.severity === "WARNING").length,
+        createdAt: proposal.createdAt,
+      } : null };
+    }) });
   });
 
   app.post("/api/orders", async (req, res) => {
@@ -200,7 +233,8 @@ export function registerOrderRoutes(app: Express) {
     const [silTestMeid] = await reserveSilTestMeids(context.orgScope, 1);
     const order: OrderRecord = { ...canonical, externalMeid: clean(canonical.meid) || null, meid: silTestMeid, silTestMeid, identifierType: "SIL_TEST_MEID", identifierSource: "SIL", environment: "TEST", orderId: randomUUID(), workspaceId: context.orgScope, primaryReference: clean(canonical.primaryReference), status: issues.some((i) => i.severity === "ERROR") ? "VALIDATION_REQUIRED" : "READY_TO_PLAN", issues, corrections: facilityReview.corrections, source: "MANUAL", createdBy: context.uid, createdAt: now, updatedAt: now } as OrderRecord;
     await save(context.orgScope, "orders", order.orderId, order, localOrders);
-    res.status(201).json({ order });
+    const proposal = await createAutomaticPlanningProposal(context.orgScope, order, context.uid);
+    res.status(201).json({ order, proposal });
   });
 
   app.get("/api/orders/intake-profiles", async (req, res) => {
@@ -255,7 +289,7 @@ export function registerOrderRoutes(app: Express) {
       supersedesProposalId: previous?.proposalId ?? null,
     });
     await saveOrderPlanningProposal(proposal);
-    res.status(201).json({ proposal });
+    res.status(201).json({ proposal: await getLatestOrderPlanningProposal(context.orgScope, order.orderId) });
   });
 
   app.get("/api/orders/:orderId/planning-resolution", async (req, res) => {
@@ -393,9 +427,14 @@ export function registerOrderRoutes(app: Express) {
     const accepted = review.proposedRows.filter((_: any, index: number) => !errorRows.has(index));
     const testMeids = await reserveSilTestMeids(context.orgScope, accepted.length);
     const orders = accepted.map((row: any, index: number) => ({ ...row, externalMeid: clean(row.meid) || null, meid: testMeids[index], silTestMeid: testMeids[index], identifierType: "SIL_TEST_MEID", identifierSource: "SIL", environment: "TEST", orderId: randomUUID(), workspaceId: context.orgScope, status: "READY_TO_PLAN", issues: review.issues.filter((issue: any) => issue.row - 2 === review.proposedRows.indexOf(row)), source: "FILE_IMPORT", intakeReviewId: review.reviewId, intakeProfileId: review.profileId, createdBy: context.uid, createdAt: now, updatedAt: now }));
-    for (const order of orders) await save(context.orgScope, "orders", order.orderId, order, localOrders);
+    const registry = await listLanePlanningRegistry(context.orgScope);
+    const proposals: OrderPlanningProposal[] = [];
+    for (const order of orders) {
+      await save(context.orgScope, "orders", order.orderId, order, localOrders);
+      proposals.push(await createAutomaticPlanningProposal(context.orgScope, order as OrderRecord, context.uid, registry));
+    }
     const approved = { ...review, status: "APPROVED", approvedBy: context.uid, approvedAt: now, importedOrderIds: orders.map((order: any) => order.orderId) };
     await save(context.orgScope, "orderIntakeReviews", review.reviewId, approved, localReviews);
-    res.json({ importedCount: orders.length, rejectedCount: review.proposedRows.length - orders.length, orders });
+    res.json({ importedCount: orders.length, rejectedCount: review.proposedRows.length - orders.length, orders, proposals });
   });
 }

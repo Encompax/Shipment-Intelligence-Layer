@@ -293,3 +293,17 @@ export async function listOrderPlanningProposals(workspaceId: string, orderId: s
     .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
     .map(verifyOrderPlanningProposal);
 }
+
+export async function listLatestOrderPlanningProposals(workspaceId: string) {
+  const proposals = isFirestorePrimaryEnabled()
+    ? (await intakeCollection(workspaceId, "orderPlanningProposals").get()).docs.map((doc) => doc.data() as OrderPlanningProposal)
+    : localProposals.get(workspaceId) ?? [];
+  const latest = new Map<string, OrderPlanningProposal>();
+  proposals
+    .filter((proposal) => proposal.workspaceId === workspaceId)
+    .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
+    .forEach((proposal) => {
+      if (!latest.has(proposal.orderId)) latest.set(proposal.orderId, verifyOrderPlanningProposal(proposal));
+    });
+  return latest;
+}

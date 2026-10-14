@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { createOrder, createPlanningResolutionDraft, decideOrderPlanningProposal, decidePlanningResolutionDraft, fetchFacilities, fetchLaneRegistry, fetchOrderPlanningDecisions, fetchOrderPlanningHistory, fetchOrders, fetchPlanningResolution, generateOrderTestMeid, matchOrderToLane } from "../api/client";
 
-type Order = { orderId: string; primaryReference: string; meid?: string; externalMeid?: string; poNumber?: string; materialTransferOrderNumber?: string; originId?: string; destinationId?: string; businessUnit?: string; earliestPickup?: string; latestDelivery?: string; status: string };
+type PlanningSummary = { proposalId: string; outcome: "MATCHED" | "REVIEW_REQUIRED" | "NO_MATCH"; integrity?: string; blockerCount: number; warningCount: number; createdAt: string };
+type Order = { orderId: string; primaryReference: string; meid?: string; externalMeid?: string; poNumber?: string; materialTransferOrderNumber?: string; originId?: string; destinationId?: string; businessUnit?: string; earliestPickup?: string; latestDelivery?: string; status: string; planningSummary?: PlanningSummary | null };
 type Facility = { facilityId: string; siteId?: string; name: string; city?: string; state?: string };
 type BusinessUnit = { id: string; name: string; status?: string };
 type Partner = { id: string; name: string; scac?: string; partnerType?: string; status?: string };
@@ -49,6 +50,13 @@ export default function OrdersPanel() {
     if (!facility) return identifier;
     return facility.siteId ? `${facility.name} (${facility.siteId})` : facility.name;
   };
+  const planningState = (order: Order) => {
+    const summary = order.planningSummary;
+    if (!summary) return { tone: "pending", icon: "−", label: "Not matched" };
+    if (summary.blockerCount || summary.outcome === "NO_MATCH") return { tone: "blocked", icon: "×", label: "Blocked" };
+    if (summary.warningCount || summary.outcome === "REVIEW_REQUIRED") return { tone: "warning", icon: "!", label: "Review" };
+    return { tone: "ready", icon: "✓", label: "Ready" };
+  };
   const filtered = useMemo(() => {
     const query = search.trim().toLowerCase();
     return !query ? orders : orders.filter((order) => [
@@ -65,11 +73,11 @@ export default function OrdersPanel() {
     event.preventDefault();
     if (orderTimingError) { setMessage(orderTimingError); return; }
     setMessage("Saving order...");
-    try { await createOrder(form); setForm(empty); setMessage("Order saved and validated for planning."); await load(); }
+    try { await createOrder(form); setForm(empty); setMessage("Order saved, validated, and automatically matched for planning review."); await load(); }
     catch (error) { setMessage(error instanceof Error ? error.message : "Could not save order."); }
   };
   const generateMeid = async (orderId: string) => { try { setMessage("Generating SIL test MEID..."); await generateOrderTestMeid(orderId); setMessage("SIL test MEID assigned."); await load(); } catch (error) { setMessage(error instanceof Error ? error.message : "Could not generate test MEID."); } };
-  const matchLane = async (orderId: string) => { try { setPlanningOrderId(orderId); setMessage("Scoring lane matches..."); const result = await matchOrderToLane(orderId); setPlanningProposal(result.proposal); setPlanningHistory((current) => [result.proposal, ...current.filter((proposal) => proposal.proposalId !== result.proposal.proposalId)]); setMessage("Lane match is ready for review."); } catch (error) { setMessage(error instanceof Error ? error.message : "Could not match this order to a lane."); } finally { setPlanningOrderId(null); } };
+  const matchLane = async (orderId: string) => { try { setPlanningOrderId(orderId); setMessage("Scoring lane matches..."); const result = await matchOrderToLane(orderId); setPlanningProposal(result.proposal); setPlanningHistory((current) => [result.proposal, ...current.filter((proposal) => proposal.proposalId !== result.proposal.proposalId)]); try { setResolution(await fetchPlanningResolution(orderId)); setResolutionDraft(null); } catch { setResolution(null); } setMessage("Lane match and SIL guidance are ready for review."); await load(); } catch (error) { setMessage(error instanceof Error ? error.message : "Could not match this order to a lane."); } finally { setPlanningOrderId(null); } };
   const reviewPlan = async (orderId: string) => {
     const currentProposal = planningProposal?.orderId === orderId ? planningProposal : null;
     try {
@@ -94,7 +102,18 @@ export default function OrdersPanel() {
         setPlanningDecisions([]);
       }
 
-      setMessage(proposals.length ? "Planning review loaded." : "No planning review is available for this order. Run Match lane first.");
+      if (proposals[0]?.integrity === "VERIFIED") {
+        try {
+          setResolution(await fetchPlanningResolution(orderId));
+          setResolutionDraft(null);
+        } catch {
+          setResolution(null);
+        }
+      } else {
+        setResolution(null);
+      }
+
+      setMessage(proposals.length ? "Planning review and SIL guidance loaded." : "No planning review is available for this order. Run Match lane first.");
     } catch (error) {
       if (currentProposal) {
         setPlanningHistory((history) => history.length ? history : [currentProposal]);
@@ -171,7 +190,14 @@ export default function OrdersPanel() {
     <section className="transport-panel"><div className="transport-panel-header"><div><p className="transport-eyebrow">Planning queue</p><h3>Orders on file</h3></div><span>{filtered.length}</span></div>
       <label className="facility-search"><span>Search orders</span><input type="search" placeholder="Reference, site, business unit, SCAC, or status" value={search} onChange={(e) => setSearch(e.target.value)} /></label>
       {message && <p className="ops-note">{message}</p>}
-      <div className="transport-table-wrap"><table className="transport-table"><thead><tr><th>SIL test MEID</th><th>Reference</th><th>PO / TO</th><th>Route</th><th>Business unit</th><th>Pickup</th><th>Delivery</th><th>Status</th><th>Planning</th></tr></thead><tbody>{filtered.map((order) => <tr key={order.orderId}><td>{order.meid || <button className="btn btn-secondary" type="button" onClick={() => void generateMeid(order.orderId)}>Generate</button>}</td><td>{order.primaryReference}</td><td>{order.poNumber || order.materialTransferOrderNumber || '--'}</td><td>{facilityLabel(order.originId)} to {facilityLabel(order.destinationId)}</td><td>{order.businessUnit || '--'}</td><td>{order.earliestPickup || '--'}</td><td>{order.latestDelivery || '--'}</td><td>{order.status.replaceAll('_',' ')}</td><td><div className="order-planning-actions"><button className="btn btn-primary" disabled={order.status !== "READY_TO_PLAN" || planningOrderId === order.orderId} type="button" onClick={() => void matchLane(order.orderId)}>{planningOrderId === order.orderId ? "Matching..." : "Match lane"}</button><button className="btn btn-secondary" disabled={planningOrderId === order.orderId} type="button" onClick={() => void reviewPlan(order.orderId)}>Review plan</button></div></td></tr>)}</tbody></table></div>
+      <div className="transport-table-wrap"><table className="transport-table"><thead><tr><th>SIL test MEID</th><th>Reference</th><th>PO / TO</th><th>Route</th><th>Business unit</th><th>Pickup</th><th>Delivery</th><th>Status</th><th>Planning</th></tr></thead><tbody>{filtered.map((order) => {
+        const state = planningState(order);
+        return <tr key={order.orderId} className="planning-queue-row" onClick={() => void reviewPlan(order.orderId)}>
+          <td>{order.meid || <button className="btn btn-secondary" type="button" onClick={(event) => { event.stopPropagation(); void generateMeid(order.orderId); }}>Generate</button>}</td>
+          <td>{order.primaryReference}</td><td>{order.poNumber || order.materialTransferOrderNumber || '--'}</td><td>{facilityLabel(order.originId)} to {facilityLabel(order.destinationId)}</td><td>{order.businessUnit || '--'}</td><td>{order.earliestPickup || '--'}</td><td>{order.latestDelivery || '--'}</td><td>{order.status.replaceAll('_',' ')}</td>
+          <td><div className="order-planning-actions"><button className={`planning-state ${state.tone}`} disabled={planningOrderId === order.orderId} type="button" onClick={(event) => { event.stopPropagation(); void reviewPlan(order.orderId); }} aria-label={`${state.label}: review planning details`}><span aria-hidden="true">{state.icon}</span><strong>{planningOrderId === order.orderId ? "Loading" : state.label}</strong></button><button className="btn btn-secondary" disabled={order.status !== "READY_TO_PLAN" || planningOrderId === order.orderId} type="button" onClick={(event) => { event.stopPropagation(); void matchLane(order.orderId); }}>Rematch</button></div></td>
+        </tr>;
+      })}</tbody></table></div>
       {!filtered.length && <p className="ops-note">No matching orders are on file. Use manual entry here or stage a CSV or Excel file in Data intake.</p>}
     </section>
     {planningProposal && <section className="transport-panel order-planning-review"><div className="transport-panel-header"><div><p className="transport-eyebrow">Governed planning review</p><h3>Order {planningProposal.orderMeid || planningProposal.orderId}</h3></div><span className={`planning-outcome ${planningProposal.outcome.toLowerCase()}`}>{planningProposal.outcome.replaceAll('_', ' ')}</span></div>

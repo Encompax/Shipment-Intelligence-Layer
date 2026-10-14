@@ -1473,6 +1473,15 @@ td {
 .planning-history button { display: grid; gap: 3px; min-width: 190px; padding: 8px 10px; border: 1px solid #30445b; background: #0d1724; color: #dce8f5; text-align: left; cursor: pointer; }
 .planning-history button.active { border-color: #159e91; background: #142a31; }
 .planning-history button small { color: #91a4b9; }
+.planning-queue-row { cursor: pointer; }
+.planning-queue-row:hover { background: rgba(25, 158, 145, 0.08); }
+.planning-state { display: inline-flex; align-items: center; gap: 8px; min-width: 108px; padding: 6px 9px; border: 1px solid #405066; background: #15202d; color: #dce8f5; cursor: pointer; }
+.planning-state span { display: inline-grid; width: 22px; height: 22px; place-items: center; border-radius: 3px; color: #fff; font-weight: 800; line-height: 1; }
+.planning-state.ready span { background: #16845f; }
+.planning-state.warning span { background: #b77900; }
+.planning-state.blocked span { background: #b83c47; }
+.planning-state.pending span { background: #5e6b7c; }
+.planning-state:focus-visible { outline: 2px solid #35c6b7; outline-offset: 2px; }
 .lane-time-picker { position: relative; }
 .lane-time-picker > input { padding-right: 38px; cursor: pointer; }
 .lane-time-trigger { position: absolute; top: 50%; right: 11px; width: 16px; height: 16px; padding: 0; transform: translateY(-50%); border: 2px solid #73e0d5; border-radius: 50%; background: #159e91; box-shadow: 0 0 0 2px rgba(21,158,145,.18); cursor: pointer; }
