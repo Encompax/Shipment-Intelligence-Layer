@@ -15,7 +15,7 @@ import { registerFulfillmentRoutes } from "./routes/fulfillment-transactions";
 import { registerInventoryMovementRoutes } from "./routes/inventory-movements";
 import { registerCycleCountRoutes } from "./routes/cycle-count-transactions";
 import { registerShipmentIntelligenceRoutes } from "./routes/shipment-intelligence";
-import { requireSilAuth } from "./middleware/requireSilAuth";
+import { AuthenticatedSilRequest, requireSilAuth } from "./middleware/requireSilAuth";
 import { registerEncompaxAuthRoutes } from "./routes/encompax-auth";
 import { registerFacilityRoutes } from "./routes/facilities";
 import { registerLaneRoutes } from "./routes/lanes";
@@ -59,6 +59,18 @@ app.use(fileUpload({
 registerHealthRoutes(app);
 registerEncompaxAuthRoutes(app);
 app.use("/api", requireSilAuth);
+app.get("/api/partner/context", (req, res) => {
+  const context = (req as AuthenticatedSilRequest).silAuth?.partnerContext;
+  if (!context) return res.status(404).json({ error: "PARTNER_CONTEXT_NOT_ACTIVE" });
+  res.setHeader("cache-control", "no-store");
+  return res.json({ relationship: context });
+});
+app.use("/api", (req, res, next) => {
+  if ((req as AuthenticatedSilRequest).silAuth?.partnerContext) {
+    return res.status(403).json({ error: "PARTNER_OPERATION_NOT_ASSIGNED" });
+  }
+  return next();
+});
 registerDatasourceRoutes(app);
 registerFacilityRoutes(app);
 registerLaneRoutes(app);

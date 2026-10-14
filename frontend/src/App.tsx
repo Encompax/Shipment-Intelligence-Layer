@@ -13,6 +13,13 @@ const App: React.FC = () => {
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<SilUserProfile | null>(null);
   const [loading, setLoading] = useState(true);
+  const [partnerContext, setPartnerContext] = useState<null | {
+    partnerOrgScope: string;
+    clientOrgScope: string;
+    externalPartnerId: string;
+    clientOrganizationName: string;
+    accessScopes: string[];
+  }>(null);
 
   useEffect(() => {
     let unsubscribe = () => {};
@@ -25,13 +32,22 @@ const App: React.FC = () => {
 
       if (!nextUser) {
         setProfile(null);
+        setPartnerContext(null);
         setLoading(false);
         return;
       }
 
       try {
-        const nextProfile = await getSilUserProfile(nextUser.uid);
+        const [nextProfile, tokenResult] = await Promise.all([getSilUserProfile(nextUser.uid), nextUser.getIdTokenResult()]);
         setProfile(nextProfile);
+        const claims = tokenResult.claims;
+        setPartnerContext(claims.partnerOrgScope && claims.clientOrgScope && claims.externalPartnerId ? {
+          partnerOrgScope: String(claims.partnerOrgScope),
+          clientOrgScope: String(claims.clientOrgScope),
+          externalPartnerId: String(claims.externalPartnerId),
+          clientOrganizationName: String(claims.clientOrganizationName || claims.clientOrgScope),
+          accessScopes: Array.isArray(claims.relationshipAccessScopes) ? claims.relationshipAccessScopes.map(String) : [],
+        } : null);
       } catch (error) {
         console.error("Failed to load SIL user profile", error);
         setProfile(null);
@@ -65,14 +81,14 @@ const App: React.FC = () => {
     return <Suspense fallback={<EncompaxLoader fullScreen label="Preparing setup" detail="Loading your organization" />}><PostSignupSetup profile={profile} user={user} onComplete={setProfile} /></Suspense>;
   }
 
-  if (profile.userType === "partner_user") {
+  if (partnerContext || profile.userType === "partner_user") {
     return <Suspense fallback={<EncompaxLoader fullScreen label="Opening partner workspace" detail="Loading authorized work" />}>
       <PartnerWorkspace
         partnerName={profile.organization || "Partner organization"}
-        clientName={profile.partnerRelationship?.clientOrganizationName || "Client organization"}
+        clientName={partnerContext?.clientOrganizationName || profile.partnerRelationship?.clientOrganizationName || "Client organization"}
         currentUserName={user.displayName || user.email || "Partner operator"}
         currentUserEmail={user.email || ""}
-        accessScopes={profile.partnerRelationship?.accessScopes || []}
+        accessScopes={partnerContext?.accessScopes || profile.partnerRelationship?.accessScopes || []}
         onSignOut={() => signOut(auth)}
       />
     </Suspense>;

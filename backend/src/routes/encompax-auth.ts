@@ -24,11 +24,8 @@ async function createLaunchCode(req: AuthenticatedSilRequest, res: Response) {
   }
 
   const db = getAdminFirestore();
-  const profileSnapshot = await db.doc(`users/${user.uid}`).get();
-  const profile = profileSnapshot.data();
-  const moduleState = String(profile?.moduleAccess?.[MODULE_KEY] || "").toLowerCase();
-
-  if (!profileSnapshot.exists || moduleState !== "active") {
+  const context = req.silAuth;
+  if (!context || (!context.partnerContext && String(context.profile?.moduleAccess?.[MODULE_KEY] || "").toLowerCase() !== "active")) {
     res.status(403).json({ error: "Active SIL access is required for this account." });
     return;
   }
@@ -39,7 +36,9 @@ async function createLaunchCode(req: AuthenticatedSilRequest, res: Response) {
   await db.collection(COLLECTION).doc(hashCode(code)).set({
     uid: user.uid,
     module: MODULE_KEY,
-    orgScope: profile?.orgScope || null,
+    orgScope: context.orgScope,
+    homeOrgScope: context.homeOrgScope,
+    partnerContext: context.partnerContext || null,
     createdAt: FieldValue.serverTimestamp(),
     expiresAt,
     consumedAt: null,
@@ -60,6 +59,12 @@ async function redeemLaunchCode(req: Request, res: Response) {
   const codeReference = db.collection(COLLECTION).doc(hashCode(code));
   let launchUid = "";
   let launchOrgScope = "";
+  let launchHomeOrgScope = "";
+  let partnerOrgScope = "";
+  let clientOrgScope = "";
+  let externalPartnerId = "";
+  let clientOrganizationName = "";
+  let relationshipAccessScopes: string[] = [];
 
   try {
     await db.runTransaction(async (transaction) => {
@@ -73,6 +78,13 @@ async function redeemLaunchCode(req: Request, res: Response) {
 
       launchUid = String(data.uid);
       launchOrgScope = String(data.orgScope || "");
+      launchHomeOrgScope = String(data.homeOrgScope || data.orgScope || "");
+      const storedPartnerContext = data.partnerContext && typeof data.partnerContext === "object" ? data.partnerContext : null;
+      partnerOrgScope = String(storedPartnerContext?.partnerOrgScope || "");
+      clientOrgScope = String(storedPartnerContext?.clientOrgScope || "");
+      externalPartnerId = String(storedPartnerContext?.externalPartnerId || "");
+      clientOrganizationName = String(storedPartnerContext?.clientOrganizationName || "");
+      relationshipAccessScopes = Array.isArray(storedPartnerContext?.accessScopes) ? storedPartnerContext.accessScopes.map(String) : [];
       transaction.update(codeReference, { consumedAt: FieldValue.serverTimestamp() });
     });
   } catch (error) {
@@ -88,10 +100,19 @@ async function redeemLaunchCode(req: Request, res: Response) {
     return;
   }
 
-  const customToken = await getSilFirebaseAdminAuth().createCustomToken(launchUid, {
+  const customClaims: Record<string, unknown> = {
     encompaxModule: MODULE_KEY,
     orgScope: launchOrgScope,
-  });
+    homeOrgScope: launchHomeOrgScope,
+  };
+  if (partnerOrgScope && clientOrgScope && externalPartnerId) {
+    customClaims.partnerOrgScope = partnerOrgScope;
+    customClaims.clientOrgScope = clientOrgScope;
+    customClaims.externalPartnerId = externalPartnerId;
+    customClaims.clientOrganizationName = clientOrganizationName;
+    customClaims.relationshipAccessScopes = relationshipAccessScopes;
+  }
+  const customToken = await getSilFirebaseAdminAuth().createCustomToken(launchUid, customClaims);
 
   res.setHeader("cache-control", "no-store");
   res.json({ customToken });

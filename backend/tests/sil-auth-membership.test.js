@@ -11,12 +11,13 @@ test('SIL authorization requires non-revoked identity and canonical organization
   const originalFirestore = require.cache[firestorePath].exports;
   const documents = new Map();
   let revoked = false;
+  let tokenClaims = {};
   const db = { doc: (path) => ({ get: async () => ({ exists: documents.has(path), data: () => documents.get(path) }) }) };
   require.cache[firestorePath].exports = { ...originalFirestore, getFirestore: () => db };
   admin.getSilFirebaseAdminAuth = () => ({ app: {}, verifyIdToken: async (_token, checkRevoked) => {
     assert.equal(checkRevoked, true);
     if (revoked) throw new Error('Sensitive provider error must not be returned');
-    return { uid: 'user-test' };
+    return { uid: 'user-test', ...tokenClaims };
   } });
   const middlewarePath = require.resolve('../dist/src/middleware/requireSilAuth.js');
   delete require.cache[middlewarePath];
@@ -24,12 +25,13 @@ test('SIL authorization requires non-revoked identity and canonical organization
   const reset = () => {
     documents.clear();
     revoked = false;
+    tokenClaims = {};
     documents.set('users/user-test', { orgScope: 'test-org', moduleAccess: { sil: 'active' } });
     documents.set('organizations/test-org', { status: 'active', moduleEntitlements: { sil: { status: 'active' } } });
     documents.set('organizations/test-org/members/user-test', { uid: 'user-test', status: 'active', moduleKeys: ['sil'] });
   };
-  const request = async (token = 'synthetic') => {
-    const req = { method: 'GET', headers: token ? { authorization: `Bearer ${token}` } : {} };
+  const request = async (token = 'synthetic', options = {}) => {
+    const req = { method: options.method || 'GET', originalUrl: options.originalUrl || '/api/test', body: options.body, headers: token ? { authorization: `Bearer ${token}` } : {} };
     const result = { status: 200, next: false };
     const res = { status: (status) => { result.status = status; return res; }, json: (body) => { result.body = body; } };
     await requireSilAuth(req, res, () => { result.next = true; });
@@ -62,6 +64,30 @@ test('SIL authorization requires non-revoked identity and canonical organization
       assert.equal(result.status, 401);
       assert.deepEqual(result.body, { error: 'Invalid authentication token.' });
       assert.equal(result.context, undefined);
+    });
+    await t.test('partner context requires all three identifiers and active reciprocal records', async () => {
+      reset();
+      documents.get('organizations/test-org/members/user-test').role = 'primary_admin';
+      documents.set('organizations/gopuff', { status: 'active', name: 'Gopuff' });
+      documents.set('organizations/test-org/clientRelationships/gopuff', {
+        status: 'active', moduleKey: 'sil', externalPartnerId: 'carrier-1', clientOrganizationName: 'Gopuff', accessScopes: ['tenders'],
+      });
+      documents.set('organizations/gopuff/externalPartners/carrier-1', {
+        status: 'active', linkedOrganizationScope: 'test-org',
+      });
+      tokenClaims = { partnerOrgScope: 'test-org', clientOrgScope: 'gopuff', externalPartnerId: 'carrier-1' };
+      const active = await request();
+      assert.equal(active.next, true);
+      assert.equal(active.context.orgScope, 'gopuff');
+      assert.equal(active.context.homeOrgScope, 'test-org');
+      assert.equal(active.context.partnerContext.externalPartnerId, 'carrier-1');
+
+      documents.get('organizations/test-org/clientRelationships/gopuff').status = 'suspended';
+      assert.equal((await request()).status, 403);
+
+      reset();
+      tokenClaims = { partnerOrgScope: 'test-org', clientOrgScope: 'gopuff' };
+      assert.equal((await request()).status, 403);
     });
   } finally {
     admin.getSilFirebaseAdminAuth = originalAuth;
