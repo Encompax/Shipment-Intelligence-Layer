@@ -27,6 +27,10 @@ export type AuthenticatedSilRequest = Request & {
 const isAuthRequired = () =>
   process.env.NODE_ENV === "production" || (process.env.SIL_AUTH_REQUIRED ?? "").toLowerCase() === "true";
 
+export function isPartnerApiPath(pathname: unknown) {
+  return /^\/partner(?:\/|$)/.test(String(pathname || ""));
+}
+
 function validScope(value: unknown) {
   const scope = String(value || "").trim();
   return scope && !scope.includes("/") && ![".", ".."].includes(scope) ? scope : "";

@@ -21,7 +21,7 @@ test('SIL authorization requires non-revoked identity and canonical organization
   } });
   const middlewarePath = require.resolve('../dist/src/middleware/requireSilAuth.js');
   delete require.cache[middlewarePath];
-  const { requireSilAuth } = require(middlewarePath);
+  const { isPartnerApiPath, requireSilAuth } = require(middlewarePath);
   const reset = () => {
     documents.clear();
     revoked = false;
@@ -81,6 +81,12 @@ test('SIL authorization requires non-revoked identity and canonical organization
       assert.equal(active.context.orgScope, 'gopuff');
       assert.equal(active.context.homeOrgScope, 'test-org');
       assert.equal(active.context.partnerContext.externalPartnerId, 'carrier-1');
+      assert.deepEqual(active.context.partnerContext.accessScopes, ['tenders']);
+      assert.equal(isPartnerApiPath('/partner/tenders'), true);
+      assert.equal(isPartnerApiPath('/partner/tenders/tender-1/respond'), true);
+      assert.equal(isPartnerApiPath('/lanes'), false);
+      assert.equal(isPartnerApiPath('/orders'), false);
+      assert.equal(isPartnerApiPath('/tenders'), false);
 
       documents.get('organizations/test-org/clientRelationships/gopuff').status = 'suspended';
       assert.equal((await request()).status, 403);

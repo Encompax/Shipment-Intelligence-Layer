@@ -9,15 +9,17 @@ const clean = (value: unknown, max = 1000) => String(value ?? "").trim().slice(0
 function requireWorkspace(req: Request, res: Response) {
   const context = auth(req);
   if (!context?.orgScope) { res.status(403).json({ error: "An authenticated client workspace is required." }); return null; }
+  if (context.partnerContext) { res.status(403).json({ error: "Partner relationships cannot administer the client tender queue." }); return null; }
   if (String(context.profile.userType || "customer_user") === "partner_user") { res.status(403).json({ error: "Partner accounts cannot administer the tender queue." }); return null; }
   return context;
 }
 
 function requirePartner(req: Request, res: Response) {
-  const context = auth(req); const relationship = context?.profile?.partnerRelationship;
-  if (!context || String(context.profile.userType) !== "partner_user" || !relationship?.clientOrgScope || !relationship?.externalPartnerId) { res.status(403).json({ error: "An authenticated external partner relationship is required." }); return null; }
-  if (!Array.isArray(relationship.accessScopes) || !relationship.accessScopes.includes("tenders")) { res.status(403).json({ error: "Tender access is not authorized for this partner account." }); return null; }
-  return { ...context, clientOrgScope: String(relationship.clientOrgScope), externalPartnerId: String(relationship.externalPartnerId) };
+  const context = auth(req);
+  const relationship = context?.partnerContext;
+  if (!context || !relationship?.clientOrgScope || !relationship?.externalPartnerId) { res.status(403).json({ error: "An authenticated external partner relationship is required." }); return null; }
+  if (!relationship.accessScopes.includes("tenders")) { res.status(403).json({ error: "Tender access is not authorized for this partner relationship." }); return null; }
+  return { ...context, clientOrgScope: relationship.clientOrgScope, externalPartnerId: relationship.externalPartnerId };
 }
 
 const handleError = (error: unknown, res: Response) => {
