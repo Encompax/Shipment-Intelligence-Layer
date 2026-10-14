@@ -84,12 +84,16 @@ async function save(workspaceId: string, name: string, id: string, value: any, l
   else local.set(workspaceId, [...(local.get(workspaceId) ?? []).filter((item) => item.orderId !== id && item.profileId !== id && item.reviewId !== id), value]);
 }
 
-export async function markLocalOrdersTendered(workspaceId: string, orderIds: string[], tenderId: string, updatedAt: string) {
+export async function markLocalOrdersTenderState(workspaceId: string, orderIds: string[], status: OrderStatus, activeTenderId: string | null, updatedAt: string) {
   if (isFirestorePrimaryEnabled()) return;
   const orders = await list(workspaceId, "orders", localOrders);
   for (const order of orders.filter((item) => orderIds.includes(item.orderId))) {
-    await save(workspaceId, "orders", order.orderId, { ...order, status: "TENDERED", activeTenderId: tenderId, updatedAt }, localOrders);
+    await save(workspaceId, "orders", order.orderId, { ...order, status, activeTenderId, updatedAt }, localOrders);
   }
+}
+
+export async function markLocalOrdersTendered(workspaceId: string, orderIds: string[], tenderId: string, updatedAt: string) {
+  await markLocalOrdersTenderState(workspaceId, orderIds, "TENDERED", tenderId, updatedAt);
 }
 
 export function inferOrderMapping(headers: string[]) {

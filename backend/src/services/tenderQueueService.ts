@@ -213,11 +213,11 @@ export async function respondToTender(input: { workspaceId: string; tenderId: st
     const tender = localTenders.get(input.tenderId); if (!tender || tender.workspaceId !== input.workspaceId) throw new TenderValidationError("Tender not found.");
     assertPartner(tender);
     const key = `${input.workspaceId}:${tender.loadId}`; const state = localTenderStates.get(key); if (!state) throw new TenderConflict("Tender state is unavailable.");
-    const existing = localTenderResponses.get(input.tenderId); if (existing) return { response: verifyTenderResponse(existing), state, idempotent: true };
+    const existing = localTenderResponses.get(input.tenderId); if (existing) return { response: verifyTenderResponse(existing), state, tender: verifyTenderIssuance(tender), idempotent: true };
     const response = apply(tender, state);
     const nextState: TenderQueueState = { ...state, status: input.response, activeTenderId: null, lastTenderId: tender.tenderId, updatedAt: response.respondedAt };
     localTenderResponses.set(tender.tenderId, response); localTenderStates.set(key, nextState);
-    return { response, state: nextState, idempotent: false };
+    return { response, state: nextState, tender: verifyTenderIssuance(tender), idempotent: false };
   }
   const tenderRef = intakeCollection(input.workspaceId, "tenderIssuances").doc(input.tenderId);
   const responseRef = intakeCollection(input.workspaceId, "tenderResponses").doc(input.tenderId);
@@ -228,13 +228,13 @@ export async function respondToTender(input: { workspaceId: string; tenderId: st
     const stateRef = intakeCollection(input.workspaceId, "tenderQueueState").doc(tender.loadId);
     const [stateSnapshot, responseSnapshot] = await Promise.all([transaction.get(stateRef), transaction.get(responseRef)]);
     const state = stateSnapshot.data() as TenderQueueState | undefined; if (!state) throw new TenderConflict("Tender state is unavailable.");
-    if (responseSnapshot.exists) return { response: verifyTenderResponse(responseSnapshot.data() as TenderResponseRecord), state, idempotent: true };
+    if (responseSnapshot.exists) return { response: verifyTenderResponse(responseSnapshot.data() as TenderResponseRecord), state, tender: verifyTenderIssuance(tender), idempotent: true };
     const response = apply(tender, state);
     const nextState: TenderQueueState = { ...state, status: input.response, activeTenderId: null, lastTenderId: tender.tenderId, updatedAt: response.respondedAt };
     transaction.create(responseRef, response); transaction.set(stateRef, nextState);
     const orderStatus = input.response === "ACCEPTED" ? "CARRIER_ACCEPTED" : input.response === "REJECTED" ? "TENDER_REJECTED" : "TENDER_EXPIRED";
     for (const orderId of tender.orderIds) transaction.update(intakeCollection(input.workspaceId, "orders").doc(orderId), { status: orderStatus, updatedAt: response.respondedAt });
-    return { response, state: nextState, idempotent: false };
+    return { response, state: nextState, tender: verifyTenderIssuance(tender), idempotent: false };
   });
 }
 

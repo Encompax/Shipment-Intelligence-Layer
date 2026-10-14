@@ -1,7 +1,7 @@
 import type { Express, Request, Response } from "express";
 import type { AuthenticatedSilRequest } from "../middleware/requireSilAuth";
 import { issuePlannedLoadTender, listTenderQueue, respondToTender, retenderPlannedLoad, TenderConflict, TenderValidationError } from "../services/tenderQueueService";
-import { markLocalOrdersTendered } from "./orders";
+import { markLocalOrdersTendered, markLocalOrdersTenderState } from "./orders";
 
 const auth = (req: Request) => (req as AuthenticatedSilRequest).silAuth;
 const clean = (value: unknown, max = 1000) => String(value ?? "").trim().slice(0, max);
@@ -49,13 +49,21 @@ export function registerTenderRoutes(app: Express) {
 
   app.post("/api/tenders/:tenderId/expire", async (req, res) => {
     const context = requireWorkspace(req, res); if (!context) return;
-    try { res.status(201).json(await respondToTender({ workspaceId: context.orgScope, tenderId: req.params.tenderId, response: "EXPIRED", reason: clean(req.body?.reason), actor: context.uid })); }
+    try {
+      const result = await respondToTender({ workspaceId: context.orgScope, tenderId: req.params.tenderId, response: "EXPIRED", reason: clean(req.body?.reason), actor: context.uid });
+      await markLocalOrdersTenderState(context.orgScope, result.tender.orderIds, "TENDER_EXPIRED", null, result.response.respondedAt);
+      res.status(201).json(result);
+    }
     catch (error) { if (handleError(error, res)) return; throw error; }
   });
 
   app.post("/api/tenders/:loadId/retender", async (req, res) => {
     const context = requireWorkspace(req, res); if (!context) return;
-    try { res.status(201).json(await retenderPlannedLoad({ workspaceId: context.orgScope, loadId: req.params.loadId, actor: context.uid, reason: clean(req.body?.reason), responseDueAt: clean(req.body?.responseDueAt, 100), note: clean(req.body?.note) })); }
+    try {
+      const result = await retenderPlannedLoad({ workspaceId: context.orgScope, loadId: req.params.loadId, actor: context.uid, reason: clean(req.body?.reason), responseDueAt: clean(req.body?.responseDueAt, 100), note: clean(req.body?.note) });
+      await markLocalOrdersTendered(context.orgScope, result.tender.orderIds, result.tender.tenderId, result.tender.issuedAt);
+      res.status(201).json(result);
+    }
     catch (error) { if (handleError(error, res)) return; throw error; }
   });
 
@@ -70,7 +78,11 @@ export function registerTenderRoutes(app: Express) {
     const context = requirePartner(req, res); if (!context) return;
     const response = clean(req.body?.response).toUpperCase();
     if (!["ACCEPTED", "REJECTED"].includes(response)) { res.status(400).json({ error: "Response must be ACCEPTED or REJECTED." }); return; }
-    try { res.status(201).json(await respondToTender({ workspaceId: context.clientOrgScope, tenderId: req.params.tenderId, externalPartnerId: context.externalPartnerId, response: response as "ACCEPTED" | "REJECTED", reason: clean(req.body?.reason), actor: context.uid })); }
+    try {
+      const result = await respondToTender({ workspaceId: context.clientOrgScope, tenderId: req.params.tenderId, externalPartnerId: context.externalPartnerId, response: response as "ACCEPTED" | "REJECTED", reason: clean(req.body?.reason), actor: context.uid });
+      await markLocalOrdersTenderState(context.clientOrgScope, result.tender.orderIds, response === "ACCEPTED" ? "CARRIER_ACCEPTED" : "TENDER_REJECTED", null, result.response.respondedAt);
+      res.status(201).json(result);
+    }
     catch (error) { if (handleError(error, res)) return; throw error; }
   });
 }

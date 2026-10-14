@@ -2,7 +2,8 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { buildOrderPlanningProposal, hashOrderPlanningProposal, scoreOrderLane, verifyOrderPlanningProposal } = require('../dist/src/services/orderPlanningService');
 const { buildPlanningDecisionRecords, decideOrderPlanningProposal, hashOrderPlanningDecision, validatePlanningDecision, verifyOrderPlanningDecision } = require('../dist/src/services/orderPlanningDecisionService');
-const { buildTenderIssuance, hashTenderIssuance, issuePlannedLoadTender, respondToTender, retenderPlannedLoad, verifyTenderIssuance, verifyTenderResponse } = require('../dist/src/services/tenderQueueService');
+const { buildTenderIssuance, hashTenderIssuance, issuePlannedLoadTender, listTenderQueue, respondToTender, retenderPlannedLoad, verifyTenderIssuance, verifyTenderResponse } = require('../dist/src/services/tenderQueueService');
+const { canonicalizeOrder, validateOrder } = require('../dist/src/routes/orders');
 
 const order = {
   orderId: 'order-1', workspaceId: 'org-1', primaryReference: 'GUSTO-2225555', silTestMeid: '500000001',
@@ -171,4 +172,49 @@ test('acceptance is terminal and cannot be retendered', async () => {
   const accepted = await respondToTender({ workspaceId: 'org-1', tenderId: issued.tender.tenderId, externalPartnerId: 'carrier-1', response: 'ACCEPTED', actor: 'carrier-user-1' });
   assert.equal(accepted.state.status, 'ACCEPTED');
   await assert.rejects(() => retenderPlannedLoad({ workspaceId: 'org-1', loadId: approval.load.loadId, actor: 'planner-1', reason: 'Invalid retry.' }), /rejected or expired/);
+});
+
+test('manual order flows through planning, tender visibility, and carrier acceptance', async () => {
+  const workspaceId = 'org-workflow-acceptance';
+  const rawOrder = {
+    primaryReference: 'GUSTO-E2E-1', poNumber: 'GUSTO-E2E-1', materialTransferOrderNumber: 'GUSTO-E2E-1',
+    businessUnit: 'Gopuff', earliestPickup: '2026-10-13T13:00', latestDelivery: '2026-10-15T18:30',
+    originId: 'facility-origin', destinationId: 'facility-destination', palletQuantity: '26', weight: '40000',
+    weightUom: 'LBS', equipmentType: '53 FT DRY VAN', modeType: 'TL', orderType: 'TRANSFER', scac: 'WARP',
+  };
+  const mapping = Object.fromEntries(Object.keys(rawOrder).map((field) => [field, field]));
+  const canonical = canonicalizeOrder(rawOrder, mapping);
+  assert.deepEqual(validateOrder(canonical, 1), []);
+  assert.equal(canonical.weight, 40000);
+  assert.equal(canonical.palletQuantity, 26);
+
+  const workflowOrder = {
+    ...canonical, orderId: 'order-workflow-acceptance', workspaceId, silTestMeid: '500000099', meid: '500000099',
+    status: 'READY_TO_PLAN', createdBy: 'planner-1', createdAt: '2026-10-13T12:00:00.000Z', updatedAt: '2026-10-13T12:00:00.000Z',
+  };
+  const workflowLane = { ...lane, workspaceId };
+  const workflowEligibility = eligibility.map((item) => ({ ...item, workspaceId }));
+  const workflowAwards = awards.map((item) => ({ ...item, workspaceId }));
+  const proposal = buildOrderPlanningProposal({ workspaceId, order: workflowOrder, lanes: [workflowLane], eligibility: workflowEligibility, awards: workflowAwards, partners, actor: 'planner-1' });
+  assert.equal(proposal.outcome, 'MATCHED');
+  assert.equal(proposal.integrity, undefined);
+
+  const approval = await decideOrderPlanningProposal({ workspaceId, order: workflowOrder, proposal, decision: 'APPROVED', actor: 'planner-1' });
+  const planningEvidence = JSON.stringify({ proposal, decision: approval.decision, load: approval.load });
+  const issued = await issuePlannedLoadTender({ workspaceId, loadId: approval.load.loadId, actor: 'planner-1' });
+  assert.equal(issued.state.status, 'AWAITING_RESPONSE');
+
+  const carrierQueue = (await listTenderQueue(workspaceId)).filter((item) => item.load.carrier.externalPartnerId === 'carrier-1');
+  assert.equal(carrierQueue.length, 1);
+  assert.equal(carrierQueue[0].tenders[0].tenderId, issued.tender.tenderId);
+  assert.equal((await listTenderQueue('org-unrelated')).length, 0);
+  await assert.rejects(() => respondToTender({ workspaceId, tenderId: issued.tender.tenderId, externalPartnerId: 'carrier-2', response: 'ACCEPTED', actor: 'wrong-carrier' }), /different partner/);
+
+  const accepted = await respondToTender({ workspaceId, tenderId: issued.tender.tenderId, externalPartnerId: 'carrier-1', response: 'ACCEPTED', actor: 'carrier-user-1' });
+  assert.equal(accepted.state.status, 'ACCEPTED');
+  assert.deepEqual(accepted.tender.orderIds, [workflowOrder.orderId]);
+  assert.equal(accepted.tender.integrity, 'VERIFIED');
+  assert.equal(accepted.response.integrity, undefined);
+  assert.equal(verifyTenderResponse(accepted.response).integrity, 'VERIFIED');
+  assert.equal(JSON.stringify({ proposal, decision: approval.decision, load: approval.load }), planningEvidence);
 });
