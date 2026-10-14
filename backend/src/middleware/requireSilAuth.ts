@@ -1,6 +1,6 @@
 import { NextFunction, Request, Response } from "express";
 import { DecodedIdToken } from "firebase-admin/auth";
-import { getFirestore } from "firebase-admin/firestore";
+import { getFirestore, type Firestore } from "firebase-admin/firestore";
 import { getSilFirebaseAdminAuth } from "../lib/firebaseAdmin";
 
 export type SilPartnerContext = {
@@ -47,7 +47,7 @@ function requestedPartnerContext(req: AuthenticatedSilRequest, decoded: DecodedI
 }
 
 async function validatePartnerContext(
-  db: FirebaseFirestore.Firestore,
+  db: Firestore,
   uid: string,
   homeOrgScope: string,
   context: { partnerOrgScope: string; clientOrgScope: string; externalPartnerId: string },
