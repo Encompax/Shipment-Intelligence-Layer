@@ -70,7 +70,43 @@ export default function OrdersPanel() {
   };
   const generateMeid = async (orderId: string) => { try { setMessage("Generating SIL test MEID..."); await generateOrderTestMeid(orderId); setMessage("SIL test MEID assigned."); await load(); } catch (error) { setMessage(error instanceof Error ? error.message : "Could not generate test MEID."); } };
   const matchLane = async (orderId: string) => { try { setPlanningOrderId(orderId); setMessage("Scoring lane matches..."); const result = await matchOrderToLane(orderId); setPlanningProposal(result.proposal); setPlanningHistory((current) => [result.proposal, ...current.filter((proposal) => proposal.proposalId !== result.proposal.proposalId)]); setMessage("Lane match is ready for review."); } catch (error) { setMessage(error instanceof Error ? error.message : "Could not match this order to a lane."); } finally { setPlanningOrderId(null); } };
-  const reviewPlan = async (orderId: string) => { try { setPlanningOrderId(orderId); setMessage("Loading planning review..."); const [result, decisionResult] = await Promise.all([fetchOrderPlanningHistory(orderId), fetchOrderPlanningDecisions(orderId)]); const proposals = result.proposals ?? []; setPlanningHistory(proposals); setPlanningProposal(proposals[0] ?? null); setPlanningDecisions(decisionResult.decisions ?? []); setPlannedLoadDisplayId(null); setDecisionReason(""); setMessage(proposals.length ? "Planning review loaded." : "No planning review is available for this order."); } catch (error) { setMessage(error instanceof Error ? error.message : "No planning review is available for this order."); } finally { setPlanningOrderId(null); } };
+  const reviewPlan = async (orderId: string) => {
+    const currentProposal = planningProposal?.orderId === orderId ? planningProposal : null;
+    try {
+      setPlanningOrderId(orderId);
+      setMessage("Loading planning review...");
+      const result = await fetchOrderPlanningHistory(orderId);
+      const durableProposals: PlanningProposal[] = result.proposals ?? [];
+      const proposals = durableProposals.length
+        ? durableProposals
+        : currentProposal
+          ? [currentProposal]
+          : [];
+      setPlanningHistory(proposals);
+      setPlanningProposal(proposals[0] ?? null);
+      setPlannedLoadDisplayId(null);
+      setDecisionReason("");
+
+      try {
+        const decisionResult = await fetchOrderPlanningDecisions(orderId);
+        setPlanningDecisions(decisionResult.decisions ?? []);
+      } catch {
+        setPlanningDecisions([]);
+      }
+
+      setMessage(proposals.length ? "Planning review loaded." : "No planning review is available for this order. Run Match lane first.");
+    } catch (error) {
+      if (currentProposal) {
+        setPlanningHistory((history) => history.length ? history : [currentProposal]);
+        setPlanningProposal(currentProposal);
+        setMessage("Planning review loaded from the completed lane match. Durable history is temporarily unavailable.");
+      } else {
+        setMessage(error instanceof Error ? error.message : "No planning review is available for this order. Run Match lane first.");
+      }
+    } finally {
+      setPlanningOrderId(null);
+    }
+  };
   const decidePlan = async (decision: "APPROVED" | "REJECTED") => {
     if (!planningProposal) return;
     try {
