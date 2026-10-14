@@ -9,6 +9,7 @@ const TransportationCommandPanel = React.lazy(() => import("../components/Transp
 const FacilitiesPanel = React.lazy(() => import("../components/FacilitiesPanel"));
 const OrdersPanel = React.lazy(() => import("../components/OrdersPanel"));
 const TenderQueuePanel = React.lazy(() => import("../components/TenderQueuePanel"));
+const EdiConfigurationPanel = React.lazy(() => import("../components/EdiConfigurationPanel"));
 
 export type PanelKey =
   | "transportationCommand"
@@ -19,7 +20,8 @@ export type PanelKey =
   | "production"
   | "facilities"
   | "orders"
-  | "tenders";
+  | "tenders"
+  | "edi";
 
 export type PanelGroup =
   | "Control Tower"
@@ -101,6 +103,14 @@ export const PANEL_CONFIG: PanelConfig[] = [
     group: "Plan & Source",
     component: DataSourcesPanel,
     showInOverview: true,
+    requiredPermissions: ["datasources:view"],
+  },
+  {
+    key: "edi",
+    label: "EDI connections",
+    group: "Workspace",
+    component: EdiConfigurationPanel,
+    showInOverview: false,
     requiredPermissions: ["datasources:view"],
   },
   // ── Business ────────────────────────────────────────────────────────────

@@ -79,6 +79,16 @@ export async function createOrder(payload: Record<string, unknown>) {
   return readJsonResponse(res, "Failed to create order");
 }
 
+export async function fetchEdiConfigurations() {
+  const res = await fetch(`${API_BASE}/edi/configurations`);
+  return readJsonResponse(res, "Failed to load EDI configurations");
+}
+
+export async function createEdiConfiguration(payload: Record<string, unknown>) {
+  const res = await fetch(`${API_BASE}/edi/configurations`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+  return readJsonResponse(res, "Failed to save EDI configuration");
+}
+
 export async function matchOrderToLane(orderId: string) {
   const res = await fetch(`${API_BASE}/orders/${encodeURIComponent(orderId)}/planning-match`, { method: "POST" });
   return readJsonResponse(res, "Failed to match order to lanes");

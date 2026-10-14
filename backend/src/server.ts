@@ -21,6 +21,7 @@ import { registerFacilityRoutes } from "./routes/facilities";
 import { registerLaneRoutes } from "./routes/lanes";
 import { registerOrderRoutes } from "./routes/orders";
 import { registerTenderRoutes } from "./routes/tenders";
+import { registerEdiConfigurationRoutes } from "./routes/edi-configurations";
 import { assertIntakeStorageConfigured } from "./services/intake/intakeStore";
 import { requestTracing } from "./middleware/requestTracing";
 
@@ -77,6 +78,7 @@ registerFacilityRoutes(app);
 registerLaneRoutes(app);
 registerOrderRoutes(app);
 registerTenderRoutes(app);
+registerEdiConfigurationRoutes(app);
 registerJobRoutes(app);
 registerUploadRoutes(app);
 registerMetricsRoutes(app);
