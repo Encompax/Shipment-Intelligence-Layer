@@ -227,3 +227,19 @@ export async function listOrderPlanningDecisions(workspaceId: string, orderId: s
   const snapshot = await intakeCollection(workspaceId, "orderPlanningDecisions").where("orderId", "==", orderId).get();
   return snapshot.docs.map((doc) => doc.data() as OrderPlanningDecision).filter((item) => item.workspaceId === workspaceId).sort((a, b) => b.decidedAt.localeCompare(a.decidedAt)).map(verifyOrderPlanningDecision);
 }
+
+export async function listPlannedLoads(workspaceId: string) {
+  if (!isFirestorePrimaryEnabled()) return [...localLoads.values()].filter((item) => item.workspaceId === workspaceId).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  const snapshot = await intakeCollection(workspaceId, "plannedLoads").get();
+  return snapshot.docs.map((doc) => doc.data() as PlannedLoadRecord).filter((item) => item.workspaceId === workspaceId).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+}
+
+export async function getPlannedLoad(workspaceId: string, loadId: string) {
+  if (!isFirestorePrimaryEnabled()) {
+    const load = localLoads.get(loadId);
+    return load?.workspaceId === workspaceId ? load : null;
+  }
+  const snapshot = await intakeCollection(workspaceId, "plannedLoads").doc(loadId).get();
+  const load = snapshot.data() as PlannedLoadRecord | undefined;
+  return load?.workspaceId === workspaceId ? load : null;
+}

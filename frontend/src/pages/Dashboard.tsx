@@ -172,6 +172,12 @@ const Dashboard: React.FC<DashboardProps> = ({
                 body: "Manage carrier eligibility, bid participation, and the supplier relationships used for award decisions.",
               },
               {
+                key: "tenders" as TabKey,
+                label: "Tender Queue",
+                eyebrow: "Tender",
+                body: "Release approved loads to awarded carriers and track the response boundary before execution.",
+              },
+              {
                 key: "production" as TabKey,
                 label: "Active shipments",
                 eyebrow: "Execute",

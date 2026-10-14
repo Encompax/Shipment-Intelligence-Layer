@@ -104,6 +104,16 @@ export async function fetchOrderPlanningDecisions(orderId: string) {
   return readJsonResponse(res, "Failed to fetch planning decisions");
 }
 
+export async function fetchTenderQueue() {
+  const res = await fetch(`${API_BASE}/tenders`);
+  return readJsonResponse(res, "Failed to fetch tender queue");
+}
+
+export async function issuePlannedLoadTender(loadId: string, payload: { responseDueAt?: string; note?: string }) {
+  const res = await fetch(`${API_BASE}/tenders/${encodeURIComponent(loadId)}/issue`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+  return readJsonResponse(res, "Failed to issue tender");
+}
+
 export async function createOrderIntakeReview(payload: { rows?: Record<string, unknown>[]; uploadId?: number; sourceName?: string; profileName?: string; profileId?: string; mapping?: Record<string, string> }) {
   const res = await fetch(`${API_BASE}/orders/intake-reviews`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
   return readJsonResponse(res, "Failed to review order intake");

@@ -20,6 +20,7 @@ import { registerEncompaxAuthRoutes } from "./routes/encompax-auth";
 import { registerFacilityRoutes } from "./routes/facilities";
 import { registerLaneRoutes } from "./routes/lanes";
 import { registerOrderRoutes } from "./routes/orders";
+import { registerTenderRoutes } from "./routes/tenders";
 import { assertIntakeStorageConfigured } from "./services/intake/intakeStore";
 import { requestTracing } from "./middleware/requestTracing";
 
@@ -62,6 +63,7 @@ registerDatasourceRoutes(app);
 registerFacilityRoutes(app);
 registerLaneRoutes(app);
 registerOrderRoutes(app);
+registerTenderRoutes(app);
 registerJobRoutes(app);
 registerUploadRoutes(app);
 registerMetricsRoutes(app);

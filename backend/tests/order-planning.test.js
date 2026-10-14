@@ -2,6 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { buildOrderPlanningProposal, hashOrderPlanningProposal, scoreOrderLane, verifyOrderPlanningProposal } = require('../dist/src/services/orderPlanningService');
 const { buildPlanningDecisionRecords, decideOrderPlanningProposal, hashOrderPlanningDecision, validatePlanningDecision, verifyOrderPlanningDecision } = require('../dist/src/services/orderPlanningDecisionService');
+const { buildTenderIssuance, hashTenderIssuance, issuePlannedLoadTender, verifyTenderIssuance } = require('../dist/src/services/tenderQueueService');
 
 const order = {
   orderId: 'order-1', workspaceId: 'org-1', primaryReference: 'GUSTO-2225555', silTestMeid: '500000001',
@@ -118,4 +119,30 @@ test('returns the original approval and load for an idempotent retry', async () 
   assert.equal(retry.idempotent, true);
   assert.equal(retry.decision.decisionId, first.decision.decisionId);
   assert.equal(retry.load.loadId, first.load.loadId);
+});
+
+test('issues an append-only tender from a planned load without changing planning evidence', async () => {
+  const tenderOrder = { ...order, orderId: 'order-tender-1', primaryReference: 'GUSTO-TENDER-1' };
+  const proposal = buildOrderPlanningProposal({ workspaceId: 'org-1', order: tenderOrder, lanes: [lane], eligibility, awards, partners, actor: 'user-1' });
+  const approval = await decideOrderPlanningProposal({ workspaceId: 'org-1', order: tenderOrder, proposal, decision: 'APPROVED', actor: 'planner-1' });
+  const tender = buildTenderIssuance({ workspaceId: 'org-1', load: approval.load, actor: 'planner-1', now: '2026-10-13T20:00:00.000Z', responseDueAt: '2026-10-13T22:00:00.000Z', tenderId: 'tender-1' });
+  assert.equal(tender.sourceProposalId, proposal.proposalId);
+  assert.equal(tender.sourceProposalContentHash, proposal.contentHash);
+  assert.equal(tender.planningDecisionId, approval.decision.decisionId);
+  assert.equal(tender.carrier.scac, 'WARP');
+  assert.equal(tender.contentHash, hashTenderIssuance(tender));
+  assert.equal(verifyTenderIssuance(tender).integrity, 'VERIFIED');
+  assert.equal(approval.load.status, 'PLANNED');
+});
+
+test('tender issuance is idempotent while a carrier response is pending', async () => {
+  const tenderOrder = { ...order, orderId: 'order-tender-2', primaryReference: 'GUSTO-TENDER-2' };
+  const proposal = buildOrderPlanningProposal({ workspaceId: 'org-1', order: tenderOrder, lanes: [lane], eligibility, awards, partners, actor: 'user-1' });
+  const approval = await decideOrderPlanningProposal({ workspaceId: 'org-1', order: tenderOrder, proposal, decision: 'APPROVED', actor: 'planner-1' });
+  const first = await issuePlannedLoadTender({ workspaceId: 'org-1', loadId: approval.load.loadId, actor: 'planner-1' });
+  const retry = await issuePlannedLoadTender({ workspaceId: 'org-1', loadId: approval.load.loadId, actor: 'planner-1' });
+  assert.equal(first.idempotent, false);
+  assert.equal(retry.idempotent, true);
+  assert.equal(retry.tender.tenderId, first.tender.tenderId);
+  assert.equal(retry.state.status, 'AWAITING_RESPONSE');
 });
