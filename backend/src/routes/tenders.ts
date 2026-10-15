@@ -2,7 +2,7 @@ import type { Express, Request, Response } from "express";
 import type { AuthenticatedSilRequest } from "../middleware/requireSilAuth";
 import { issuePlannedLoadTender, listTenderQueue, respondToTender, retenderPlannedLoad, TenderConflict, TenderValidationError } from "../services/tenderQueueService";
 import { markLocalOrdersTendered, markLocalOrdersTenderState } from "./orders";
-import { listPartnerActiveLoads, recordPartnerExecutionEvent } from "../services/partnerExecutionService";
+import { listPartnerActiveLoads, listWorkspaceExecutionLoads, recordPartnerExecutionEvent } from "../services/partnerExecutionService";
 
 const auth = (req: Request) => (req as AuthenticatedSilRequest).silAuth;
 const clean = (value: unknown, max = 1000) => String(value ?? "").trim().slice(0, max);
@@ -34,6 +34,12 @@ export function registerTenderRoutes(app: Express) {
     const context = requireWorkspace(req, res); if (!context) return;
     const queue = await listTenderQueue(context.orgScope);
     res.json({ count: queue.length, queue });
+  });
+
+  app.get("/api/execution/loads", async (req, res) => {
+    const context = requireWorkspace(req, res); if (!context) return;
+    const loads = await listWorkspaceExecutionLoads(context.orgScope);
+    res.json({ count: loads.length, loads });
   });
 
   app.post("/api/tenders/:loadId/issue", async (req, res) => {

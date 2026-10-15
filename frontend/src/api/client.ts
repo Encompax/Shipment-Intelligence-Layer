@@ -189,6 +189,11 @@ export async function createPartnerLoadEvent(loadId: string, payload: { eventTyp
   return readJsonResponse(res, "Failed to record execution update");
 }
 
+export async function fetchExecutionLoads() {
+  const res = await fetch(`${API_BASE}/execution/loads`);
+  return readJsonResponse(res, "Failed to fetch shipment execution");
+}
+
 export async function createOrderIntakeReview(payload: { rows?: Record<string, unknown>[]; uploadId?: number; sourceName?: string; profileName?: string; profileId?: string; mapping?: Record<string, string> }) {
   const res = await fetch(`${API_BASE}/orders/intake-reviews`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
   return readJsonResponse(res, "Failed to review order intake");
