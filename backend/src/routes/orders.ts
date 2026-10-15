@@ -226,7 +226,7 @@ export function registerOrderRoutes(app: Express) {
     const latestPlanning = await listLatestOrderPlanningProposals(context.orgScope);
     const evidenceCurrent = proposal.groups.every((group) => group.orderIds.every((orderId, index) => {
       const current = latestPlanning.get(orderId);
-      return current?.proposalId === group.sourceProposalIds[index] && current.contentHash === group.sourceProposalHashes[index] && current.integrity === "VERIFIED";
+      return Boolean(current && current.proposalId === group.sourceProposalIds[index] && current.contentHash === group.sourceProposalHashes[index] && current.integrity === "VERIFIED");
     }));
     if (!evidenceCurrent) { res.status(409).json({ error: "One or more orders have newer or invalid planning evidence. Build a new consolidation proposal." }); return; }
     try {
