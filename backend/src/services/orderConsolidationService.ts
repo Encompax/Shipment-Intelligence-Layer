@@ -3,7 +3,8 @@ import { isFirestorePrimaryEnabled } from "../lib/firestore";
 import type { OrderRecord } from "../routes/orders";
 import { intakeCollection } from "./intake/intakeStore";
 import { weightInPounds } from "./equipmentCapacity";
-import { verifyOrderPlanningProposal, type OrderPlanningProposal, type RoutePlanLeg } from "./orderPlanningService";
+import { verifyOrderPlanningProposal, type OrderPlanningProposal, type PlanningAward, type RoutePlanLeg } from "./orderPlanningService";
+import type { PlannedLoadRecord } from "./orderPlanningDecisionService";
 
 export const ORDER_CONSOLIDATION_SCHEMA_VERSION = "1.0";
 
@@ -11,6 +12,7 @@ export type ConsolidationGroup = {
   groupId: string;
   groupKey: string;
   role: RoutePlanLeg["role"];
+  laneType: string;
   laneId: string;
   laneName: string;
   orderIds: string[];
@@ -20,8 +22,14 @@ export type ConsolidationGroup = {
   plannedPickup: string;
   plannedDelivery: string;
   equipmentType: string;
+  loadAssumption: string;
+  originFacilityId: string;
+  destinationFacilityId: string;
+  businessUnitId: string;
+  businessUnitName: string;
   carrierId: string;
   carrierName: string;
+  award: PlanningAward;
   totalWeightLbs: number;
   totalPallets: number;
   maxWeightLbs: number | null;
@@ -45,7 +53,23 @@ export type OrderConsolidationProposal = {
   integrity?: "VERIFIED" | "FAILED";
 };
 
+export type OrderConsolidationDecision = {
+  schemaVersion: "1.0";
+  decisionId: string;
+  workspaceId: string;
+  consolidationProposalId: string;
+  consolidationProposalContentHash: string;
+  decision: "APPROVED" | "REJECTED";
+  reason: string | null;
+  plannedLoadIds: string[];
+  decidedBy: string;
+  decidedAt: string;
+  contentHash: string;
+  integrity?: "VERIFIED" | "FAILED";
+};
+
 const localProposals = new Map<string, OrderConsolidationProposal[]>();
+const localDecisions = new Map<string, OrderConsolidationDecision>();
 const clean = (value: unknown) => String(value ?? "").trim();
 const canonicalJson = (value: unknown): string => {
   if (value === null || typeof value !== "object") return JSON.stringify(value);
@@ -93,11 +117,14 @@ export function buildOrderConsolidationProposal(input: { workspaceId: string; or
       ? [{ severity: "BLOCKER", code: "CONSOLIDATED_CAPACITY_EXCEEDED", message: `Combined demand exceeds the ${rule?.equipmentType} limit of ${rule?.maxWeightLbs.toLocaleString("en-US")} LBS or ${rule?.maxPallets} pallets.` }]
       : [{ severity: "INFO", code: members.length > 1 ? "CONSOLIDATION_READY" : "SINGLE_ORDER_GROUP", message: members.length > 1 ? `${members.length} compatible orders can share this scheduled load.` : "This scheduled leg currently contains one order." }];
     return {
-      groupId: randomUUID(), groupKey, role: leg.role, laneId: leg.candidate.laneId, laneName: leg.candidate.laneName,
+      groupId: randomUUID(), groupKey, role: leg.role, laneType: leg.candidate.laneType, laneId: leg.candidate.laneId, laneName: leg.candidate.laneName,
       orderIds: members.map(({ order }) => order.orderId), orderMeids: members.map(({ order }) => clean(order.silTestMeid || order.meid)).filter(Boolean),
       sourceProposalIds: members.map(({ proposal }) => proposal.proposalId), sourceProposalHashes: members.map(({ proposal }) => proposal.contentHash),
       plannedPickup: leg.plannedPickup, plannedDelivery: leg.plannedDelivery, equipmentType: clean(leg.candidate.laneSnapshot.equipmentType),
+      loadAssumption: clean(leg.candidate.laneSnapshot.loadAssumption), originFacilityId: clean(leg.candidate.laneSnapshot.originFacilityId), destinationFacilityId: clean(leg.candidate.laneSnapshot.destinationFacilityId),
+      businessUnitId: clean(leg.candidate.laneSnapshot.businessUnitId), businessUnitName: clean(leg.candidate.laneSnapshot.businessUnitName),
       carrierId: award.carrier.externalPartnerId, carrierName: award.carrier.scac || award.carrier.name,
+      award,
       totalWeightLbs, totalPallets, maxWeightLbs: rule?.maxWeightLbs ?? null, maxPallets: rule?.maxPallets ?? null,
       utilization: { weightPercent: rule ? Math.round(totalWeightLbs / rule.maxWeightLbs * 1000) / 10 : null, palletPercent: rule ? Math.round(totalPallets / rule.maxPallets * 1000) / 10 : null },
       status, findings,
@@ -121,4 +148,54 @@ export async function listOrderConsolidationProposals(workspaceId: string) {
     ? (await intakeCollection(workspaceId, "orderConsolidationProposals").get()).docs.map((doc) => doc.data() as OrderConsolidationProposal)
     : localProposals.get(workspaceId) ?? [];
   return records.filter((item) => item.workspaceId === workspaceId).sort((a, b) => b.createdAt.localeCompare(a.createdAt)).map(verifyOrderConsolidationProposal);
+}
+
+export function hashOrderConsolidationDecision(decision: Omit<OrderConsolidationDecision, "contentHash"> | OrderConsolidationDecision) {
+  const { contentHash: _hash, integrity: _integrity, ...content } = decision as OrderConsolidationDecision;
+  return createHash("sha256").update(canonicalJson(content)).digest("hex");
+}
+
+export function verifyOrderConsolidationDecision(decision: OrderConsolidationDecision) {
+  return { ...decision, integrity: hashOrderConsolidationDecision(decision) === decision.contentHash ? "VERIFIED" as const : "FAILED" as const };
+}
+
+export function buildOrderConsolidationDecision(input: { proposal: OrderConsolidationProposal; decision: "APPROVED" | "REJECTED"; reason?: string; actor: string; now?: string }) {
+  const verified = verifyOrderConsolidationProposal(input.proposal);
+  if (verified.integrity !== "VERIFIED") throw new Error("Only an integrity-verified consolidation proposal can be decided.");
+  if (input.decision === "REJECTED" && !clean(input.reason)) throw new Error("A reason is required when rejecting a consolidation proposal.");
+  if (input.decision === "APPROVED" && (!verified.groups.length || verified.groups.some((group) => group.status === "CAPACITY_EXCEEDED"))) throw new Error("Resolve all consolidation blockers before approval.");
+  const decisionId = randomUUID();
+  const decidedAt = input.now ?? new Date().toISOString();
+  const loadIds = input.decision === "APPROVED" ? verified.groups.map(() => randomUUID()) : [];
+  const withoutHash: Omit<OrderConsolidationDecision, "contentHash"> = {
+    schemaVersion: "1.0", decisionId, workspaceId: verified.workspaceId, consolidationProposalId: verified.consolidationProposalId,
+    consolidationProposalContentHash: verified.contentHash, decision: input.decision, reason: clean(input.reason) || null,
+    plannedLoadIds: loadIds, decidedBy: input.actor, decidedAt,
+  };
+  const decision = { ...withoutHash, contentHash: hashOrderConsolidationDecision(withoutHash) };
+  const loads: PlannedLoadRecord[] = input.decision === "APPROVED" ? verified.groups.map((group, index) => ({
+    schemaVersion: "1.0", loadId: loadIds[index], displayId: `SIL-${loadIds[index].replace(/-/g, "").slice(0, 10).toUpperCase()}`,
+    workspaceId: verified.workspaceId, status: "PLANNED", sourceProposalId: verified.consolidationProposalId,
+    sourceProposalContentHash: verified.contentHash, planningDecisionId: decisionId, orderIds: group.orderIds, orderMeids: group.orderMeids,
+    laneId: group.laneId, laneName: group.laneName, laneType: group.laneType,
+    originFacilityId: group.originFacilityId, destinationFacilityId: group.destinationFacilityId, businessUnitId: group.businessUnitId,
+    businessUnitName: group.businessUnitName, equipmentType: group.equipmentType, loadAssumption: group.loadAssumption,
+    carrier: group.award.carrier, award: group.award, plannedPickup: group.plannedPickup, plannedDelivery: group.plannedDelivery,
+    createdBy: input.actor, createdAt: decidedAt,
+  })) : [];
+  return { decision, loads };
+}
+
+export async function getOrderConsolidationDecision(workspaceId: string, proposalId: string) {
+  if (!isFirestorePrimaryEnabled()) {
+    const decision = localDecisions.get(`${workspaceId}:${proposalId}`);
+    return decision ? verifyOrderConsolidationDecision(decision) : null;
+  }
+  const snapshot = await intakeCollection(workspaceId, "orderConsolidationDecisions").doc(proposalId).get();
+  const decision = snapshot.data() as OrderConsolidationDecision | undefined;
+  return decision?.workspaceId === workspaceId ? verifyOrderConsolidationDecision(decision) : null;
+}
+
+export function registerLocalOrderConsolidationDecision(decision: OrderConsolidationDecision) {
+  localDecisions.set(`${decision.workspaceId}:${decision.consolidationProposalId}`, decision);
 }

@@ -139,6 +139,11 @@ export async function fetchOrderConsolidationProposals() {
   return readJsonResponse(res, "Failed to fetch consolidation proposals");
 }
 
+export async function decideOrderConsolidationProposal(proposalId: string, payload: { decision: "APPROVED" | "REJECTED"; reason?: string }) {
+  const res = await fetch(`${API_BASE}/orders/consolidation-proposals/${encodeURIComponent(proposalId)}/decisions`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+  return readJsonResponse(res, "Failed to record consolidation decision");
+}
+
 export async function fetchTenderQueue() {
   const res = await fetch(`${API_BASE}/tenders`);
   return readJsonResponse(res, "Failed to fetch tender queue");

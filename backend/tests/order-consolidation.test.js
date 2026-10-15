@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { buildOrderConsolidationProposal, verifyOrderConsolidationProposal } = require('../dist/src/services/orderConsolidationService');
+const { buildOrderConsolidationDecision, buildOrderConsolidationProposal, verifyOrderConsolidationDecision, verifyOrderConsolidationProposal } = require('../dist/src/services/orderConsolidationService');
 const { buildOrderPlanningProposal } = require('../dist/src/services/orderPlanningService');
 
 const workspaceId = 'org-consolidation';
@@ -48,4 +48,24 @@ test('does not combine orders with different scheduled departures', () => {
   const result = buildOrderConsolidationProposal({ workspaceId, orders, proposals, actor: 'planner' });
   assert.equal(result.groups.length, 2);
   assert.ok(result.groups.every((group) => group.status === 'SINGLE_ORDER'));
+});
+
+test('approval creates one immutable grouped load and leaves source evidence linked', () => {
+  const orders = [makeOrder('order-7', 18000, 10), makeOrder('order-8', 20000, 12)];
+  const proposals = new Map(orders.map((order) => [order.orderId, planning(order)]));
+  const proposal = buildOrderConsolidationProposal({ workspaceId, orders, proposals, actor: 'planner' });
+  const result = buildOrderConsolidationDecision({ proposal, decision: 'APPROVED', actor: 'planner', now: '2026-10-14T15:00:00.000Z' });
+  assert.equal(result.loads.length, 1);
+  assert.deepEqual(result.loads[0].orderIds, ['order-7', 'order-8']);
+  assert.equal(result.loads[0].sourceProposalId, proposal.consolidationProposalId);
+  assert.equal(result.loads[0].sourceProposalContentHash, proposal.contentHash);
+  assert.equal(verifyOrderConsolidationDecision(result.decision).integrity, 'VERIFIED');
+});
+
+test('rejection is append-only and creates no loads', () => {
+  const order = makeOrder('order-9', 10000, 4);
+  const proposal = buildOrderConsolidationProposal({ workspaceId, orders: [order], proposals: new Map([[order.orderId, planning(order)]]), actor: 'planner' });
+  const result = buildOrderConsolidationDecision({ proposal, decision: 'REJECTED', reason: 'Hold for another order.', actor: 'planner' });
+  assert.equal(result.loads.length, 0);
+  assert.equal(result.decision.reason, 'Hold for another order.');
 });

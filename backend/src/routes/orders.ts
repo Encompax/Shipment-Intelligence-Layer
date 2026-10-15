@@ -7,9 +7,9 @@ import { readUploadTable } from "./uploads";
 import { listFacilitiesForWorkspace } from "./facilities";
 import { listLaneBusinessUnits, listLanePartners, listLanePlanningRegistry } from "./lanes";
 import { buildOrderPlanningProposal, getLatestOrderPlanningProposal, listLatestOrderPlanningProposals, listOrderPlanningProposals, saveOrderPlanningProposal, type OrderPlanningProposal } from "../services/orderPlanningService";
-import { decideOrderPlanningProposal, listOrderPlanningDecisions, PlanningDecisionConflict, PlanningDecisionValidationError, type PlanningDecisionType } from "../services/orderPlanningDecisionService";
+import { decideOrderPlanningProposal, listOrderPlanningDecisions, PlanningDecisionConflict, PlanningDecisionValidationError, registerLocalPlannedLoads, type PlanningDecisionType } from "../services/orderPlanningDecisionService";
 import { buildPlanningResolutionAnalysis, createPlanningResolutionDraft, getPlanningResolutionDraft, recordPlanningResolutionDecision } from "../services/planningResolutionService";
-import { buildOrderConsolidationProposal, listOrderConsolidationProposals, saveOrderConsolidationProposal, verifyOrderConsolidationProposal } from "../services/orderConsolidationService";
+import { buildOrderConsolidationDecision, buildOrderConsolidationProposal, getOrderConsolidationDecision, listOrderConsolidationProposals, registerLocalOrderConsolidationDecision, saveOrderConsolidationProposal, verifyOrderConsolidationProposal } from "../services/orderConsolidationService";
 
 export type OrderStatus = "DRAFT" | "VALIDATION_REQUIRED" | "READY_TO_PLAN" | "ASSIGNED_TO_LOAD" | "TENDERED" | "CARRIER_ACCEPTED" | "TENDER_REJECTED" | "TENDER_EXPIRED" | "IN_TRANSIT" | "DELIVERED";
 export type OrderRecord = Record<string, unknown> & { orderId: string; workspaceId: string; primaryReference: string; status: OrderStatus };
@@ -204,6 +204,59 @@ export function registerOrderRoutes(app: Express) {
     const proposal = buildOrderConsolidationProposal({ workspaceId: context.orgScope, orders, proposals: planning, actor: context.uid });
     await saveOrderConsolidationProposal(proposal);
     res.status(201).json({ proposal: verifyOrderConsolidationProposal(proposal) });
+  });
+
+  app.post("/api/orders/consolidation-proposals/:proposalId/decisions", async (req, res) => {
+    const context = requireWorkspace(req, res); if (!context) return;
+    const decisionType = clean(req.body?.decision).toUpperCase() as "APPROVED" | "REJECTED";
+    if (!(["APPROVED", "REJECTED"] as string[]).includes(decisionType)) { res.status(400).json({ error: "Decision must be APPROVED or REJECTED." }); return; }
+    const proposals = await listOrderConsolidationProposals(context.orgScope);
+    const proposal = proposals.find((item) => item.consolidationProposalId === req.params.proposalId);
+    if (!proposal) { res.status(404).json({ error: "Consolidation proposal not found." }); return; }
+    if (proposals[0]?.consolidationProposalId !== proposal.consolidationProposalId) { res.status(409).json({ error: "Only the latest consolidation proposal can be decided." }); return; }
+    const existing = await getOrderConsolidationDecision(context.orgScope, proposal.consolidationProposalId);
+    if (existing) {
+      if (existing.decision !== decisionType) { res.status(409).json({ error: "This consolidation proposal already has a different decision." }); return; }
+      res.json({ decision: existing, loads: [], idempotent: true }); return;
+    }
+    const orders = await list(context.orgScope, "orders", localOrders) as OrderRecord[];
+    const includedOrderIds = new Set(proposal.groups.flatMap((group) => group.orderIds));
+    const includedOrders = orders.filter((order) => includedOrderIds.has(order.orderId));
+    if (includedOrders.length !== includedOrderIds.size || includedOrders.some((order) => order.status !== "READY_TO_PLAN")) { res.status(409).json({ error: "Every included order must still be ready to plan." }); return; }
+    const latestPlanning = await listLatestOrderPlanningProposals(context.orgScope);
+    const evidenceCurrent = proposal.groups.every((group) => group.orderIds.every((orderId, index) => {
+      const current = latestPlanning.get(orderId);
+      return current?.proposalId === group.sourceProposalIds[index] && current.contentHash === group.sourceProposalHashes[index] && current.integrity === "VERIFIED";
+    }));
+    if (!evidenceCurrent) { res.status(409).json({ error: "One or more orders have newer or invalid planning evidence. Build a new consolidation proposal." }); return; }
+    try {
+      const records = buildOrderConsolidationDecision({ proposal, decision: decisionType, reason: clean(req.body?.reason, 1000), actor: context.uid });
+      if (!isFirestorePrimaryEnabled()) {
+        registerLocalOrderConsolidationDecision(records.decision);
+        registerLocalPlannedLoads(records.loads);
+        for (const order of decisionType === "APPROVED" ? includedOrders : []) {
+          const plannedLoadIds = records.loads.filter((load) => load.orderIds.includes(order.orderId)).map((load) => load.loadId);
+          await save(context.orgScope, "orders", order.orderId, { ...order, status: "ASSIGNED_TO_LOAD", plannedLoadId: plannedLoadIds[0], plannedLoadIds, consolidationDecisionId: records.decision.decisionId, updatedAt: records.decision.decidedAt }, localOrders);
+        }
+      } else {
+        const decisionRef = intakeCollection(context.orgScope, "orderConsolidationDecisions").doc(proposal.consolidationProposalId);
+        await decisionRef.firestore.runTransaction(async (transaction) => {
+          const orderRefs = includedOrders.map((order) => intakeCollection(context.orgScope, "orders").doc(order.orderId));
+          const snapshots = await Promise.all([transaction.get(decisionRef), ...orderRefs.map((ref) => transaction.get(ref))]);
+          if (snapshots[0].exists) throw new Error("This consolidation proposal has already been decided.");
+          if (snapshots.slice(1).some((snapshot) => !snapshot.exists || snapshot.data()?.status !== "READY_TO_PLAN")) throw new Error("Every included order must still be ready to plan.");
+          transaction.create(decisionRef, records.decision);
+          records.loads.forEach((load) => transaction.create(intakeCollection(context.orgScope, "plannedLoads").doc(load.loadId), load));
+          if (decisionType === "APPROVED") includedOrders.forEach((order, index) => {
+            const plannedLoadIds = records.loads.filter((load) => load.orderIds.includes(order.orderId)).map((load) => load.loadId);
+            transaction.update(orderRefs[index], { status: "ASSIGNED_TO_LOAD", plannedLoadId: plannedLoadIds[0], plannedLoadIds, consolidationDecisionId: records.decision.decisionId, updatedAt: records.decision.decidedAt });
+          });
+        });
+      }
+      res.status(201).json({ ...records, idempotent: false });
+    } catch (error) {
+      res.status(422).json({ error: error instanceof Error ? error.message : "The consolidation decision could not be recorded." });
+    }
   });
 
   app.get("/api/orders", async (req, res) => {

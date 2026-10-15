@@ -58,6 +58,10 @@ export class PlanningDecisionValidationError extends Error {}
 const localDecisions = new Map<string, OrderPlanningDecision>();
 const localLoads = new Map<string, PlannedLoadRecord>();
 
+export function registerLocalPlannedLoads(loads: PlannedLoadRecord[]) {
+  loads.forEach((load) => localLoads.set(load.loadId, load));
+}
+
 function canonicalJson(value: unknown): string {
   if (value === null || typeof value !== "object") return JSON.stringify(value);
   if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
