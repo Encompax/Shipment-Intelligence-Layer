@@ -29,6 +29,9 @@ export type LaneRecord = {
   downlineCarrierTerminalFacilityId?: string;
   storeDeliveryDays?: string[];
   standardOriginDepartureTime?: string;
+  standardRouteDepartureTime?: string;
+  standardStoreDeliveryStart?: string;
+  standardStoreDeliveryEnd?: string;
   standardCarrierArrivalStart?: string;
   standardCarrierArrivalEnd?: string;
   effectiveFrom?: string;
@@ -215,6 +218,9 @@ export function registerLaneRoutes(app: Express) {
     const responseDeadlineHours = optionalNumber(req.body?.responseDeadlineHours);
     const rateCap = optionalNumber(req.body?.rateCap);
     const standardOriginDepartureTime = cleanText(req.body?.standardOriginDepartureTime, 5);
+    const standardRouteDepartureTime = cleanText(req.body?.standardRouteDepartureTime, 5);
+    const standardStoreDeliveryStart = cleanText(req.body?.standardStoreDeliveryStart, 5);
+    const standardStoreDeliveryEnd = cleanText(req.body?.standardStoreDeliveryEnd, 5);
     const standardCarrierArrivalStart = cleanText(req.body?.standardCarrierArrivalStart, 5);
     const standardCarrierArrivalEnd = cleanText(req.body?.standardCarrierArrivalEnd, 5);
     if (!name || !laneTypes.has(laneType) || !originFacilityId || !destinationFacilityId || originFacilityId === destinationFacilityId || !businessUnitId || !equipmentType) {
@@ -245,7 +251,7 @@ export function registerLaneRoutes(app: Express) {
     if (laneType !== "FINAL_MILE" && (!terminalArrivalStart || !terminalArrivalEnd || !validTime(terminalArrivalStart) || !validTime(terminalArrivalEnd) || terminalArrivalEnd <= terminalArrivalStart)) {
       return res.status(400).json({ error: "The terminal arrival window requires a valid start and later end time." });
     }
-    if (![standardOriginDepartureTime, standardCarrierArrivalStart, standardCarrierArrivalEnd].every(validTime)) {
+    if (![standardOriginDepartureTime, standardRouteDepartureTime, standardStoreDeliveryStart, standardStoreDeliveryEnd, standardCarrierArrivalStart, standardCarrierArrivalEnd].every(validTime)) {
       return res.status(400).json({ error: "Lane schedule times must use a valid 24-hour time." });
     }
     if ((standardCarrierArrivalStart && !standardCarrierArrivalEnd) || (!standardCarrierArrivalStart && standardCarrierArrivalEnd)) {
@@ -253,6 +259,9 @@ export function registerLaneRoutes(app: Express) {
     }
     if (standardCarrierArrivalStart && standardCarrierArrivalEnd && standardCarrierArrivalEnd <= standardCarrierArrivalStart) {
       return res.status(400).json({ error: "The carrier arrival window end must be later than its start." });
+    }
+    if (laneType === "FINAL_MILE" && (!standardRouteDepartureTime || !standardStoreDeliveryStart || !standardStoreDeliveryEnd || standardStoreDeliveryEnd <= standardStoreDeliveryStart)) {
+      return res.status(400).json({ error: "Final Mile lanes require a route departure time and a valid store delivery window." });
     }
     if (laneType === "ADHOC" && !adhocReasons.has(adhocReason)) {
       return res.status(400).json({ error: "Select whether the adhoc lane supports carrier coverage, a special project, or volume capacity." });
@@ -293,6 +302,9 @@ export function registerLaneRoutes(app: Express) {
       downlineCarrierTerminalFacilityId: laneType === "FINAL_MILE" ? undefined : downlineCarrierTerminalFacilityId,
       storeDeliveryDays: laneType === "FINAL_MILE" ? storeDeliveryDays : undefined,
       standardOriginDepartureTime: laneType === "LINEHAUL" ? standardOriginDepartureTime || undefined : undefined,
+      standardRouteDepartureTime: laneType === "FINAL_MILE" ? standardRouteDepartureTime : undefined,
+      standardStoreDeliveryStart: laneType === "FINAL_MILE" ? standardStoreDeliveryStart : undefined,
+      standardStoreDeliveryEnd: laneType === "FINAL_MILE" ? standardStoreDeliveryEnd : undefined,
       standardCarrierArrivalStart: laneType === "LINEHAUL" ? standardCarrierArrivalStart || undefined : undefined,
       standardCarrierArrivalEnd: laneType === "LINEHAUL" ? standardCarrierArrivalEnd || undefined : undefined,
       effectiveFrom: effectiveFrom || undefined,

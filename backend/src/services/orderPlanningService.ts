@@ -5,8 +5,8 @@ import type { AwardRecord, EligibilityRecord, LaneRecord, LaneType } from "../ro
 import type { OrderRecord } from "../routes/orders";
 import { EQUIPMENT_CAPACITY_POLICY_VERSION, EQUIPMENT_CAPACITY_RULES, getEquipmentCapacityRule, weightInPounds } from "./equipmentCapacity";
 
-export const ORDER_PLANNING_SCHEMA_VERSION = "1.1";
-export const ORDER_MATCHING_POLICY_VERSION = "2026-10-14.1";
+export const ORDER_PLANNING_SCHEMA_VERSION = "1.2";
+export const ORDER_MATCHING_POLICY_VERSION = "2026-10-14.2";
 export const ORDER_MATCHING_SCORE_WEIGHTS = {
   route: 35,
   businessUnit: 15,
@@ -60,7 +60,7 @@ export type LaneMatchCandidate = {
   laneSnapshot: Pick<LaneRecord, "originFacilityId" | "destinationFacilityId" | "businessUnitId" | "businessUnitName" | "equipmentType" | "loadAssumption" | "dispatchDays" | "terminalArrivalDays" | "storeDeliveryDays" | "effectiveFrom" | "effectiveTo">;
 };
 
-export type RoutePlanLeg = { sequence: number; role: "DIRECT" | "LINEHAUL" | "FINAL_MILE"; candidate: LaneMatchCandidate };
+export type RoutePlanLeg = { sequence: number; role: "DIRECT" | "LINEHAUL" | "FINAL_MILE"; candidate: LaneMatchCandidate; plannedPickup: string; plannedDelivery: string };
 export type RoutePlanRecommendation = {
   routePlanId: string;
   planType: "DIRECT" | "HUB_SPOKE";
@@ -72,6 +72,10 @@ export type RoutePlanRecommendation = {
   findings: PlanningFinding[];
   consolidationKey: string;
   finalMileGroupKey: string;
+  orderReadyAt: string;
+  freightAvailableAt: string | null;
+  finalDeliveryAt: string;
+  commitmentLatestAt: string;
 };
 
 export type OrderPlanningProposal = {
@@ -124,6 +128,41 @@ const intendedLaneTypes = (orderType: unknown): LaneType[] => {
 const modeAssumption = (value: unknown) => clean(value).toUpperCase() === "TL" ? "TL" : clean(value).toUpperCase() === "LTL" ? "LTL" : "";
 const partnerId = (partner: PartnerRecord) => clean(partner.id || partner.externalPartnerId);
 const cloneSerializable = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
+const DAY_INDEX: Record<string, number> = { SUNDAY: 0, MONDAY: 1, TUESDAY: 2, WEDNESDAY: 3, THURSDAY: 4, FRIDAY: 5, SATURDAY: 6 };
+const parseLocal = (value: string) => new Date(`${value.slice(0, 16)}:00Z`);
+const formatLocal = (value: Date) => value.toISOString().slice(0, 16);
+function nextScheduleAt(notBefore: string, days: string[] | undefined, time: string | undefined) {
+  const threshold = parseLocal(notBefore);
+  const targetDays = days?.length ? days : [Object.keys(DAY_INDEX).find((day) => DAY_INDEX[day] === threshold.getUTCDay())!];
+  const clock = /^\d{2}:\d{2}$/.test(time || "") ? time! : notBefore.slice(11, 16);
+  for (let offset = 0; offset <= 14; offset += 1) {
+    const candidate = new Date(threshold);
+    candidate.setUTCDate(candidate.getUTCDate() + offset);
+    const day = Object.keys(DAY_INDEX).find((key) => DAY_INDEX[key] === candidate.getUTCDay());
+    if (!day || !targetDays.includes(day)) continue;
+    const [hours, minutes] = clock.split(":").map(Number);
+    candidate.setUTCHours(hours, minutes, 0, 0);
+    if (candidate >= threshold) return formatLocal(candidate);
+  }
+  return notBefore;
+}
+const addMinutes = (value: string, minutes: number) => formatLocal(new Date(parseLocal(value).getTime() + minutes * 60_000));
+
+export function calculateRouteSchedule(order: OrderRecord, lanes: LaneRecord[], processingMinutes = 0) {
+  const first = lanes[0];
+  const orderReadyAt = clean(order.earliestPickup);
+  const commitmentLatestAt = clean(order.latestDelivery);
+  const firstPickup = nextScheduleAt(orderReadyAt, first.dispatchDays, first.laneType === "FINAL_MILE" ? first.standardRouteDepartureTime : first.standardOriginDepartureTime);
+  const firstDelivery = first.laneType === "FINAL_MILE"
+    ? nextScheduleAt(firstPickup, first.storeDeliveryDays, first.standardStoreDeliveryEnd)
+    : nextScheduleAt(firstPickup, first.terminalArrivalDays, first.terminalArrivalStart);
+  if (lanes.length === 1) return { orderReadyAt, freightAvailableAt: null, finalDeliveryAt: firstDelivery, commitmentLatestAt, legs: [{ plannedPickup: firstPickup, plannedDelivery: firstDelivery }] };
+  const second = lanes[1];
+  const freightAvailableAt = addMinutes(firstDelivery, processingMinutes);
+  const secondPickup = nextScheduleAt(freightAvailableAt, second.dispatchDays, second.standardRouteDepartureTime);
+  const secondDelivery = nextScheduleAt(secondPickup, second.storeDeliveryDays, second.standardStoreDeliveryEnd);
+  return { orderReadyAt, freightAvailableAt, finalDeliveryAt: secondDelivery, commitmentLatestAt, legs: [{ plannedPickup: firstPickup, plannedDelivery: firstDelivery }, { plannedPickup: secondPickup, plannedDelivery: secondDelivery }] };
+}
 
 function canonicalJson(value: unknown): string {
   if (value === null || typeof value !== "object") return JSON.stringify(value);
@@ -267,12 +306,19 @@ export function buildOrderPlanningProposal(input: {
     .map((lane) => scoreOrderLane({ order: input.order, lane, eligibility: input.eligibility, awards: input.awards, partners: input.partners }))
     .sort((left, right) => right.score - left.score || left.laneName.localeCompare(right.laneName));
   const recommended = candidates.find((candidate) => candidate.disposition !== "INELIGIBLE");
-  const directPlans: RoutePlanRecommendation[] = candidates.map((candidate) => ({
+  const directPlans: RoutePlanRecommendation[] = candidates.map((candidate) => {
+    const lane = input.lanes.find((item) => item.laneId === candidate.laneId)!;
+    const schedule = calculateRouteSchedule(input.order, [lane]);
+    const late = schedule.finalDeliveryAt > schedule.commitmentLatestAt;
+    const findings = late ? [...candidate.findings, { category: "DELIVERY_SCHEDULE" as const, severity: "BLOCKER" as const, code: "DELIVERY_COMMITMENT_MISSED", message: `The lane schedule delivers at ${schedule.finalDeliveryAt}, after the order commitment of ${schedule.commitmentLatestAt}.`, scoreImpact: 0 }] : candidate.findings;
+    const disposition = findings.some((finding) => finding.severity === "BLOCKER") ? "INELIGIBLE" : findings.some((finding) => finding.severity === "WARNING") ? "REVIEW" : "MATCH";
+    return ({
     routePlanId: `direct:${candidate.laneId}`, planType: "DIRECT", hubFacilityId: null, crossdockProcessingMinutes: 0,
-    legs: [{ sequence: 1, role: "DIRECT", candidate }], disposition: candidate.disposition, score: candidate.score,
-    findings: candidate.findings, consolidationKey: `${clean(input.order.businessUnit)}:${candidate.laneId}:${datePart(input.order.earliestPickup)}`,
+    legs: [{ sequence: 1, role: "DIRECT", candidate, ...schedule.legs[0] }], disposition, score: candidate.score,
+    findings, consolidationKey: `${clean(input.order.businessUnit)}:${candidate.laneId}:${datePart(input.order.earliestPickup)}`,
     finalMileGroupKey: `${candidate.laneId}:${datePart(input.order.latestDelivery)}`,
-  }));
+    orderReadyAt: schedule.orderReadyAt, freightAvailableAt: schedule.freightAvailableAt, finalDeliveryAt: schedule.finalDeliveryAt, commitmentLatestAt: schedule.commitmentLatestAt,
+  }); });
   const hubPlans: RoutePlanRecommendation[] = [];
   const linehaulLanes = input.lanes.filter((lane) => lane.workspaceId === input.workspaceId && lane.status === "ACTIVE" && lane.laneType === "LINEHAUL" && comparable(lane.originFacilityId) === comparable(input.order.originId));
   for (const linehaul of linehaulLanes) {
@@ -283,18 +329,21 @@ export function buildOrderPlanningProposal(input: {
       const first = scoreOrderLane({ order: { ...input.order, destinationId: linehaul.destinationFacilityId, orderType: "LINEHAUL", modeType: linehaul.loadAssumption, equipmentType: linehaul.equipmentType }, lane: linehaul, eligibility: input.eligibility, awards: input.awards, partners: input.partners });
       const second = scoreOrderLane({ order: { ...input.order, originId: finalMile.originFacilityId, orderType: "FINAL_MILE", modeType: finalMile.loadAssumption, equipmentType: finalMile.equipmentType }, lane: finalMile, eligibility: input.eligibility, awards: input.awards, partners: input.partners });
       const processingMinutes = hubFacility?.crossdockProcessingMinutes ?? 120;
+      const schedule = calculateRouteSchedule(input.order, [linehaul, finalMile], processingMinutes);
       const handoffFinding: PlanningFinding = linehaul.terminalArrivalDays?.length && finalMile.dispatchDays?.length
         ? { category: "HANDOFF", severity: "INFO", code: "HANDOFF_BUFFER_APPLIED", message: `${processingMinutes} minutes of processing time is reserved at the intermediate facility before final-mile dispatch.`, scoreImpact: 0 }
         : { category: "HANDOFF", severity: "WARNING", code: "HANDOFF_SCHEDULE_INCOMPLETE", message: "Complete the linehaul arrival and final-mile departure days to verify the cross-dock connection.", scoreImpact: 0 };
-      const findings = [...first.findings, ...second.findings, handoffFinding];
+      const commitmentFinding: PlanningFinding[] = schedule.finalDeliveryAt > schedule.commitmentLatestAt ? [{ category: "DELIVERY_SCHEDULE", severity: "BLOCKER", code: "FINAL_DELIVERY_COMMITMENT_MISSED", message: `The route chain delivers at ${schedule.finalDeliveryAt}, after the order commitment of ${schedule.commitmentLatestAt}.`, scoreImpact: 0 }] : [];
+      const findings = [...first.findings, ...second.findings, handoffFinding, ...commitmentFinding];
       const disposition = findings.some((finding) => finding.severity === "BLOCKER") ? "INELIGIBLE" : findings.some((finding) => finding.severity === "WARNING") ? "REVIEW" : "MATCH";
       hubPlans.push({
         routePlanId: `hub:${linehaul.laneId}:${finalMile.laneId}`, planType: "HUB_SPOKE", hubFacilityId: linehaul.destinationFacilityId,
         crossdockProcessingMinutes: processingMinutes,
-        legs: [{ sequence: 1, role: "LINEHAUL", candidate: first }, { sequence: 2, role: "FINAL_MILE", candidate: second }],
+        legs: [{ sequence: 1, role: "LINEHAUL", candidate: first, ...schedule.legs[0] }, { sequence: 2, role: "FINAL_MILE", candidate: second, ...schedule.legs[1] }],
         disposition, score: Math.round((first.score + second.score) / 2), findings,
         consolidationKey: `${clean(input.order.businessUnit)}:${linehaul.laneId}:${datePart(input.order.earliestPickup)}`,
         finalMileGroupKey: `${finalMile.laneId}:${datePart(input.order.latestDelivery)}`,
+        orderReadyAt: schedule.orderReadyAt, freightAvailableAt: schedule.freightAvailableAt, finalDeliveryAt: schedule.finalDeliveryAt, commitmentLatestAt: schedule.commitmentLatestAt,
       });
     }
   }

@@ -82,7 +82,7 @@ function recommendedCandidate(proposal: OrderPlanningProposal) {
 
 function recommendedRouteLegs(proposal: OrderPlanningProposal) {
   const routePlan = proposal.routePlans?.find((plan) => plan.routePlanId === proposal.recommendedRoutePlanId);
-  return routePlan?.legs?.length ? routePlan.legs : recommendedCandidate(proposal) ? [{ sequence: 1, role: "DIRECT" as const, candidate: recommendedCandidate(proposal)! }] : [];
+  return routePlan?.legs?.length ? routePlan.legs : recommendedCandidate(proposal) ? [{ sequence: 1, role: "DIRECT" as const, candidate: recommendedCandidate(proposal)!, plannedPickup: String(proposal.orderSnapshot.earliestPickup || ""), plannedDelivery: String(proposal.orderSnapshot.latestDelivery || "") }] : [];
 }
 
 export function validatePlanningDecision(input: {
@@ -105,6 +105,10 @@ export function validatePlanningDecision(input: {
   }
   if (decision === "APPROVED") {
     const legs = recommendedRouteLegs(proposal);
+    const routePlan = proposal.routePlans?.find((plan) => plan.routePlanId === proposal.recommendedRoutePlanId);
+    if (routePlan?.disposition === "INELIGIBLE" || routePlan?.findings.some((finding) => finding.severity === "BLOCKER")) {
+      throw new PlanningDecisionValidationError("Resolve blocking route findings before approving this proposal.");
+    }
     if (!legs.length || legs.some((leg) => leg.candidate.disposition === "INELIGIBLE")) {
       throw new PlanningDecisionValidationError("The proposal has no approvable lane recommendation.");
     }
@@ -181,8 +185,8 @@ export function buildPlanningDecisionRecords(input: {
     loadAssumption: candidate.laneSnapshot.loadAssumption,
     carrier: award.carrier,
     award,
-    plannedPickup: input.order.earliestPickup,
-    plannedDelivery: input.order.latestDelivery,
+    plannedPickup: leg.plannedPickup || input.order.earliestPickup,
+    plannedDelivery: leg.plannedDelivery || input.order.latestDelivery,
     createdBy: input.actor,
     createdAt: decidedAt,
   }});

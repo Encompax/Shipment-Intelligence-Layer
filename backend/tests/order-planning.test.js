@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { buildOrderPlanningProposal, hashOrderPlanningProposal, scoreOrderLane, verifyOrderPlanningProposal } = require('../dist/src/services/orderPlanningService');
+const { buildOrderPlanningProposal, calculateRouteSchedule, hashOrderPlanningProposal, scoreOrderLane, verifyOrderPlanningProposal } = require('../dist/src/services/orderPlanningService');
 const { buildPlanningDecisionRecords, decideOrderPlanningProposal, hashOrderPlanningDecision, validatePlanningDecision, verifyOrderPlanningDecision } = require('../dist/src/services/orderPlanningDecisionService');
 const { buildTenderIssuance, hashTenderIssuance, issuePlannedLoadTender, listTenderQueue, respondToTender, retenderPlannedLoad, verifyTenderIssuance, verifyTenderResponse } = require('../dist/src/services/tenderQueueService');
 const { canonicalizeOrder, validateOrder } = require('../dist/src/routes/orders');
@@ -102,6 +102,30 @@ test('builds and approves a governed hub-and-spoke route as linked loads', () =>
   assert.equal(result.loads.length, 2);
   assert.deepEqual(result.loads.map((load) => load.laneType), ['LINEHAUL', 'FINAL_MILE']);
   assert.deepEqual(result.decision.plannedLoadIds, result.loads.map((load) => load.loadId));
+  assert.notEqual(result.loads[0].plannedPickup, result.loads[1].plannedPickup);
+  assert.equal(result.loads[0].plannedDelivery, route.legs[0].plannedDelivery);
+  assert.equal(result.loads[1].plannedPickup, route.legs[1].plannedPickup);
+});
+
+test('calculates a governed hub handoff across weekly schedules', () => {
+  const linehaul = { ...lane, standardOriginDepartureTime: '15:00' };
+  const finalMile = {
+    ...lane, laneType: 'FINAL_MILE', dispatchDays: ['FRIDAY'], storeDeliveryDays: ['FRIDAY'],
+    standardRouteDepartureTime: '06:00', standardStoreDeliveryStart: '09:00', standardStoreDeliveryEnd: '12:00',
+  };
+  const schedule = calculateRouteSchedule(order, [linehaul, finalMile], 120);
+  assert.equal(schedule.legs[0].plannedPickup, '2026-10-13T15:00');
+  assert.equal(schedule.legs[0].plannedDelivery, '2026-10-15T17:00');
+  assert.equal(schedule.freightAvailableAt, '2026-10-15T19:00');
+  assert.equal(schedule.legs[1].plannedPickup, '2026-10-16T06:00');
+  assert.equal(schedule.finalDeliveryAt, '2026-10-16T12:00');
+});
+
+test('blocks a route plan when its calculated delivery misses the order commitment', () => {
+  const slowLane = { ...lane, terminalArrivalDays: ['FRIDAY'], terminalArrivalStart: '19:00', terminalArrivalEnd: '21:00' };
+  const proposal = buildOrderPlanningProposal({ workspaceId: 'org-1', order, lanes: [slowLane], eligibility, awards, partners, actor: 'planner-1' });
+  assert.equal(proposal.outcome, 'NO_MATCH');
+  assert.ok(proposal.routePlans[0].findings.some((finding) => finding.code === 'DELIVERY_COMMITMENT_MISSED'));
 });
 
 test('detects proposal content changes and labels pre-versioned records as legacy', () => {
