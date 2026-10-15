@@ -10,6 +10,7 @@ import { buildOrderPlanningProposal, getLatestOrderPlanningProposal, listLatestO
 import { decideOrderPlanningProposal, listOrderPlanningDecisions, PlanningDecisionConflict, PlanningDecisionValidationError, registerLocalPlannedLoads, type PlanningDecisionType } from "../services/orderPlanningDecisionService";
 import { buildPlanningResolutionAnalysis, createPlanningResolutionDraft, getPlanningResolutionDraft, recordPlanningResolutionDecision } from "../services/planningResolutionService";
 import { buildOrderConsolidationDecision, buildOrderConsolidationProposal, getOrderConsolidationDecision, listOrderConsolidationProposals, registerLocalOrderConsolidationDecision, saveOrderConsolidationProposal, verifyOrderConsolidationProposal } from "../services/orderConsolidationService";
+import { runConsolidationAssistant, safetyIdentifierFor } from "../services/consolidationAssistantService";
 
 export type OrderStatus = "DRAFT" | "VALIDATION_REQUIRED" | "READY_TO_PLAN" | "ASSIGNED_TO_LOAD" | "TENDERED" | "CARRIER_ACCEPTED" | "TENDER_REJECTED" | "TENDER_EXPIRED" | "IN_TRANSIT" | "DELIVERED";
 export type OrderRecord = Record<string, unknown> & { orderId: string; workspaceId: string; primaryReference: string; status: OrderStatus };
@@ -256,6 +257,20 @@ export function registerOrderRoutes(app: Express) {
       res.status(201).json({ ...records, idempotent: false });
     } catch (error) {
       res.status(422).json({ error: error instanceof Error ? error.message : "The consolidation decision could not be recorded." });
+    }
+  });
+
+  app.post("/api/orders/consolidation-proposals/:proposalId/assistant", async (req, res) => {
+    const context = requireWorkspace(req, res); if (!context) return;
+    const proposals = await listOrderConsolidationProposals(context.orgScope);
+    const proposal = proposals.find((item) => item.consolidationProposalId === req.params.proposalId);
+    if (!proposal) { res.status(404).json({ error: "Consolidation proposal not found." }); return; }
+    if (proposal.integrity !== "VERIFIED") { res.status(409).json({ error: "Verified consolidation evidence is required before assistant review." }); return; }
+    try {
+      const turn = await runConsolidationAssistant({ proposal, message: clean(req.body?.message, 4000), actor: context.uid, safetyIdentifier: safetyIdentifierFor(context.uid) });
+      res.status(201).json({ turn });
+    } catch (error) {
+      res.status(400).json({ error: error instanceof Error ? error.message : "The consolidation assistant could not review this plan." });
     }
   });
 

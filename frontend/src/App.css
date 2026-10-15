@@ -1486,6 +1486,15 @@ td {
 .route-plan-legs { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 10px; }
 .route-plan-legs article { display: grid; gap: 4px; padding: 11px; border: 1px solid #405066; background: #101b28; }
 .route-plan-legs article span, .route-plan-legs article small { color: #9fb0c3; }
+.consolidation-assistant { margin-top: 14px; }
+.consolidation-chat { display: grid; gap: 12px; max-height: 420px; overflow: auto; }
+.consolidation-turn { display: grid; gap: 9px; padding: 12px; border-left: 3px solid #198d85; background: #101b28; }
+.consolidation-turn p { margin: 0; }
+.consolidation-user-message { color: #dbe8f5; font-weight: 700; }
+.consolidation-chat-input { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 10px; margin-top: 12px; }
+.consolidation-chat-input label { display: grid; gap: 5px; color: #b9c7d6; }
+.consolidation-chat-input textarea { width: 100%; resize: vertical; }
+@media (max-width: 700px) { .consolidation-chat-input { grid-template-columns: 1fr; } }
 .lane-time-picker { position: relative; }
 .lane-time-picker > input { padding-right: 38px; cursor: pointer; }
 .lane-time-trigger { position: absolute; top: 50%; right: 11px; width: 16px; height: 16px; padding: 0; transform: translateY(-50%); border: 2px solid #73e0d5; border-radius: 50%; background: #159e91; box-shadow: 0 0 0 2px rgba(21,158,145,.18); cursor: pointer; }

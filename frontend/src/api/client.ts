@@ -144,6 +144,11 @@ export async function decideOrderConsolidationProposal(proposalId: string, paylo
   return readJsonResponse(res, "Failed to record consolidation decision");
 }
 
+export async function askConsolidationAssistant(proposalId: string, message: string) {
+  const res = await fetch(`${API_BASE}/orders/consolidation-proposals/${encodeURIComponent(proposalId)}/assistant`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ message }) });
+  return readJsonResponse(res, "Consolidation Assistant request failed");
+}
+
 export async function fetchTenderQueue() {
   const res = await fetch(`${API_BASE}/tenders`);
   return readJsonResponse(res, "Failed to fetch tender queue");

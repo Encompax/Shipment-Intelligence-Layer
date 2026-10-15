@@ -2,6 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { buildOrderConsolidationDecision, buildOrderConsolidationProposal, verifyOrderConsolidationDecision, verifyOrderConsolidationProposal } = require('../dist/src/services/orderConsolidationService');
 const { buildOrderPlanningProposal } = require('../dist/src/services/orderPlanningService');
+const { runConsolidationAssistant } = require('../dist/src/services/consolidationAssistantService');
 
 const workspaceId = 'org-consolidation';
 const lane = {
@@ -68,4 +69,21 @@ test('rejection is append-only and creates no loads', () => {
   const result = buildOrderConsolidationDecision({ proposal, decision: 'REJECTED', reason: 'Hold for another order.', actor: 'planner' });
   assert.equal(result.loads.length, 0);
   assert.equal(result.decision.reason, 'Hold for another order.');
+});
+
+test('consolidation assistant provides governed fallback advice without executing', async () => {
+  const savedKey = process.env.OPENAI_API_KEY;
+  delete process.env.OPENAI_API_KEY;
+  try {
+    const orders = [makeOrder('order-10', 24000, 16), makeOrder('order-11', 24000, 16)];
+    const proposals = new Map(orders.map((order) => [order.orderId, planning(order)]));
+    const proposal = buildOrderConsolidationProposal({ workspaceId, orders, proposals, actor: 'planner' });
+    const turn = await runConsolidationAssistant({ proposal, message: 'How should I resolve the capacity issue?', actor: 'planner' });
+    assert.equal(turn.provider, 'RULES');
+    assert.ok(turn.recommendations.some((item) => item.actionType === 'SPLIT_CAPACITY_GROUP'));
+    assert.equal(turn.consolidationProposalId, proposal.consolidationProposalId);
+    assert.equal(turn.proposalContentHash, proposal.contentHash);
+  } finally {
+    if (savedKey) process.env.OPENAI_API_KEY = savedKey;
+  }
 });
