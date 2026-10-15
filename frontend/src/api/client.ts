@@ -179,6 +179,16 @@ export async function respondToPartnerTender(tenderId: string, payload: { respon
   return readJsonResponse(res, "Failed to record tender response");
 }
 
+export async function fetchPartnerLoads() {
+  const res = await fetch(`${API_BASE}/partner/loads`);
+  return readJsonResponse(res, "Failed to fetch partner loads");
+}
+
+export async function createPartnerLoadEvent(loadId: string, payload: { eventType: string; estimatedArrival?: string; location?: string; note?: string; occurredAt?: string }) {
+  const res = await fetch(`${API_BASE}/partner/loads/${encodeURIComponent(loadId)}/events`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+  return readJsonResponse(res, "Failed to record execution update");
+}
+
 export async function createOrderIntakeReview(payload: { rows?: Record<string, unknown>[]; uploadId?: number; sourceName?: string; profileName?: string; profileId?: string; mapping?: Record<string, string> }) {
   const res = await fetch(`${API_BASE}/orders/intake-reviews`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
   return readJsonResponse(res, "Failed to review order intake");

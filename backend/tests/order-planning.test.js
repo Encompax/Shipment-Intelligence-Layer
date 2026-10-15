@@ -5,6 +5,7 @@ const { buildPlanningDecisionRecords, decideOrderPlanningProposal, hashOrderPlan
 const { buildTenderIssuance, hashTenderIssuance, issuePlannedLoadTender, listTenderQueue, respondToTender, retenderPlannedLoad, verifyTenderIssuance, verifyTenderResponse } = require('../dist/src/services/tenderQueueService');
 const { canonicalizeOrder, validateOrder } = require('../dist/src/routes/orders');
 const { buildPlanningResolutionAnalysis, createPlanningResolutionDraft, getPlanningResolutionDraft, recordPlanningResolutionDecision } = require('../dist/src/services/planningResolutionService');
+const { applyExecutionTransition, listPartnerActiveLoads, recordPartnerExecutionEvent } = require('../dist/src/services/partnerExecutionService');
 
 const order = {
   orderId: 'order-1', workspaceId: 'org-1', primaryReference: 'GUSTO-2225555', silTestMeid: '500000001',
@@ -31,6 +32,12 @@ test('scores a fully compatible order and attaches the active carrier award', ()
   assert.equal(result.disposition, 'MATCH');
   assert.equal(result.findings.length, 0);
   assert.equal(result.activeAwards[0].carrier.scac, 'WARP');
+});
+
+test('carrier execution transitions reject invalid sequence changes', () => {
+  assert.equal(applyExecutionTransition('CARRIER_ACCEPTED', 'DISPATCH_CONFIRMED'), 'DISPATCHED');
+  assert.equal(applyExecutionTransition('IN_TRANSIT', 'ETA_UPDATED'), 'IN_TRANSIT');
+  assert.throws(() => applyExecutionTransition('CARRIER_ACCEPTED', 'DELIVERED'), /not allowed/);
 });
 
 test('keeps schedule deviations visible as review findings instead of silently changing dates', () => {
@@ -273,6 +280,19 @@ test('manual order flows through planning, tender visibility, and carrier accept
   assert.equal(accepted.response.integrity, undefined);
   assert.equal(verifyTenderResponse(accepted.response).integrity, 'VERIFIED');
   assert.equal(JSON.stringify({ proposal, decision: approval.decision, load: approval.load }), planningEvidence);
+
+  const acceptedLoads = await listPartnerActiveLoads(workspaceId, 'carrier-1');
+  assert.equal(acceptedLoads.length, 1);
+  assert.equal(acceptedLoads[0].execution.status, 'CARRIER_ACCEPTED');
+  await assert.rejects(() => recordPartnerExecutionEvent({ workspaceId, externalPartnerId: 'carrier-2', loadId: approval.load.loadId, actor: 'wrong-carrier', eventType: 'DISPATCH_CONFIRMED' }), /assigned to this partner/);
+  await recordPartnerExecutionEvent({ workspaceId, externalPartnerId: 'carrier-1', loadId: approval.load.loadId, actor: 'carrier-user-1', eventType: 'DISPATCH_CONFIRMED', location: 'Atlanta, GA' });
+  await recordPartnerExecutionEvent({ workspaceId, externalPartnerId: 'carrier-1', loadId: approval.load.loadId, actor: 'carrier-user-1', eventType: 'PICKED_UP', location: 'Atlanta, GA' });
+  await recordPartnerExecutionEvent({ workspaceId, externalPartnerId: 'carrier-1', loadId: approval.load.loadId, actor: 'carrier-user-1', eventType: 'ETA_UPDATED', estimatedArrival: '2026-10-15T17:30:00.000Z' });
+  const inTransitLoads = await listPartnerActiveLoads(workspaceId, 'carrier-1');
+  assert.equal(inTransitLoads[0].execution.status, 'IN_TRANSIT');
+  assert.equal(inTransitLoads[0].execution.latestEta, '2026-10-15T17:30:00.000Z');
+  assert.equal(inTransitLoads[0].events.length, 3);
+  assert.ok(inTransitLoads[0].events.every((event) => event.integrity === 'VERIFIED'));
 });
 
 test('planning resolution assistant explains capacity and schedule findings without changing the proposal', async () => {

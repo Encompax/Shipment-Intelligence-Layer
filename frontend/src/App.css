@@ -1494,7 +1494,16 @@ td {
 .consolidation-chat-input { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 10px; margin-top: 12px; }
 .consolidation-chat-input label { display: grid; gap: 5px; color: #b9c7d6; }
 .consolidation-chat-input textarea { width: 100%; resize: vertical; }
+.partner-execution-form { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:12px; align-items:end; margin-bottom:14px; }
+.partner-execution-form label { display:grid; gap:5px; color:#b9c7d6; font-weight:700; }
+.partner-execution-note { grid-column:1 / -2; }
+.partner-load-list { display:grid; gap:14px; }
+.partner-event-history { display:grid; gap:8px; margin-top:14px; padding-top:12px; border-top:1px solid #314052; }
+.partner-event-history > div { display:grid; gap:3px; padding:8px 0; border-bottom:1px solid #263547; }
+.partner-event-history p,.partner-event-history small { margin:0; color:#9fb0c3; }
 @media (max-width: 700px) { .consolidation-chat-input { grid-template-columns: 1fr; } }
+@media (max-width: 900px) { .partner-execution-form { grid-template-columns:1fr 1fr; } .partner-execution-note { grid-column:1 / -1; } }
+@media (max-width: 600px) { .partner-execution-form { grid-template-columns:1fr; } }
 .lane-time-picker { position: relative; }
 .lane-time-picker > input { padding-right: 38px; cursor: pointer; }
 .lane-time-trigger { position: absolute; top: 50%; right: 11px; width: 16px; height: 16px; padding: 0; transform: translateY(-50%); border: 2px solid #73e0d5; border-radius: 50%; background: #159e91; box-shadow: 0 0 0 2px rgba(21,158,145,.18); cursor: pointer; }
