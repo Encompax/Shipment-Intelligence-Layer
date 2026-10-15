@@ -9,6 +9,7 @@ import { listLaneBusinessUnits, listLanePartners, listLanePlanningRegistry } fro
 import { buildOrderPlanningProposal, getLatestOrderPlanningProposal, listLatestOrderPlanningProposals, listOrderPlanningProposals, saveOrderPlanningProposal, type OrderPlanningProposal } from "../services/orderPlanningService";
 import { decideOrderPlanningProposal, listOrderPlanningDecisions, PlanningDecisionConflict, PlanningDecisionValidationError, type PlanningDecisionType } from "../services/orderPlanningDecisionService";
 import { buildPlanningResolutionAnalysis, createPlanningResolutionDraft, getPlanningResolutionDraft, recordPlanningResolutionDecision } from "../services/planningResolutionService";
+import { buildOrderConsolidationProposal, listOrderConsolidationProposals, saveOrderConsolidationProposal, verifyOrderConsolidationProposal } from "../services/orderConsolidationService";
 
 export type OrderStatus = "DRAFT" | "VALIDATION_REQUIRED" | "READY_TO_PLAN" | "ASSIGNED_TO_LOAD" | "TENDERED" | "CARRIER_ACCEPTED" | "TENDER_REJECTED" | "TENDER_EXPIRED" | "IN_TRANSIT" | "DELIVERED";
 export type OrderRecord = Record<string, unknown> & { orderId: string; workspaceId: string; primaryReference: string; status: OrderStatus };
@@ -191,6 +192,20 @@ async function resolveFacilities(workspaceId: string, rows: Record<string, unkno
 export const orderDuplicateKey = (row: Record<string, unknown>) => [row.primaryReference, row.poNumber, row.materialTransferOrderNumber, row.externalMeid || row.meid].map(comparable).filter(Boolean).join("|");
 
 export function registerOrderRoutes(app: Express) {
+  app.get("/api/orders/consolidation-proposals", async (req, res) => {
+    const context = requireWorkspace(req, res); if (!context) return;
+    const proposals = await listOrderConsolidationProposals(context.orgScope);
+    res.json({ proposals, latest: proposals[0] ?? null });
+  });
+
+  app.post("/api/orders/consolidation-proposals", async (req, res) => {
+    const context = requireWorkspace(req, res); if (!context) return;
+    const [orders, planning] = await Promise.all([list(context.orgScope, "orders", localOrders), listLatestOrderPlanningProposals(context.orgScope)]);
+    const proposal = buildOrderConsolidationProposal({ workspaceId: context.orgScope, orders, proposals: planning, actor: context.uid });
+    await saveOrderConsolidationProposal(proposal);
+    res.status(201).json({ proposal: verifyOrderConsolidationProposal(proposal) });
+  });
+
   app.get("/api/orders", async (req, res) => {
     const context = requireWorkspace(req, res); if (!context) return;
     const [orders, planning] = await Promise.all([

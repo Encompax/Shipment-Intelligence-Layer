@@ -129,6 +129,16 @@ export async function fetchOrderPlanningDecisions(orderId: string) {
   return readJsonResponse(res, "Failed to fetch planning decisions");
 }
 
+export async function createOrderConsolidationProposal() {
+  const res = await fetch(`${API_BASE}/orders/consolidation-proposals`, { method: "POST" });
+  return readJsonResponse(res, "Failed to build consolidation proposal");
+}
+
+export async function fetchOrderConsolidationProposals() {
+  const res = await fetch(`${API_BASE}/orders/consolidation-proposals`);
+  return readJsonResponse(res, "Failed to fetch consolidation proposals");
+}
+
 export async function fetchTenderQueue() {
   const res = await fetch(`${API_BASE}/tenders`);
   return readJsonResponse(res, "Failed to fetch tender queue");
