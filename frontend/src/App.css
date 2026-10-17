@@ -1569,6 +1569,7 @@ td {
 .planning-candidates header strong { color: #edf4fb; }
 .planning-candidates header span { color: #91a4b9; font-size: 10px; text-transform: uppercase; }
 .planning-candidates header b { color: #75dfd3; font-size: 18px; }
+.planning-resolution-actions { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 0 12px 12px; }
 .planning-findings { display: grid; gap: 7px; padding: 11px 13px; }
 .planning-findings p { display: grid; grid-template-columns: 68px minmax(0, 1fr); gap: 8px; margin: 0; color: #b9c7d5; font-size: 12px; line-height: 1.45; }
 .planning-findings p span { font-size: 9px; font-weight: 700; text-transform: uppercase; }
