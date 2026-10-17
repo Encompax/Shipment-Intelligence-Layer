@@ -1409,6 +1409,9 @@ td {
 .planning-queue-header-actions { display: flex; align-items: center; gap: 8px; }
 .planning-queue-header-actions > span { min-width: 30px; padding: 5px 9px; border-radius: 999px; background: #1d2a3a; color: #c7d5e4; font-size: 11px; font-weight: 700; text-align: center; }
 .planning-queue-header-actions .btn { min-height: 34px; padding: 6px 12px; white-space: nowrap; }
+.planning-select-cell { width: 38px; min-width: 38px; padding-right: 6px !important; padding-left: 10px !important; text-align: center; }
+.planning-select-cell input { width: 16px; height: 16px; margin: 0; accent-color: #168c83; cursor: pointer; }
+.planning-select-cell input:disabled { cursor: not-allowed; opacity: .45; }
 .order-planning-review { display: grid; gap: 0; }
 
 /* Keep order decisions in view while the operator works through the queue. */

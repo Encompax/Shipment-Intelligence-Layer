@@ -27,6 +27,7 @@ export default function OrdersPanel() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [form, setForm] = useState(empty);
   const [search, setSearch] = useState("");
+  const [selectedOrderIds, setSelectedOrderIds] = useState<string[]>([]);
   const [message, setMessage] = useState<string | null>(null);
   const [facilities, setFacilities] = useState<Facility[]>([]);
   const [businessUnits, setBusinessUnits] = useState<BusinessUnit[]>([]);
@@ -46,6 +47,7 @@ export default function OrdersPanel() {
   const [resolutionMessage, setResolutionMessage] = useState<string | null>(null);
   const resolutionPanelRef = useRef<HTMLDivElement | null>(null);
   const resolutionDraftRef = useRef<HTMLDivElement | null>(null);
+  const selectAllOrdersRef = useRef<HTMLInputElement | null>(null);
   const [consolidation, setConsolidation] = useState<ConsolidationProposal | null>(null);
   const [consolidationBusy, setConsolidationBusy] = useState(false);
   const [consolidationReason, setConsolidationReason] = useState("");
@@ -83,6 +85,15 @@ export default function OrdersPanel() {
       facilityLabel(order.destinationId),
     ].join(" ").toLowerCase().includes(query));
   }, [orders, search, facilityLookup]);
+  const selectableFilteredOrderIds = filtered.filter((order) => order.status === "READY_TO_PLAN").map((order) => order.orderId);
+  const allFilteredSelected = selectableFilteredOrderIds.length > 0 && selectableFilteredOrderIds.every((orderId) => selectedOrderIds.includes(orderId));
+  const someFilteredSelected = selectableFilteredOrderIds.some((orderId) => selectedOrderIds.includes(orderId));
+  const selectedReadyCount = orders.filter((order) => order.status === "READY_TO_PLAN" && selectedOrderIds.includes(order.orderId)).length;
+  useEffect(() => { if (selectAllOrdersRef.current) selectAllOrdersRef.current.indeterminate = someFilteredSelected && !allFilteredSelected; }, [allFilteredSelected, someFilteredSelected]);
+  const toggleAllFilteredOrders = () => setSelectedOrderIds((current) => allFilteredSelected
+    ? current.filter((orderId) => !selectableFilteredOrderIds.includes(orderId))
+    : [...new Set([...current, ...selectableFilteredOrderIds])]);
+  const toggleSelectedOrder = (orderId: string) => setSelectedOrderIds((current) => current.includes(orderId) ? current.filter((item) => item !== orderId) : [...current, orderId]);
   const update = (field: keyof typeof form, value: string) => setForm((current) => ({ ...current, [field]: value }));
   const orderTimingError = form.earliestPickup && form.latestDelivery && Date.parse(form.latestDelivery) < Date.parse(form.earliestPickup)
     ? "Latest delivery must be at or after earliest pickup."
@@ -99,10 +110,11 @@ export default function OrdersPanel() {
   const decideConsolidation = async (decision: "APPROVED" | "REJECTED") => { if (!consolidation) return; try { setConsolidationBusy(true); const result = await decideOrderConsolidationProposal(consolidation.consolidationProposalId, { decision, reason: consolidationReason }); setConsolidationDecision(result.decision); setMessage(decision === "APPROVED" ? `${result.loads?.length || 0} governed loads created from the consolidation plan.` : "Consolidation proposal rejected. No orders or loads changed."); await load(); } catch (error) { setMessage(error instanceof Error ? error.message : "Could not decide consolidation proposal."); } finally { setConsolidationBusy(false); } };
   const askConsolidation = async (event?: React.FormEvent, suggestedQuestion?: string) => { event?.preventDefault(); if (!consolidation) return; const question = (suggestedQuestion || consolidationQuestion).trim(); if (!question) return; try { setConsolidationBusy(true); const result = await askConsolidationAssistant(consolidation.consolidationProposalId, question); setConsolidationTurns((current) => [...current, result.turn]); setConsolidationQuestion(""); } catch (error) { setMessage(error instanceof Error ? error.message : "The Consolidation Assistant could not respond."); } finally { setConsolidationBusy(false); } };
   const matchPlanningQueue = async () => {
-    const queue = orders.filter((order) => order.status === "READY_TO_PLAN");
-    if (!queue.length) { setMessage("No orders in the queue are ready for planning."); return; }
+    const queue = orders.filter((order) => order.status === "READY_TO_PLAN" && selectedOrderIds.includes(order.orderId));
+    if (!queue.length) { setMessage("Select at least one order that is ready for planning."); return; }
     let firstCompletedOrderId: string | null = null;
     let completed = 0;
+    const completedOrderIds: string[] = [];
     const failures: string[] = [];
     try {
       setPlanningQueueBusy(true);
@@ -112,12 +124,14 @@ export default function OrdersPanel() {
         try {
           await matchOrderToLane(order.orderId);
           firstCompletedOrderId ||= order.orderId;
+          completedOrderIds.push(order.orderId);
           completed += 1;
         } catch (error) {
           failures.push(`${order.meid || order.primaryReference}: ${error instanceof Error ? error.message : "match failed"}`);
         }
       }
       await load();
+      setSelectedOrderIds((current) => current.filter((orderId) => !completedOrderIds.includes(orderId)));
     } finally {
       setPlanningOrderId(null);
       setPlanningQueueBusy(false);
@@ -248,13 +262,13 @@ export default function OrdersPanel() {
         <div className="intake-actions"><button className="btn btn-primary" type="submit">Create order</button></div>
       </form>
     </details>
-    <section className={`transport-panel order-planning-queue${activeWorkspacePanel === "planning" ? " is-active" : ""}`} data-order-panel="planning"><div className="transport-panel-header"><div><p className="transport-eyebrow">Planning queue</p><h3>Orders on file</h3></div><div className="planning-queue-header-actions"><span>{filtered.length}</span><button className="btn btn-primary" type="button" disabled={planningQueueBusy || !orders.some((order) => order.status === "READY_TO_PLAN")} onClick={() => void matchPlanningQueue()}>{planningQueueBusy ? "Planning queue..." : "Match & review queue"}</button></div></div>
+    <section className={`transport-panel order-planning-queue${activeWorkspacePanel === "planning" ? " is-active" : ""}`} data-order-panel="planning"><div className="transport-panel-header"><div><p className="transport-eyebrow">Planning queue</p><h3>Orders on file</h3></div><div className="planning-queue-header-actions"><span>{selectedReadyCount} selected</span><button className="btn btn-primary" type="button" disabled={planningQueueBusy || selectedReadyCount === 0} onClick={() => void matchPlanningQueue()}>{planningQueueBusy ? "Planning selected..." : "Match & review selected"}</button></div></div>
       <label className="facility-search"><span>Search orders</span><input type="search" placeholder="Reference, site, business unit, SCAC, or status" value={search} onChange={(e) => setSearch(e.target.value)} /></label>
       {message && <p className="ops-note">{message}</p>}
-      <div className="transport-table-wrap"><table className="transport-table"><thead><tr><th>SIL test MEID</th><th>Reference</th><th>PO / TO</th><th>Route</th><th>Business unit</th><th>Pickup</th><th>Delivery</th><th>Status</th><th>Planning</th></tr></thead><tbody>{filtered.map((order) => {
+      <div className="transport-table-wrap"><table className="transport-table"><thead><tr><th className="planning-select-cell"><input ref={selectAllOrdersRef} type="checkbox" aria-label="Select all visible orders ready for planning" checked={allFilteredSelected} disabled={!selectableFilteredOrderIds.length} onChange={toggleAllFilteredOrders} /></th><th>SIL test MEID</th><th>Reference</th><th>PO / TO</th><th>Route</th><th>Business unit</th><th>Pickup</th><th>Delivery</th><th>Status</th><th>Planning</th></tr></thead><tbody>{filtered.map((order) => {
         const state = planningState(order);
         return <tr key={order.orderId} className={`planning-queue-row${planningProposal?.orderId === order.orderId ? " active" : ""}`} tabIndex={0} onClick={() => void reviewPlan(order.orderId)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); void reviewPlan(order.orderId); } }}>
-          <td>{order.meid || <button className="btn btn-secondary" type="button" onClick={(event) => { event.stopPropagation(); void generateMeid(order.orderId); }}>Generate</button>}</td>
+          <td className="planning-select-cell"><input type="checkbox" aria-label={`Select order ${order.meid || order.primaryReference}`} checked={selectedOrderIds.includes(order.orderId)} disabled={order.status !== "READY_TO_PLAN"} onClick={(event) => event.stopPropagation()} onKeyDown={(event) => event.stopPropagation()} onChange={() => toggleSelectedOrder(order.orderId)} /></td><td>{order.meid || <button className="btn btn-secondary" type="button" onClick={(event) => { event.stopPropagation(); void generateMeid(order.orderId); }}>Generate</button>}</td>
           <td>{order.primaryReference}</td><td>{order.poNumber || order.materialTransferOrderNumber || '--'}</td><td>{facilityLabel(order.originId)} to {facilityLabel(order.destinationId)}</td><td>{order.businessUnit || '--'}</td><td>{order.earliestPickup || '--'}</td><td>{order.latestDelivery || '--'}</td><td>{order.status.replaceAll('_',' ')}</td>
           <td><div className={`planning-state ${state.tone}`} aria-label={`${state.label} planning status`}><span aria-hidden="true">{state.icon}</span><strong>{planningOrderId === order.orderId ? "Loading" : state.label}</strong></div></td>
         </tr>;
