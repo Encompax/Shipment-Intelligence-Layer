@@ -1406,6 +1406,9 @@ td {
 .lane-form-grid .order-datetime-input::-webkit-calendar-picker-indicator { width: 14px; height: 14px; padding: 3px; border-radius: 50%; background-color: #19a99a; box-shadow: 0 0 0 2px rgba(25, 169, 154, .18); opacity: 1; filter: none; cursor: pointer; }
 .order-planning-actions { display: flex; gap: 6px; min-width: 210px; }
 .order-planning-actions .btn { min-height: 34px; padding: 6px 10px; white-space: nowrap; }
+.planning-queue-header-actions { display: flex; align-items: center; gap: 8px; }
+.planning-queue-header-actions > span { min-width: 30px; padding: 5px 9px; border-radius: 999px; background: #1d2a3a; color: #c7d5e4; font-size: 11px; font-weight: 700; text-align: center; }
+.planning-queue-header-actions .btn { min-height: 34px; padding: 6px 12px; white-space: nowrap; }
 .order-planning-review { display: grid; gap: 0; }
 
 /* Keep order decisions in view while the operator works through the queue. */
@@ -1578,13 +1581,14 @@ td {
 .planning-history button small { color: #91a4b9; }
 .planning-queue-row { cursor: pointer; }
 .planning-queue-row:hover { background: rgba(25, 158, 145, 0.08); }
-.planning-state { display: inline-flex; align-items: center; gap: 8px; min-width: 108px; padding: 6px 9px; border: 1px solid #405066; background: #15202d; color: #dce8f5; cursor: pointer; }
+.planning-queue-row.active { background: rgba(25, 158, 145, 0.14); box-shadow: inset 3px 0 #19a99a; }
+.planning-queue-row:focus-visible { outline: 2px solid #35c6b7; outline-offset: -2px; }
+.planning-state { display: inline-flex; align-items: center; gap: 8px; min-width: 108px; padding: 6px 9px; border: 1px solid #405066; background: #15202d; color: #dce8f5; }
 .planning-state span { display: inline-grid; width: 22px; height: 22px; place-items: center; border-radius: 3px; color: #fff; font-weight: 800; line-height: 1; }
 .planning-state.ready span { background: #16845f; }
 .planning-state.warning span { background: #b77900; }
 .planning-state.blocked span { background: #b83c47; }
 .planning-state.pending span { background: #5e6b7c; }
-.planning-state:focus-visible { outline: 2px solid #35c6b7; outline-offset: 2px; }
 .route-plan-review { padding: 14px; border-top: 1px solid #30445b; border-bottom: 1px solid #30445b; }
 .route-plan-legs { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 10px; }
 .route-plan-legs article { display: grid; gap: 4px; padding: 11px; border: 1px solid #405066; background: #101b28; }

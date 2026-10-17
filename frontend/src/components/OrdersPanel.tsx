@@ -32,6 +32,7 @@ export default function OrdersPanel() {
   const [planningHistory, setPlanningHistory] = useState<PlanningProposal[]>([]);
   const [planningOrderId, setPlanningOrderId] = useState<string | null>(null);
   const [planningDecisions, setPlanningDecisions] = useState<PlanningDecision[]>([]);
+  const [planningQueueBusy, setPlanningQueueBusy] = useState(false);
   const [decisionReason, setDecisionReason] = useState("");
   const [decisionPending, setDecisionPending] = useState(false);
   const [plannedLoadDisplayId, setPlannedLoadDisplayId] = useState<string | null>(null);
@@ -90,7 +91,35 @@ export default function OrdersPanel() {
   const buildConsolidation = async () => { try { setConsolidationBusy(true); setMessage("Building governed consolidation groups..."); const result = await createOrderConsolidationProposal(); setConsolidation(result.proposal); setConsolidationDecision(null); setConsolidationReason(""); setConsolidationTurns([]); setMessage("Consolidation proposal is ready for review. No loads were changed."); } catch (error) { setMessage(error instanceof Error ? error.message : "Could not build consolidation proposal."); } finally { setConsolidationBusy(false); } };
   const decideConsolidation = async (decision: "APPROVED" | "REJECTED") => { if (!consolidation) return; try { setConsolidationBusy(true); const result = await decideOrderConsolidationProposal(consolidation.consolidationProposalId, { decision, reason: consolidationReason }); setConsolidationDecision(result.decision); setMessage(decision === "APPROVED" ? `${result.loads?.length || 0} governed loads created from the consolidation plan.` : "Consolidation proposal rejected. No orders or loads changed."); await load(); } catch (error) { setMessage(error instanceof Error ? error.message : "Could not decide consolidation proposal."); } finally { setConsolidationBusy(false); } };
   const askConsolidation = async (event?: React.FormEvent, suggestedQuestion?: string) => { event?.preventDefault(); if (!consolidation) return; const question = (suggestedQuestion || consolidationQuestion).trim(); if (!question) return; try { setConsolidationBusy(true); const result = await askConsolidationAssistant(consolidation.consolidationProposalId, question); setConsolidationTurns((current) => [...current, result.turn]); setConsolidationQuestion(""); } catch (error) { setMessage(error instanceof Error ? error.message : "The Consolidation Assistant could not respond."); } finally { setConsolidationBusy(false); } };
-  const matchLane = async (orderId: string) => { try { setPlanningOrderId(orderId); setMessage("Scoring lane matches..."); const result = await matchOrderToLane(orderId); setPlanningProposal(result.proposal); setPlanningHistory((current) => [result.proposal, ...current.filter((proposal) => proposal.proposalId !== result.proposal.proposalId)]); try { setResolution(await fetchPlanningResolution(orderId)); setResolutionDraft(null); } catch { setResolution(null); } setMessage("Lane match and SIL guidance are ready for review."); await load(); } catch (error) { setMessage(error instanceof Error ? error.message : "Could not match this order to a lane."); } finally { setPlanningOrderId(null); } };
+  const matchPlanningQueue = async () => {
+    const queue = orders.filter((order) => order.status === "READY_TO_PLAN");
+    if (!queue.length) { setMessage("No orders in the queue are ready for planning."); return; }
+    let firstCompletedOrderId: string | null = null;
+    let completed = 0;
+    const failures: string[] = [];
+    try {
+      setPlanningQueueBusy(true);
+      setPlanningOrderId("planning-queue");
+      for (const [index, order] of queue.entries()) {
+        setMessage(`Matching and planning order ${index + 1} of ${queue.length}...`);
+        try {
+          await matchOrderToLane(order.orderId);
+          firstCompletedOrderId ||= order.orderId;
+          completed += 1;
+        } catch (error) {
+          failures.push(`${order.meid || order.primaryReference}: ${error instanceof Error ? error.message : "match failed"}`);
+        }
+      }
+      await load();
+    } finally {
+      setPlanningOrderId(null);
+      setPlanningQueueBusy(false);
+    }
+    if (firstCompletedOrderId) await reviewPlan(firstCompletedOrderId);
+    setMessage(failures.length
+      ? `${completed} of ${queue.length} orders were matched. ${failures.length} require attention.`
+      : `${completed} order${completed === 1 ? "" : "s"} matched and ready for governed review.`);
+  };
   const reviewPlan = async (orderId: string) => {
     const currentProposal = planningProposal?.orderId === orderId ? planningProposal : null;
     try {
@@ -204,15 +233,15 @@ export default function OrdersPanel() {
         <div className="intake-actions"><button className="btn btn-primary" type="submit">Create order</button></div>
       </form>
     </details>
-    <section className="transport-panel"><div className="transport-panel-header"><div><p className="transport-eyebrow">Planning queue</p><h3>Orders on file</h3></div><span>{filtered.length}</span></div>
+    <section className="transport-panel"><div className="transport-panel-header"><div><p className="transport-eyebrow">Planning queue</p><h3>Orders on file</h3></div><div className="planning-queue-header-actions"><span>{filtered.length}</span><button className="btn btn-primary" type="button" disabled={planningQueueBusy || !orders.some((order) => order.status === "READY_TO_PLAN")} onClick={() => void matchPlanningQueue()}>{planningQueueBusy ? "Planning queue..." : "Match & review queue"}</button></div></div>
       <label className="facility-search"><span>Search orders</span><input type="search" placeholder="Reference, site, business unit, SCAC, or status" value={search} onChange={(e) => setSearch(e.target.value)} /></label>
       {message && <p className="ops-note">{message}</p>}
       <div className="transport-table-wrap"><table className="transport-table"><thead><tr><th>SIL test MEID</th><th>Reference</th><th>PO / TO</th><th>Route</th><th>Business unit</th><th>Pickup</th><th>Delivery</th><th>Status</th><th>Planning</th></tr></thead><tbody>{filtered.map((order) => {
         const state = planningState(order);
-        return <tr key={order.orderId} className="planning-queue-row" onClick={() => void reviewPlan(order.orderId)}>
+        return <tr key={order.orderId} className={`planning-queue-row${planningProposal?.orderId === order.orderId ? " active" : ""}`} tabIndex={0} onClick={() => void reviewPlan(order.orderId)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); void reviewPlan(order.orderId); } }}>
           <td>{order.meid || <button className="btn btn-secondary" type="button" onClick={(event) => { event.stopPropagation(); void generateMeid(order.orderId); }}>Generate</button>}</td>
           <td>{order.primaryReference}</td><td>{order.poNumber || order.materialTransferOrderNumber || '--'}</td><td>{facilityLabel(order.originId)} to {facilityLabel(order.destinationId)}</td><td>{order.businessUnit || '--'}</td><td>{order.earliestPickup || '--'}</td><td>{order.latestDelivery || '--'}</td><td>{order.status.replaceAll('_',' ')}</td>
-          <td><div className="order-planning-actions"><button className={`planning-state ${state.tone}`} disabled={planningOrderId === order.orderId} type="button" onClick={(event) => { event.stopPropagation(); void reviewPlan(order.orderId); }} aria-label={`${state.label}: review planning details`}><span aria-hidden="true">{state.icon}</span><strong>{planningOrderId === order.orderId ? "Loading" : state.label}</strong></button><button className="btn btn-secondary" disabled={order.status !== "READY_TO_PLAN" || planningOrderId === order.orderId} type="button" onClick={(event) => { event.stopPropagation(); void matchLane(order.orderId); }}>Rematch</button></div></td>
+          <td><div className={`planning-state ${state.tone}`} aria-label={`${state.label} planning status`}><span aria-hidden="true">{state.icon}</span><strong>{planningOrderId === order.orderId ? "Loading" : state.label}</strong></div></td>
         </tr>;
       })}</tbody></table></div>
       {!filtered.length && <p className="ops-note">No matching orders are on file. Use manual entry here or stage a CSV or Excel file in Data intake.</p>}
