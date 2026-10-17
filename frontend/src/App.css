@@ -1428,8 +1428,21 @@ td {
   max-height: calc(100dvh - 116px);
   overflow: auto;
   overscroll-behavior: contain;
+  resize: vertical;
   box-shadow: 0 8px 24px rgba(4, 12, 22, 0.28);
 }
+
+.orders-workspace.orders-review-unpinned > .order-planning-review { position: static; max-height: none !important; resize: vertical; }
+.orders-hero { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.orders-view-settings { position: relative; flex: 0 0 auto; }
+.orders-view-settings > summary { padding: 7px 11px; border: 1px solid #405066; background: #15202d; color: #dce8f5; cursor: pointer; font-size: 12px; font-weight: 700; list-style: none; }
+.orders-view-settings > summary::-webkit-details-marker { display: none; }
+.orders-view-settings-panel { position: absolute; top: calc(100% + 6px); right: 0; z-index: 20; display: grid; gap: 10px; width: min(280px, 80vw); padding: 12px; border: 1px solid #405066; background: #111d2b; box-shadow: 0 10px 28px rgba(4, 12, 22, .35); }
+.orders-view-settings-panel label { display: grid; gap: 5px; color: #b9cadb; font-size: 11px; }
+.orders-view-settings-panel select { min-height: 34px; border: 1px solid #405066; background: #0c1622; color: #eef4fb; }
+.orders-view-settings-panel input[type="range"] { width: 100%; accent-color: #19a99a; }
+.orders-view-settings-panel .orders-setting-toggle { display: flex; align-items: center; gap: 8px; }
+.orders-view-settings-panel input[type="checkbox"] { accent-color: #19a99a; }
 
 .orders-workspace > .facility-manual-entry {
   order: 2;
@@ -1496,6 +1509,12 @@ td {
   padding: 8px 10px;
 }
 
+.orders-density-comfortable > .transport-hero,
+.orders-density-comfortable > .transport-panel { padding: var(--space-5); }
+.orders-density-comfortable { gap: var(--space-5); }
+.orders-density-comfortable .transport-table th,
+.orders-density-comfortable .transport-table td { padding-top: 12px; padding-bottom: 12px; font-size: var(--font-size-sm); }
+
 @media (max-width: 760px) {
   .orders-workspace {
     gap: var(--space-4);
@@ -1505,6 +1524,7 @@ td {
     position: static;
     max-height: none;
     overflow: visible;
+    resize: none;
     box-shadow: var(--shadow-xs);
   }
 
@@ -1512,6 +1532,9 @@ td {
   .orders-workspace > .transport-panel {
     padding: var(--space-4);
   }
+
+  .orders-hero { align-items: stretch; flex-direction: column; }
+  .orders-view-settings-panel { right: auto; left: 0; }
 }
 .planning-audit-bar { display: flex; flex-wrap: wrap; gap: 8px 18px; padding: 10px 14px; border-bottom: 1px solid #30445b; color: #91a4b9; font-size: 11px; }
 .planning-audit-bar strong { color: #dce8f5; font-weight: 600; }
