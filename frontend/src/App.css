@@ -1569,11 +1569,11 @@ td {
   .workspace-view-settings-panel { position: fixed; top: 64px; right: 12px; left: 12px; width: auto; }
   .sil-resizable-panels .content-area :is(.transport-panel, .lane-workbench, .tender-workbench, .execution-monitor-workbench, .ops-phase-panel, .suite-detail-panel) { resize: none; max-width: none; }
 }
-.planning-audit-bar { display: flex; flex-wrap: wrap; gap: 8px 18px; padding: 10px 14px; border-bottom: 1px solid #30445b; color: #91a4b9; font-size: 11px; }
-.planning-audit-bar strong { color: #dce8f5; font-weight: 600; }
-.planning-audit-bar strong.verified { color: #75dfd3; }
-.planning-audit-bar strong.failed { color: #ef9ba6; }
-.planning-audit-bar strong.legacy_unverified { color: #f1ca74; }
+.planning-audit-bar { display: flex; flex-wrap: wrap; gap: 8px 18px; padding: 10px 14px; border-bottom: 1px solid var(--color-border); color: var(--color-text-secondary); font-size: 11px; }
+.planning-audit-bar strong { color: var(--color-text-primary); font-weight: 700; }
+.planning-audit-bar strong.verified { color: #075e54; }
+.planning-audit-bar strong.failed { color: #a2232e; }
+.planning-audit-bar strong.legacy_unverified { color: #805000; }
 .planning-decision-panel { display: grid; grid-template-columns: minmax(220px, 1fr) minmax(260px, 1.4fr) auto; align-items: end; gap: 14px; padding: 14px 15px; border-bottom: 1px solid #30445b; }
 .planning-decision-panel > div:first-child { display: grid; gap: 4px; }
 .planning-decision-panel span, .planning-decision-panel small { color: #91a4b9; font-size: 11px; }
