@@ -53,6 +53,22 @@ test('rejects route mismatches as ineligible candidates', () => {
   assert.ok(result.findings.some((finding) => finding.code === 'ROUTE_MISMATCH' && finding.severity === 'BLOCKER'));
 });
 
+test('resolves facility site IDs before matching lane endpoints', () => {
+  const siteOrder = { ...order, originId: 'ATL_CROSSDOCK', destinationId: 'ATH_ATHENS_87', equipmentType: 'BOX TRUCK', modeType: 'LTL', orderType: 'FINAL_MILE', weight: 8000, palletQuantity: 8 };
+  const finalMileLane = { ...lane, laneType: 'FINAL_MILE', originFacilityId: 'facility-atl-crossdock', destinationFacilityId: 'facility-athens-87', equipmentType: 'BOX TRUCK', loadAssumption: 'LTL', dispatchDays: [], terminalArrivalDays: [], storeDeliveryDays: [] };
+  const proposal = buildOrderPlanningProposal({
+    workspaceId: 'org-1', order: siteOrder, lanes: [finalMileLane], eligibility, awards, partners, actor: 'planner-1',
+    facilities: [
+      { facilityId: 'facility-atl-crossdock', siteId: 'ATL_CROSSDOCK', facilityType: 'CROSSDOCK' },
+      { facilityId: 'facility-athens-87', siteId: 'ATH_ATHENS_87', facilityType: 'MFC' },
+    ],
+  });
+  const route = proposal.routePlans.find((item) => item.routePlanId === `direct:${finalMileLane.laneId}`);
+  assert.notEqual(route.disposition, 'INELIGIBLE');
+  assert.ok(!route.findings.some((finding) => finding.code === 'ROUTE_MISMATCH'));
+  assert.equal(proposal.orderSnapshot.destinationId, 'ATH_ATHENS_87');
+});
+
 test('blocks an order that exceeds the selected equipment capacity', () => {
   const result = scoreOrderLane({ order: { ...order, equipmentType: 'BOX TRUCK', modeType: 'LTL', weight: 10001, palletQuantity: 11 }, lane: { ...lane, equipmentType: 'BOX TRUCK', loadAssumption: 'LTL' }, eligibility, awards, partners });
   assert.equal(result.disposition, 'INELIGIBLE');

@@ -413,8 +413,8 @@ export function registerOrderRoutes(app: Express) {
     if (draft.option.actionType === "CHANGE_ORDER_EQUIPMENT") updated = { ...updated, equipmentType: clean(draft.option.parameters.equipmentType) };
     else if (draft.option.actionType === "CHANGE_ORDER_DELIVERY") updated = { ...updated, latestDelivery: clean(draft.option.parameters.latestDelivery) };
     else { res.status(409).json({ error: "This correction does not have an approved execution handler." }); return; }
-    const registry = await listLanePlanningRegistry(context.orgScope);
-    const proposal = buildOrderPlanningProposal({ workspaceId: context.orgScope, order: updated, lanes: registry.lanes, eligibility: registry.eligibility, awards: registry.awards, partners: registry.partners, actor: context.uid, supersedesProposalId: latest.proposalId });
+    const [registry, facilities] = await Promise.all([listLanePlanningRegistry(context.orgScope), listFacilitiesForWorkspace(context.orgScope)]);
+    const proposal = buildOrderPlanningProposal({ workspaceId: context.orgScope, order: updated, lanes: registry.lanes, eligibility: registry.eligibility, awards: registry.awards, partners: registry.partners, facilities, actor: context.uid, supersedesProposalId: latest.proposalId });
     try {
       const record = await recordPlanningResolutionDecision({ workspaceId: context.orgScope, draftId: draft.draftId, decision: 'APPROVED', reason: clean(req.body?.reason, 1000), actor: context.uid, resultingProposalIds: [proposal.proposalId] });
       await save(context.orgScope, "orders", order.orderId, updated, localOrders);

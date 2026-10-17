@@ -6,7 +6,7 @@ import type { OrderRecord } from "../routes/orders";
 import { EQUIPMENT_CAPACITY_POLICY_VERSION, EQUIPMENT_CAPACITY_RULES, getEquipmentCapacityRule, weightInPounds } from "./equipmentCapacity";
 
 export const ORDER_PLANNING_SCHEMA_VERSION = "1.2";
-export const ORDER_MATCHING_POLICY_VERSION = "2026-10-14.2";
+export const ORDER_MATCHING_POLICY_VERSION = "2026-10-17.1";
 export const ORDER_MATCHING_SCORE_WEIGHTS = {
   route: 35,
   businessUnit: 15,
@@ -106,9 +106,15 @@ export type OrderPlanningProposal = {
 };
 
 type PartnerRecord = { id?: string; externalPartnerId?: string; name?: string; organizationName?: string; scac?: string };
+type PlanningFacility = { facilityId: string; siteId?: string; facilityType?: string; crossdockProcessingMinutes?: number };
 const localProposals = new Map<string, OrderPlanningProposal[]>();
 const clean = (value: unknown) => String(value ?? "").trim();
 const comparable = (value: unknown) => clean(value).toLowerCase().replace(/[^a-z0-9]/g, "");
+const canonicalFacilityId = (value: unknown, facilities: PlanningFacility[] = []) => {
+  const identifier = comparable(value);
+  const facility = facilities.find((item) => comparable(item.facilityId) === identifier || comparable(item.siteId) === identifier);
+  return facility?.facilityId || clean(value);
+};
 const datePart = (value: unknown) => clean(value).slice(0, 10);
 const timePart = (value: unknown) => clean(value).slice(11, 16);
 const weekday = (value: unknown) => {
@@ -296,19 +302,24 @@ export function buildOrderPlanningProposal(input: {
   eligibility: EligibilityRecord[];
   awards: AwardRecord[];
   partners: PartnerRecord[];
-  facilities?: Array<{ facilityId: string; facilityType?: string; crossdockProcessingMinutes?: number }>;
+  facilities?: PlanningFacility[];
   actor: string;
   supersedesProposalId?: string | null;
 }): OrderPlanningProposal {
   if (!input.workspaceId || input.order.workspaceId !== input.workspaceId) throw new Error("Order does not belong to the requested workspace.");
+  const orderForMatching: OrderRecord = {
+    ...input.order,
+    originId: canonicalFacilityId(input.order.originId, input.facilities),
+    destinationId: canonicalFacilityId(input.order.destinationId, input.facilities),
+  };
   const candidates = input.lanes
     .filter((lane) => lane.workspaceId === input.workspaceId && lane.status === "ACTIVE")
-    .map((lane) => scoreOrderLane({ order: input.order, lane, eligibility: input.eligibility, awards: input.awards, partners: input.partners }))
+    .map((lane) => scoreOrderLane({ order: orderForMatching, lane, eligibility: input.eligibility, awards: input.awards, partners: input.partners }))
     .sort((left, right) => right.score - left.score || left.laneName.localeCompare(right.laneName));
   const recommended = candidates.find((candidate) => candidate.disposition !== "INELIGIBLE");
   const directPlans: RoutePlanRecommendation[] = candidates.map((candidate) => {
     const lane = input.lanes.find((item) => item.laneId === candidate.laneId)!;
-    const schedule = calculateRouteSchedule(input.order, [lane]);
+    const schedule = calculateRouteSchedule(orderForMatching, [lane]);
     const late = schedule.finalDeliveryAt > schedule.commitmentLatestAt;
     const findings = late ? [...candidate.findings, { category: "DELIVERY_SCHEDULE" as const, severity: "BLOCKER" as const, code: "DELIVERY_COMMITMENT_MISSED", message: `The lane schedule delivers at ${schedule.finalDeliveryAt}, after the order commitment of ${schedule.commitmentLatestAt}.`, scoreImpact: 0 }] : candidate.findings;
     const disposition = findings.some((finding) => finding.severity === "BLOCKER") ? "INELIGIBLE" : findings.some((finding) => finding.severity === "WARNING") ? "REVIEW" : "MATCH";
@@ -320,16 +331,16 @@ export function buildOrderPlanningProposal(input: {
     orderReadyAt: schedule.orderReadyAt, freightAvailableAt: schedule.freightAvailableAt, finalDeliveryAt: schedule.finalDeliveryAt, commitmentLatestAt: schedule.commitmentLatestAt,
   }); });
   const hubPlans: RoutePlanRecommendation[] = [];
-  const linehaulLanes = input.lanes.filter((lane) => lane.workspaceId === input.workspaceId && lane.status === "ACTIVE" && lane.laneType === "LINEHAUL" && comparable(lane.originFacilityId) === comparable(input.order.originId));
+  const linehaulLanes = input.lanes.filter((lane) => lane.workspaceId === input.workspaceId && lane.status === "ACTIVE" && lane.laneType === "LINEHAUL" && comparable(lane.originFacilityId) === comparable(orderForMatching.originId));
   for (const linehaul of linehaulLanes) {
     const hubFacility = input.facilities?.find((facility) => comparable(facility.facilityId) === comparable(linehaul.destinationFacilityId));
     if (hubFacility && !["CROSSDOCK", "DC", "MFC"].includes(clean(hubFacility.facilityType).toUpperCase())) continue;
-    const finalMileLanes = input.lanes.filter((lane) => lane.workspaceId === input.workspaceId && lane.status === "ACTIVE" && lane.laneType === "FINAL_MILE" && comparable(lane.originFacilityId) === comparable(linehaul.destinationFacilityId) && comparable(lane.destinationFacilityId) === comparable(input.order.destinationId));
+    const finalMileLanes = input.lanes.filter((lane) => lane.workspaceId === input.workspaceId && lane.status === "ACTIVE" && lane.laneType === "FINAL_MILE" && comparable(lane.originFacilityId) === comparable(linehaul.destinationFacilityId) && comparable(lane.destinationFacilityId) === comparable(orderForMatching.destinationId));
     for (const finalMile of finalMileLanes) {
-      const first = scoreOrderLane({ order: { ...input.order, destinationId: linehaul.destinationFacilityId, orderType: "LINEHAUL", modeType: linehaul.loadAssumption, equipmentType: linehaul.equipmentType }, lane: linehaul, eligibility: input.eligibility, awards: input.awards, partners: input.partners });
-      const second = scoreOrderLane({ order: { ...input.order, originId: finalMile.originFacilityId, orderType: "FINAL_MILE", modeType: finalMile.loadAssumption, equipmentType: finalMile.equipmentType }, lane: finalMile, eligibility: input.eligibility, awards: input.awards, partners: input.partners });
+      const first = scoreOrderLane({ order: { ...orderForMatching, destinationId: linehaul.destinationFacilityId, orderType: "LINEHAUL", modeType: linehaul.loadAssumption, equipmentType: linehaul.equipmentType }, lane: linehaul, eligibility: input.eligibility, awards: input.awards, partners: input.partners });
+      const second = scoreOrderLane({ order: { ...orderForMatching, originId: finalMile.originFacilityId, orderType: "FINAL_MILE", modeType: finalMile.loadAssumption, equipmentType: finalMile.equipmentType }, lane: finalMile, eligibility: input.eligibility, awards: input.awards, partners: input.partners });
       const processingMinutes = hubFacility?.crossdockProcessingMinutes ?? 120;
-      const schedule = calculateRouteSchedule(input.order, [linehaul, finalMile], processingMinutes);
+      const schedule = calculateRouteSchedule(orderForMatching, [linehaul, finalMile], processingMinutes);
       const handoffFinding: PlanningFinding = linehaul.terminalArrivalDays?.length && finalMile.dispatchDays?.length
         ? { category: "HANDOFF", severity: "INFO", code: "HANDOFF_BUFFER_APPLIED", message: `${processingMinutes} minutes of processing time is reserved at the intermediate facility before final-mile dispatch.`, scoreImpact: 0 }
         : { category: "HANDOFF", severity: "WARNING", code: "HANDOFF_SCHEDULE_INCOMPLETE", message: "Complete the linehaul arrival and final-mile departure days to verify the cross-dock connection.", scoreImpact: 0 };

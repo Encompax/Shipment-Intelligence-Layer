@@ -102,7 +102,14 @@ export default function OrdersPanel() {
     event.preventDefault();
     if (orderTimingError) { setMessage(orderTimingError); return; }
     setMessage("Saving order...");
-    try { await createOrder(form); setForm(empty); setMessage("Order saved, validated, and automatically matched for planning review."); await load(); }
+    try {
+      const canonicalForm = {
+        ...form,
+        originId: facilityLookup.get(form.originId.toLowerCase())?.facilityId || form.originId,
+        destinationId: facilityLookup.get(form.destinationId.toLowerCase())?.facilityId || form.destinationId,
+      };
+      await createOrder(canonicalForm); setForm(empty); setMessage("Order saved, validated, and automatically matched for planning review."); await load();
+    }
     catch (error) { setMessage(error instanceof Error ? error.message : "Could not save order."); }
   };
   const generateMeid = async (orderId: string) => { try { setMessage("Generating SIL test MEID..."); await generateOrderTestMeid(orderId); setMessage("SIL test MEID assigned."); await load(); } catch (error) { setMessage(error instanceof Error ? error.message : "Could not generate test MEID."); } };
