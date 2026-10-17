@@ -1601,11 +1601,11 @@ td {
 .planning-outcome.matched { border-color: #159e91; color: #75dfd3; }
 .planning-outcome.review_required { border-color: #b88b32; color: #f1ca74; }
 .planning-outcome.no_match { border-color: #a9505c; color: #ef9ba6; }
-.planning-recommendation { display: grid; grid-template-columns: 1.25fr .55fr 1fr .7fr 1.35fr; border-bottom: 1px solid #30445b; }
-.planning-recommendation > div { display: grid; gap: 4px; min-width: 0; padding: 13px 15px; border-right: 1px solid #30445b; }
+.planning-recommendation { display: grid; grid-template-columns: 1.25fr .55fr 1fr .7fr 1.35fr; border-bottom: 1px solid var(--color-border); background: var(--color-bg-default); }
+.planning-recommendation > div { display: grid; gap: 4px; min-width: 0; padding: 13px 15px; border-right: 1px solid var(--color-border); }
 .planning-recommendation > div:last-child { border-right: 0; }
-.planning-recommendation span, .planning-recommendation small { color: #91a4b9; font-size: 11px; }
-.planning-recommendation strong { color: #edf4fb; }
+.planning-recommendation span, .planning-recommendation small { color: var(--color-text-secondary); font-size: 11px; }
+.planning-recommendation strong { color: var(--color-text-primary); }
 .planning-candidates { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; padding: 14px; }
 .planning-candidates article { min-width: 0; border: 1px solid #30445b; background: #111d2b; }
 .planning-candidates article.recommended { border-color: #159e91; box-shadow: inset 3px 0 #159e91; }
