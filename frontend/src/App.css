@@ -1407,6 +1407,109 @@ td {
 .order-planning-actions { display: flex; gap: 6px; min-width: 210px; }
 .order-planning-actions .btn { min-height: 34px; padding: 6px 10px; white-space: nowrap; }
 .order-planning-review { display: grid; gap: 0; }
+
+/* Keep order decisions in view while the operator works through the queue. */
+.orders-workspace {
+  gap: 12px;
+}
+
+.orders-workspace > .transport-hero {
+  order: 0;
+}
+
+.orders-workspace > .order-planning-review {
+  order: 1;
+  position: sticky;
+  top: 8px;
+  z-index: 8;
+  max-height: calc(100dvh - 116px);
+  overflow: auto;
+  overscroll-behavior: contain;
+  box-shadow: 0 8px 24px rgba(4, 12, 22, 0.28);
+}
+
+.orders-workspace > .facility-manual-entry {
+  order: 2;
+}
+
+.orders-workspace > .transport-panel:not(.order-planning-review):not(.facility-manual-entry) {
+  order: 3;
+}
+
+.orders-workspace > .transport-hero,
+.orders-workspace > .transport-panel {
+  padding: 14px 16px;
+}
+
+.orders-workspace .transport-hero h2 {
+  font-size: 1.45rem;
+}
+
+.orders-workspace .transport-hero p {
+  margin-top: 4px;
+  font-size: 0.82rem;
+}
+
+.orders-workspace .transport-panel-header {
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.orders-workspace .transport-panel h3 {
+  font-size: 1rem;
+}
+
+.orders-workspace .lane-form-grid {
+  gap: 8px;
+  padding: 12px 0 0;
+}
+
+.orders-workspace .lane-form-grid input,
+.orders-workspace .lane-form-grid select,
+.orders-workspace .lane-form-grid textarea {
+  min-height: 34px;
+  padding: 6px 8px;
+}
+
+.orders-workspace .transport-table th,
+.orders-workspace .transport-table td {
+  padding-top: 8px;
+  padding-bottom: 8px;
+  font-size: 0.75rem;
+}
+
+.orders-workspace .planning-recommendation > div,
+.orders-workspace .planning-decision-panel,
+.orders-workspace .planning-candidates,
+.orders-workspace .route-plan-review {
+  padding: 10px;
+}
+
+.orders-workspace .planning-candidates {
+  gap: 8px;
+}
+
+.orders-workspace .planning-candidates header {
+  padding: 8px 10px;
+}
+
+@media (max-width: 760px) {
+  .orders-workspace {
+    gap: var(--space-4);
+  }
+
+  .orders-workspace > .order-planning-review {
+    position: static;
+    max-height: none;
+    overflow: visible;
+    box-shadow: var(--shadow-xs);
+  }
+
+  .orders-workspace > .transport-hero,
+  .orders-workspace > .transport-panel {
+    padding: var(--space-4);
+  }
+}
 .planning-audit-bar { display: flex; flex-wrap: wrap; gap: 8px 18px; padding: 10px 14px; border-bottom: 1px solid #30445b; color: #91a4b9; font-size: 11px; }
 .planning-audit-bar strong { color: #dce8f5; font-weight: 600; }
 .planning-audit-bar strong.verified { color: #75dfd3; }

@@ -182,7 +182,7 @@ export default function OrdersPanel() {
     : Boolean(recommendedCandidate?.activeAwards.length);
   const proposalDecision = planningProposal ? planningDecisions.find((decision) => decision.proposalId === planningProposal.proposalId) : undefined;
   const isLatestProposal = planningProposal?.proposalId === planningHistory[0]?.proposalId;
-  return <div className="data-intake">
+  return <div className="data-intake orders-workspace">
     <section className="transport-hero intake-hero"><div><p className="transport-eyebrow">Order management</p><h2>Orders</h2><p>Create and review demand before it is consolidated into loads, assigned to lanes, or tendered.</p></div></section>
     <details className="transport-panel facility-manual-entry"><summary><span><span className="transport-eyebrow">Manual entry</span><strong>Create an order</strong></span><span className="facility-manual-toggle">Open form</span></summary>
       <form onSubmit={submit} className="lane-form-grid">
