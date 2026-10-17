@@ -390,6 +390,7 @@ export function registerOrderRoutes(app: Express) {
     const analysis = buildPlanningResolutionAnalysis(proposal);
     const option = analysis.options.find((item) => item.optionId === clean(req.body?.optionId));
     if (!option) { res.status(400).json({ error: "Select a resolution produced from the current proposal." }); return; }
+    if (!option.executable) { res.status(409).json({ error: "This proposal needs additional planner configuration before SIL can prepare an executable draft." }); return; }
     const draft = await createPlanningResolutionDraft({ workspaceId: context.orgScope, actor: context.uid, proposal, option });
     res.status(201).json({ draft });
   });

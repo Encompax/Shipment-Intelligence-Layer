@@ -1582,6 +1582,10 @@ td {
 .planning-decision-panel label { display: grid; gap: 5px; color: var(--color-text-primary); font-size: 12px; font-weight: 600; }
 .planning-decision-panel textarea { min-height: 54px; resize: vertical; }
 .planning-decision-actions { display: flex; gap: 8px; }
+.planning-decision-panel .planning-decision-actions { flex-wrap: wrap; }
+.active-resolution-draft { border-left: 4px solid #168c83; background: #f0faf8; }
+.resolution-requirement, .planning-approval-requirement { color: #654600 !important; font-weight: 700; line-height: 1.45; }
+.planning-decision-actions .planning-approval-requirement { flex: 1 0 100%; }
 .tender-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border: 1px solid #30445b; background: #172131; }
 .tender-summary > div { display: grid; gap: 5px; padding: 12px 15px; border-right: 1px solid #30445b; }
 .tender-summary > div:last-child { border-right: 0; }
