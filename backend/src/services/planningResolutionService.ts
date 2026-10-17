@@ -66,7 +66,7 @@ export function buildPlanningResolutionAnalysis(proposal: OrderPlanningProposal)
   if (!routePlan && proposal.candidates.some((candidate) => candidate.laneType === "LINEHAUL") && proposal.candidates.some((candidate) => candidate.laneType === "FINAL_MILE")) add({ actionType: "BUILD_ROUTE_CHAIN", title: "Build a Linehaul-to-Final-Mile route chain", explanation: "Plan the order through an intermediate terminal instead of requiring one lane to cover the entire movement.", operationalEffect: "Creates a multi-leg planning requirement with a governed handoff between legs.", costEffect: "Requires separate leg awards and exposes total landed transportation cost.", parameters: {}, executable: false, evidenceCodes: ["ROUTE_MISMATCH"] });
   const findings = analysisCandidates.flatMap((candidate) => candidate.findings.map((finding: PlanningFinding) => ({ laneId: candidate.laneId, laneName: candidate.laneName, ...finding })));
   const response = options.length
-    ? "I found governed resolution paths below. Select one to prepare an action draft. Nothing changes until you explicitly approve an executable draft."
+    ? "Proposed governed resolution paths are shown below. Select one to prepare an action draft. Nothing changes until you explicitly approve an executable draft."
     : routePlan
       ? `I reviewed the ${routePlan.planType === "HUB_SPOKE" ? "hub-and-spoke" : "direct"} route plan and found no correction that should be prepared automatically. Review the leg evidence and carrier awards before approval.`
       : "I could not identify a safe automatic correction. Review the proposal evidence with a planner or Data Steward.";
