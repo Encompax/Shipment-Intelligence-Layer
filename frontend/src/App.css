@@ -1522,6 +1522,7 @@ td {
 .planning-decision-panel > div:first-child { display: grid; gap: 4px; }
 .planning-decision-panel span, .planning-decision-panel small { color: #91a4b9; font-size: 11px; }
 .planning-decision-panel strong { color: #edf4fb; }
+.planning-decision-panel .planning-assistant-status { color: #75dfd3; font-weight: 600; }
 .planning-decision-panel label { display: grid; gap: 5px; color: #b9cadb; font-size: 12px; }
 .planning-decision-panel textarea { min-height: 54px; resize: vertical; }
 .planning-decision-actions { display: flex; gap: 8px; }
