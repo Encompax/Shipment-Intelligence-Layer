@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useState } from "react";
 
 export type WorkspaceViewSettings = {
+  layout: "stacked" | "panels";
   density: "compact" | "comfortable";
   pinPanels: boolean;
   panelHeight: number;
@@ -9,6 +10,7 @@ export type WorkspaceViewSettings = {
 };
 
 export const defaultWorkspaceViewSettings: WorkspaceViewSettings = {
+  layout: "stacked",
   density: "compact",
   pinPanels: true,
   panelHeight: 72,
