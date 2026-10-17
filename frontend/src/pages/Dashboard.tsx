@@ -8,6 +8,7 @@ import {
 import EncompaxMark from "../components/EncompaxMark";
 import SILLogo from "../components/SILLogo";
 import EncompaxLoader from "../components/EncompaxLoader";
+import { defaultWorkspaceViewSettings, useWorkspaceViewSettings } from "../context/WorkspaceViewSettings";
 
 type TabKey = "overview" | PanelKey;
 type DashboardProps = {
@@ -50,6 +51,7 @@ const Dashboard: React.FC<DashboardProps> = ({
   const [activeTab, setActiveTab] = useState<TabKey>("overview");
   const [shellSearch, setShellSearch] = useState("");
   const [shellSearchOpen, setShellSearchOpen] = useState(false);
+  const { settings: viewSettings, setSettings: setViewSettings } = useWorkspaceViewSettings();
 
   const visiblePanels = PANEL_CONFIG.filter(hasPermission);
 
@@ -229,7 +231,7 @@ const Dashboard: React.FC<DashboardProps> = ({
   };
 
   return (
-    <div className="app-shell">
+    <div className={`app-shell sil-density-${viewSettings.density}${viewSettings.resizablePanels ? " sil-resizable-panels" : ""}${viewSettings.pinPanels ? " sil-pin-panels" : ""}`} style={{ "--sil-panel-height": `${viewSettings.panelHeight}dvh` } as React.CSSProperties}>
       {/* ── Sidebar ──────────────────────────────────────────────────── */}
       <aside className="sidebar">
 
@@ -355,6 +357,7 @@ const Dashboard: React.FC<DashboardProps> = ({
               </div>
             </div>
             <span className="topbar-org">{organizationName || workspaceName}</span>
+            <details className="workspace-view-settings"><summary>View</summary><div className="workspace-view-settings-panel"><label>Density<select value={viewSettings.density} onChange={(event) => setViewSettings((current) => ({ ...current, density: event.target.value as "compact" | "comfortable" }))}><option value="compact">Compact</option><option value="comfortable">Comfortable</option></select></label><label className="workspace-setting-toggle"><input type="checkbox" checked={viewSettings.resizablePanels} onChange={(event) => setViewSettings((current) => ({ ...current, resizablePanels: event.target.checked }))} />Resizable frames</label><label className="workspace-setting-toggle"><input type="checkbox" checked={viewSettings.pinPanels} onChange={(event) => setViewSettings((current) => ({ ...current, pinPanels: event.target.checked }))} />Pin active workbench</label><label>Frame height <span>{viewSettings.panelHeight}%</span><input type="range" min="45" max="90" step="5" value={viewSettings.panelHeight} onChange={(event) => setViewSettings((current) => ({ ...current, panelHeight: Number(event.target.value) }))} /></label><label className="workspace-setting-toggle"><input type="checkbox" checked={viewSettings.showDiagnostics} onChange={(event) => setViewSettings((current) => ({ ...current, showDiagnostics: event.target.checked }))} />Show diagnostics</label><button className="btn btn-secondary" type="button" onClick={() => setViewSettings(defaultWorkspaceViewSettings)}>Reset view</button></div></details>
             <div className="topbar-user">
               <span className="topbar-user-name">{currentUserName}</span>
               <span className="topbar-user-email">{currentUserEmail}</span>

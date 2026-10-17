@@ -4,6 +4,7 @@ import { auth, consumeEncompaxLaunchCode } from "./lib/firebase";
 import AuthGate from "./components/AuthGate";
 import { getSilUserProfile, SilUserProfile } from "./lib/userProfile";
 import EncompaxLoader from "./components/EncompaxLoader";
+import { WorkspaceViewSettingsProvider } from "./context/WorkspaceViewSettings";
 
 const Dashboard = lazy(() => import("./pages/Dashboard"));
 const PostSignupSetup = lazy(() => import("./components/PostSignupSetup"));
@@ -94,7 +95,7 @@ const App: React.FC = () => {
     </Suspense>;
   }
 
-  return <Suspense fallback={<EncompaxLoader fullScreen label="Opening SIL" detail="Loading your operations workspace" />}>
+  return <WorkspaceViewSettingsProvider><Suspense fallback={<EncompaxLoader fullScreen label="Opening SIL" detail="Loading your operations workspace" />}>
     <Dashboard
       currentUserName={user.displayName || user.email || "Operator"}
       currentUserEmail={user.email || ""}
@@ -102,7 +103,7 @@ const App: React.FC = () => {
       organizationName={profile?.organization || profile?.workspaceName || "Shipment Operations"}
       onSignOut={() => signOut(auth)}
     />
-  </Suspense>;
+  </Suspense></WorkspaceViewSettingsProvider>;
 };
 
 export default App;
