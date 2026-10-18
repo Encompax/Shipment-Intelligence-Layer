@@ -44,8 +44,8 @@ const hasPermission = (panel: PanelConfig) =>
 const SIDEBAR_WORKFLOW_ORDER: PanelKey[] = [
   "transportationCommand",
   "datasources",
-  "planning",
   "orders",
+  "planning",
   "sourcing",
   "facilities",
   "tenders",
@@ -174,16 +174,16 @@ const Dashboard: React.FC<DashboardProps> = ({
                 body: "Bring operational records into SIL through governed file intake or a supported source connection.",
               },
               {
-                key: "planning" as TabKey,
-                label: "Loads & lanes",
-                eyebrow: "Plan",
-                body: "Review coverage, lane requirements, timing pressure, and the work that needs to be tendered.",
-              },
-              {
                 key: "orders" as TabKey,
                 label: "Orders",
                 eyebrow: "Build",
                 body: "Create and review transfer, inbound, and ad hoc orders before they are assigned to loads and lanes.",
+              },
+              {
+                key: "planning" as TabKey,
+                label: "Loads & lanes",
+                eyebrow: "Plan",
+                body: "Review coverage, lane requirements, timing pressure, and the work that needs to be tendered.",
               },
               {
                 key: "sourcing" as TabKey,
