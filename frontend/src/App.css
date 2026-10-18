@@ -1577,6 +1577,10 @@ td {
 .planning-audit-bar strong.verified { color: #075e54; }
 .planning-audit-bar strong.failed { color: #a2232e; }
 .planning-audit-bar strong.legacy_unverified { color: #805000; }
+.planning-batch-review { display: flex; align-items: center; gap: 7px; padding: 9px 14px; overflow-x: auto; border-bottom: 1px solid var(--color-border); background: var(--color-bg-default); }
+.planning-batch-review > span { flex: 0 0 auto; margin-right: 3px; color: var(--color-text-secondary); font-size: 10px; font-weight: 700; text-transform: uppercase; }
+.planning-batch-review button { flex: 0 0 auto; padding: 6px 9px; border: 1px solid var(--color-border-strong); border-radius: 3px; background: var(--color-bg-subtle); color: var(--color-text-secondary); cursor: pointer; font: inherit; font-size: 11px; }
+.planning-batch-review button.active { border-color: #168c83; background: #dff5f2; color: #064d47; font-weight: 700; }
 .planning-decision-panel { display: grid; grid-template-columns: minmax(220px, 1fr) minmax(260px, 1.4fr) auto; align-items: end; gap: 14px; padding: 14px 15px; border-bottom: 1px solid var(--color-border); }
 .planning-decision-panel > div:first-child { display: grid; gap: 4px; }
 .planning-decision-panel span, .planning-decision-panel small { color: var(--color-text-secondary); font-size: 11px; }
@@ -1655,9 +1659,14 @@ td {
 .planning-state.blocked span { background: #b83c47; }
 .planning-state.pending span { background: #5e6b7c; }
 .route-plan-review { padding: 14px; border-top: 1px solid #30445b; border-bottom: 1px solid #30445b; }
+.route-plan-explanation { max-width: 900px; margin: 4px 0 12px; color: var(--color-text-secondary); font-size: 12px; line-height: 1.5; }
 .route-plan-legs { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 10px; }
 .route-plan-legs article { display: grid; gap: 4px; padding: 11px; border: 1px solid #405066; background: #101b28; }
 .route-plan-legs article span, .route-plan-legs article small { color: #9fb0c3; }
+.route-plan-legs .segment-findings { margin-top: 5px; padding: 8px 0 0; border-top: 1px solid #30445b; }
+.lane-planning-diagnostics { border-bottom: 1px solid var(--color-border); }
+.lane-planning-diagnostics > summary { padding: 10px 14px; color: var(--color-text-primary); font-size: 12px; font-weight: 700; cursor: pointer; }
+.lane-planning-diagnostics > .ops-note { margin: 0; padding: 0 14px 4px; }
 .consolidation-assistant { margin-top: 14px; }
 .consolidation-chat { display: grid; gap: 12px; max-height: 420px; overflow: auto; }
 .consolidation-turn { display: grid; gap: 9px; padding: 12px; border-left: 3px solid #198d85; background: #101b28; }
