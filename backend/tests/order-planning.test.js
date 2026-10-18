@@ -47,6 +47,15 @@ test('keeps schedule deviations visible as review findings instead of silently c
   assert.ok(result.findings.some((finding) => finding.code === 'PICKUP_TIME_MISMATCH'));
 });
 
+test('an approved order-specific delivery exception does not alter the lane schedule', () => {
+  const finalMile = { ...lane, laneId: 'lane-order-override', laneType: 'FINAL_MILE', originFacilityId: order.originId, destinationFacilityId: order.destinationId, equipmentType: order.equipmentType, loadAssumption: order.modeType, dispatchDays: [], storeDeliveryDays: ['MONDAY'] };
+  const overridden = { ...order, latestDelivery: '2026-10-21T12:00', planningOverrideCodes: ['DELIVERY_DAY_MISMATCH:lane-order-override'] };
+  const result = scoreOrderLane({ order: overridden, lane: finalMile, eligibility: [], awards: [], partners: [] });
+  assert.ok(result.findings.some((finding) => finding.code === 'ORDER_DELIVERY_DAY_OVERRIDE' && finding.severity === 'INFO'));
+  assert.ok(!result.findings.some((finding) => finding.code === 'DELIVERY_DAY_MISMATCH'));
+  assert.deepEqual(finalMile.storeDeliveryDays, ['MONDAY']);
+});
+
 test('rejects route mismatches as ineligible candidates', () => {
   const result = scoreOrderLane({ order: { ...order, destinationId: 'facility-other' }, lane, eligibility, awards, partners });
   assert.equal(result.disposition, 'INELIGIBLE');
@@ -332,6 +341,7 @@ test('planning resolution assistant explains capacity and schedule findings with
   assert.ok(analysis.options.some((option) => option.actionType === 'SPLIT_ORDER' && option.parameters.loadCount === 2));
   assert.ok(analysis.options.some((option) => option.actionType === 'CHANGE_ORDER_EQUIPMENT' && option.executable));
   assert.ok(analysis.options.some((option) => option.actionType === 'CHANGE_ORDER_DELIVERY' && option.executable));
+  assert.ok(analysis.options.some((option) => option.actionType === 'ALLOW_ORDER_DELIVERY_DAY' && option.executable && option.title.includes('this order only')));
   assert.equal(JSON.stringify(proposal), original);
   const option = analysis.options.find((candidate) => candidate.actionType === 'CHANGE_ORDER_EQUIPMENT');
   const draft = await createPlanningResolutionDraft({ workspaceId: 'org-1', actor: 'planner-1', proposal, option });

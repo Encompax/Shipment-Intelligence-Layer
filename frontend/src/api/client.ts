@@ -84,6 +84,16 @@ export async function correctOrder(orderId: string, payload: Record<string, unkn
   return readJsonResponse(res, "Failed to correct order");
 }
 
+export async function createShipmentJourney(orderIds: string[]) {
+  const res = await fetch(`${API_BASE}/orders/journeys`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ orderIds }) });
+  return readJsonResponse(res, "Failed to build shipment journey");
+}
+
+export async function fetchOrderJourney(orderId: string) {
+  const res = await fetch(`${API_BASE}/orders/${encodeURIComponent(orderId)}/journey`);
+  return readJsonResponse(res, "Failed to load shipment journey");
+}
+
 export async function fetchEdiConfigurations() {
   const res = await fetch(`${API_BASE}/edi/configurations`);
   return readJsonResponse(res, "Failed to load EDI configurations");

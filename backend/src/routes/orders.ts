@@ -11,6 +11,7 @@ import { decideOrderPlanningProposal, listOrderPlanningDecisions, PlanningDecisi
 import { buildPlanningResolutionAnalysis, createPlanningResolutionDraft, getPlanningResolutionDraft, recordPlanningResolutionDecision } from "../services/planningResolutionService";
 import { buildOrderConsolidationDecision, buildOrderConsolidationProposal, getOrderConsolidationDecision, listOrderConsolidationProposals, registerLocalOrderConsolidationDecision, saveOrderConsolidationProposal, verifyOrderConsolidationProposal } from "../services/orderConsolidationService";
 import { runConsolidationAssistant, safetyIdentifierFor } from "../services/consolidationAssistantService";
+import { buildShipmentJourney, listShipmentJourneys, saveShipmentJourney } from "../services/shipmentJourneyService";
 
 export type OrderStatus = "DRAFT" | "VALIDATION_REQUIRED" | "READY_TO_PLAN" | "ASSIGNED_TO_LOAD" | "TENDERED" | "CARRIER_ACCEPTED" | "TENDER_REJECTED" | "TENDER_EXPIRED" | "IN_TRANSIT" | "DELIVERED";
 export type OrderRecord = Record<string, unknown> & { orderId: string; workspaceId: string; primaryReference: string; status: OrderStatus };
@@ -92,7 +93,7 @@ async function createAutomaticPlanningProposal(workspaceId: string, order: Order
   const [previous, facilities] = await Promise.all([getLatestOrderPlanningProposal(workspaceId, order.orderId), listFacilitiesForWorkspace(workspaceId)]);
   const proposal = buildOrderPlanningProposal({
     workspaceId,
-    order,
+    order: effectivePlanningOrder(order),
     lanes: planningRegistry.lanes,
     eligibility: planningRegistry.eligibility,
     awards: planningRegistry.awards,
@@ -103,6 +104,11 @@ async function createAutomaticPlanningProposal(workspaceId: string, order: Order
   });
   await saveOrderPlanningProposal(proposal);
   return proposal;
+}
+
+function effectivePlanningOrder(order: OrderRecord): OrderRecord {
+  const overrides = order.planningOverrides && typeof order.planningOverrides === "object" ? order.planningOverrides as Record<string, unknown> : {};
+  return { ...order, ...((overrides.values && typeof overrides.values === "object") ? overrides.values as Record<string, unknown> : {}), planningOverrideCodes: Array.isArray(overrides.codes) ? overrides.codes : [] } as OrderRecord;
 }
 
 export async function markLocalOrdersTenderState(workspaceId: string, orderIds: string[], status: OrderStatus, activeTenderId: string | null, updatedAt: string) {
@@ -293,6 +299,28 @@ export function registerOrderRoutes(app: Express) {
     }) });
   });
 
+  app.post("/api/orders/journeys", async (req, res) => {
+    const context = requireWorkspace(req, res); if (!context) return;
+    const orderIds: string[] = [...new Set<string>((Array.isArray(req.body?.orderIds) ? req.body.orderIds : []).map((value: unknown) => clean(value)).filter(Boolean))];
+    if (orderIds.length < 2) { res.status(400).json({ error: "Select at least two matched orders to build a shipment journey." }); return; }
+    const orders = await list(context.orgScope, "orders", localOrders);
+    if (orderIds.some((orderId) => !orders.some((order) => order.orderId === orderId))) { res.status(404).json({ error: "One or more selected orders were not found in this workspace." }); return; }
+    const proposals = (await Promise.all(orderIds.map((orderId) => getLatestOrderPlanningProposal(context.orgScope, orderId)))).filter(Boolean) as OrderPlanningProposal[];
+    if (proposals.length !== orderIds.length) { res.status(409).json({ error: "Every selected order must be matched before building a route chain." }); return; }
+    try {
+      const journey = buildShipmentJourney({ workspaceId: context.orgScope, proposals, actor: context.uid });
+      await saveShipmentJourney(journey);
+      res.status(201).json({ journey: { ...journey, integrity: "VERIFIED" } });
+    } catch (error) { res.status(422).json({ error: error instanceof Error ? error.message : "The shipment journey could not be built." }); }
+  });
+
+  app.get("/api/orders/:orderId/journey", async (req, res) => {
+    const context = requireWorkspace(req, res); if (!context) return;
+    const journeys = await listShipmentJourneys(context.orgScope, req.params.orderId);
+    if (!journeys.length) { res.status(404).json({ error: "No shipment journey includes this order." }); return; }
+    res.json({ journey: journeys[0], historyCount: journeys.length });
+  });
+
   app.post("/api/orders", async (req, res) => {
     const context = requireWorkspace(req, res); if (!context) return;
     const canonical = canonicalizeOrder(req.body || {}, Object.fromEntries(fields.map((field) => [field, field])));
@@ -337,7 +365,10 @@ export function registerOrderRoutes(app: Express) {
     }
     if (issues.some((issue) => issue.severity === "ERROR")) { res.status(422).json({ error: issues[0].message, issues, corrections: facilityReview.corrections }); return; }
     const now = new Date().toISOString();
-    const updated: OrderRecord = { ...order, ...canonical, issues, corrections: facilityReview.corrections, updatedAt: now } as OrderRecord;
+    const existingOverrides = order.planningOverrides && typeof order.planningOverrides === "object" ? order.planningOverrides as Record<string, any> : {};
+    const overrideValues = { ...(existingOverrides.values ?? {}) };
+    for (const field of Object.keys(changes)) delete overrideValues[field];
+    const updated: OrderRecord = { ...order, ...canonical, planningOverrides: { ...existingOverrides, values: overrideValues, codes: Object.keys(changes).some((field) => ["latestDelivery", "earliestPickup"].includes(field)) ? [] : (existingOverrides.codes ?? []) }, issues, corrections: facilityReview.corrections, updatedAt: now } as OrderRecord;
     const changedFields = editableFields.filter((field) => JSON.stringify(order[field] ?? null) !== JSON.stringify(updated[field] ?? null));
     if (!changedFields.length) { res.status(200).json({ order, proposal: await getLatestOrderPlanningProposal(context.orgScope, order.orderId), revision: null }); return; }
     const revisionBase = { schemaVersion: "1.0", revisionId: randomUUID(), workspaceId: context.orgScope, orderId: order.orderId, changedFields, before: Object.fromEntries(changedFields.map((field) => [field, order[field] ?? null])), after: Object.fromEntries(changedFields.map((field) => [field, updated[field] ?? null])), reason: clean(req.body?.reason, 1000) || "Planner correction", createdBy: context.uid, createdAt: now };
@@ -392,7 +423,7 @@ export function registerOrderRoutes(app: Express) {
     const facilities = await listFacilitiesForWorkspace(context.orgScope);
     const proposal = buildOrderPlanningProposal({
       workspaceId: context.orgScope,
-      order,
+      order: effectivePlanningOrder(order),
       lanes: registry.lanes,
       eligibility: registry.eligibility,
       awards: registry.awards,
@@ -445,17 +476,29 @@ export function registerOrderRoutes(app: Express) {
     if (!draft.option.executable) { res.status(409).json({ error: "This option requires an additional workflow and cannot be executed automatically yet." }); return; }
     const order = orders.find((item) => item.orderId === req.params.orderId);
     if (!order || order.status !== "READY_TO_PLAN") { res.status(409).json({ error: "Only an order that is ready to plan can be corrected." }); return; }
-    let updated: OrderRecord = { ...order, updatedAt: new Date().toISOString() };
-    if (draft.option.actionType === "CHANGE_ORDER_EQUIPMENT") updated = { ...updated, equipmentType: clean(draft.option.parameters.equipmentType) };
-    else if (draft.option.actionType === "CHANGE_ORDER_DELIVERY") updated = { ...updated, latestDelivery: clean(draft.option.parameters.latestDelivery) };
+    const now = new Date().toISOString();
+    const currentOverrides = order.planningOverrides && typeof order.planningOverrides === "object" ? order.planningOverrides as Record<string, any> : {};
+    const values = { ...(currentOverrides.values ?? {}) };
+    const codes = [...new Set(Array.isArray(currentOverrides.codes) ? currentOverrides.codes.map(String) : [])];
+    let overrideField = "";
+    let overrideValue: unknown;
+    if (draft.option.actionType === "CHANGE_ORDER_EQUIPMENT") { overrideField = "equipmentType"; overrideValue = clean(draft.option.parameters.equipmentType); values.equipmentType = overrideValue; }
+    else if (draft.option.actionType === "CHANGE_ORDER_DELIVERY") { overrideField = "latestDelivery"; overrideValue = clean(draft.option.parameters.latestDelivery); values.latestDelivery = overrideValue; }
+    else if (draft.option.actionType === "ALLOW_ORDER_DELIVERY_DAY") { overrideField = "deliverySchedule"; overrideValue = clean(draft.option.parameters.requestedDay); codes.push(`DELIVERY_DAY_MISMATCH:${clean(draft.option.parameters.laneId)}`); }
     else { res.status(409).json({ error: "This correction does not have an approved execution handler." }); return; }
+    const signalKey = `${overrideField}:${clean(draft.option.parameters.laneId) || "order"}`;
+    let recurrenceCount = 1;
+    if (isFirestorePrimaryEnabled()) recurrenceCount += (await intakeCollection(context.orgScope, "orderPlanningOverrides").where("signalKey", "==", signalKey).get()).docs.length;
+    const overrideRecord = { schemaVersion: "1.0", overrideId: randomUUID(), workspaceId: context.orgScope, orderId: order.orderId, proposalId: latest.proposalId, draftId: draft.draftId, actionType: draft.option.actionType, field: overrideField, value: overrideValue, laneId: clean(draft.option.parameters.laneId) || null, signalKey, recurrenceCount, status: "ACTIVE", createdBy: context.uid, createdAt: now };
+    const updated: OrderRecord = { ...order, planningOverrides: { values, codes: [...new Set(codes)], lastOverrideId: overrideRecord.overrideId, actionType: draft.option.actionType, field: overrideField, laneId: overrideRecord.laneId, recurrenceCount, updatedAt: now }, updatedAt: now };
     const [registry, facilities] = await Promise.all([listLanePlanningRegistry(context.orgScope), listFacilitiesForWorkspace(context.orgScope)]);
-    const proposal = buildOrderPlanningProposal({ workspaceId: context.orgScope, order: updated, lanes: registry.lanes, eligibility: registry.eligibility, awards: registry.awards, partners: registry.partners, facilities, actor: context.uid, supersedesProposalId: latest.proposalId });
+    const proposal = buildOrderPlanningProposal({ workspaceId: context.orgScope, order: effectivePlanningOrder(updated), lanes: registry.lanes, eligibility: registry.eligibility, awards: registry.awards, partners: registry.partners, facilities, actor: context.uid, supersedesProposalId: latest.proposalId });
     try {
       const record = await recordPlanningResolutionDecision({ workspaceId: context.orgScope, draftId: draft.draftId, decision: 'APPROVED', reason: clean(req.body?.reason, 1000), actor: context.uid, resultingProposalIds: [proposal.proposalId] });
       await save(context.orgScope, "orders", order.orderId, updated, localOrders);
+      if (isFirestorePrimaryEnabled()) await intakeCollection(context.orgScope, "orderPlanningOverrides").doc(overrideRecord.overrideId).create(overrideRecord);
       await saveOrderPlanningProposal(proposal);
-      res.status(201).json({ decision: record, order: updated, proposal });
+      res.status(201).json({ decision: record, order: updated, proposal, override: overrideRecord, dataQualitySignal: recurrenceCount >= 3 ? { signalKey, recurrenceCount, message: "This correction is recurring. Review the source data or reusable lane policy before making a permanent change." } : null });
     } catch (error) {
       res.status(409).json({ error: error instanceof Error ? error.message : "The resolution decision could not be recorded." });
     }

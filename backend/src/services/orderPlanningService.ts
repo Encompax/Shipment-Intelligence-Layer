@@ -201,6 +201,7 @@ export function scoreOrderLane(input: {
   partners: PartnerRecord[];
 }): LaneMatchCandidate {
   const { order, lane } = input;
+  const overrideCodes = Array.isArray(order.planningOverrideCodes) ? order.planningOverrideCodes.map(String) : [];
   const findings: PlanningFinding[] = [];
   let score = 100;
   const assess = (matches: boolean, finding: PlanningFinding) => { if (!matches) { score -= finding.scoreImpact; addFinding(findings, finding); } };
@@ -241,7 +242,11 @@ export function scoreOrderLane(input: {
     category: "PICKUP_SCHEDULE", severity: "WARNING", code: "PICKUP_DAY_MISMATCH", message: `Pickup falls on ${weekday(order.earliestPickup) || "an unknown day"}, outside the lane dispatch schedule.`, scoreImpact: ORDER_MATCHING_SCORE_WEIGHTS.pickupDay,
   });
   const deliveryDays = lane.laneType === "FINAL_MILE" ? lane.storeDeliveryDays : lane.terminalArrivalDays;
-  assess(!deliveryDays?.length || deliveryDays.includes(weekday(order.latestDelivery)), {
+  const deliveryDayMatches = !deliveryDays?.length || deliveryDays.includes(weekday(order.latestDelivery));
+  if (!deliveryDayMatches && overrideCodes.includes(`DELIVERY_DAY_MISMATCH:${lane.laneId}`)) addFinding(findings, {
+    category: "DELIVERY_SCHEDULE", severity: "INFO", code: "ORDER_DELIVERY_DAY_OVERRIDE", message: `A governed order-specific exception allows ${weekday(order.latestDelivery)} without changing the lane schedule.`, scoreImpact: 0,
+  });
+  else assess(deliveryDayMatches, {
     category: "DELIVERY_SCHEDULE", severity: "WARNING", code: "DELIVERY_DAY_MISMATCH", message: `Delivery falls on ${weekday(order.latestDelivery) || "an unknown day"}, outside the lane delivery schedule.`, scoreImpact: ORDER_MATCHING_SCORE_WEIGHTS.deliveryDay,
   });
   if (lane.laneType === "LINEHAUL" && lane.standardCarrierArrivalStart && lane.standardCarrierArrivalEnd && timePart(order.earliestPickup)) {
