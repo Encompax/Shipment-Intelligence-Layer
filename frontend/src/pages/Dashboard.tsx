@@ -41,6 +41,18 @@ const hasPermission = (panel: PanelConfig) =>
   panel.requiredPermissions.length === 0 ||
   panel.requiredPermissions.every((p) => CURRENT_USER_PERMISSIONS.includes(p));
 
+const SIDEBAR_WORKFLOW_ORDER: PanelKey[] = [
+  "transportationCommand",
+  "datasources",
+  "planning",
+  "orders",
+  "sourcing",
+  "facilities",
+  "tenders",
+  "production",
+  "productAlignment",
+];
+
 const Dashboard: React.FC<DashboardProps> = ({
   currentUserName,
   currentUserEmail,
@@ -156,6 +168,12 @@ const Dashboard: React.FC<DashboardProps> = ({
                 body: "Open the operating queue for tenders, active loads, shipment updates, and decisions needing attention.",
               },
               {
+                key: "datasources" as TabKey,
+                label: "Data intake",
+                eyebrow: "Connect",
+                body: "Bring operational records into SIL through governed file intake or a supported source connection.",
+              },
+              {
                 key: "planning" as TabKey,
                 label: "Loads & lanes",
                 eyebrow: "Plan",
@@ -184,12 +202,6 @@ const Dashboard: React.FC<DashboardProps> = ({
                 label: "Active shipments",
                 eyebrow: "Execute",
                 body: "Follow pickup, ETA, delivery, documents, and exceptions through completion.",
-              },
-              {
-                key: "datasources" as TabKey,
-                label: "Data intake",
-                eyebrow: "Connect",
-                body: "Bring operational records into SIL through governed file intake or a supported source connection.",
               },
             ].map((card) => (
               <button key={card.key} className="overview-route-card" type="button" onClick={() => setActiveTab(card.key)}>
@@ -254,7 +266,9 @@ const Dashboard: React.FC<DashboardProps> = ({
           </button>
 
           {PANEL_GROUPS.map((group) => {
-            const groupPanels = visiblePanels.filter((p) => p.group === group);
+            const groupPanels = visiblePanels
+              .filter((p) => p.group === group)
+              .sort((a, b) => SIDEBAR_WORKFLOW_ORDER.indexOf(a.key) - SIDEBAR_WORKFLOW_ORDER.indexOf(b.key));
             if (groupPanels.length === 0) return null;
             return (
               <div key={group} className="sidebar-section">
