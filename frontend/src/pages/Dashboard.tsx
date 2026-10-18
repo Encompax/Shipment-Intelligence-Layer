@@ -1,4 +1,4 @@
-import React, { Suspense, useMemo, useState } from "react";
+import React, { Suspense, useEffect, useMemo, useState } from "react";
 import {
   PANEL_CONFIG,
   PANEL_GROUPS,
@@ -64,6 +64,15 @@ const Dashboard: React.FC<DashboardProps> = ({
   const [shellSearch, setShellSearch] = useState("");
   const [shellSearchOpen, setShellSearchOpen] = useState(false);
   const { settings: viewSettings, setSettings: setViewSettings } = useWorkspaceViewSettings();
+
+  useEffect(() => {
+    const navigate = (event: Event) => {
+      const key = (event as CustomEvent<{ panel?: PanelKey }>).detail?.panel;
+      if (key && PANEL_CONFIG.some((panel) => panel.key === key)) setActiveTab(key);
+    };
+    window.addEventListener("sil:navigate", navigate);
+    return () => window.removeEventListener("sil:navigate", navigate);
+  }, []);
 
   const visiblePanels = PANEL_CONFIG.filter(hasPermission);
 
@@ -163,7 +172,7 @@ const Dashboard: React.FC<DashboardProps> = ({
             {[
               {
                 key: "transportationCommand" as TabKey,
-                label: "My work",
+                label: "Control tower",
                 eyebrow: "Control tower",
                 body: "Open the operating queue for tenders, active loads, shipment updates, and decisions needing attention.",
               },

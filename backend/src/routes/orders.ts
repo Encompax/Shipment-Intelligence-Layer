@@ -1,4 +1,4 @@
-import { randomUUID } from "crypto";
+import { createHash, randomUUID } from "crypto";
 import { Express, Request, Response } from "express";
 import { AuthenticatedSilRequest } from "../middleware/requireSilAuth";
 import { intakeCollection } from "../services/intake/intakeStore";
@@ -316,6 +316,36 @@ export function registerOrderRoutes(app: Express) {
     await save(context.orgScope, "orders", order.orderId, order, localOrders);
     const proposal = await createAutomaticPlanningProposal(context.orgScope, order, context.uid);
     res.status(201).json({ order, proposal });
+  });
+
+  app.patch("/api/orders/:orderId", async (req, res) => {
+    const context = requireWorkspace(req, res); if (!context) return;
+    const orders = await list(context.orgScope, "orders", localOrders);
+    const order = orders.find((item) => item.orderId === req.params.orderId);
+    if (!order) { res.status(404).json({ error: "Order not found." }); return; }
+    if (order.status !== "READY_TO_PLAN") { res.status(409).json({ error: "Only an order that is ready to plan can be corrected." }); return; }
+    const editableFields = ["originId", "destinationId", "businessUnit", "earliestPickup", "latestDelivery", "eachQuantity", "caseQuantity", "palletQuantity", "weight", "weightUom", "equipmentType", "scac", "modeType", "orderType"] as const;
+    const changes = Object.fromEntries(editableFields.filter((field) => Object.prototype.hasOwnProperty.call(req.body || {}, field)).map((field) => [field, req.body[field]]));
+    const canonical = canonicalizeOrder({ ...order, ...changes }, Object.fromEntries(fields.map((field) => [field, field])));
+    const facilityReview = await resolveFacilities(context.orgScope, [canonical]);
+    const issues = [...validateOrder(canonical, 1), ...facilityReview.issues];
+    const businessUnits = await listLaneBusinessUnits(context.orgScope);
+    if (!businessUnits.some((unit: any) => comparable(unit.name) === comparable(canonical.businessUnit) || comparable(unit.id) === comparable(canonical.businessUnit))) issues.push({ row: 1, field: "businessUnit", severity: "ERROR", code: "BUSINESS_UNIT_NOT_FOUND", message: "Select a configured organization business unit." });
+    if (clean(canonical.scac)) {
+      const partners = await listLanePartners(context.orgScope);
+      if (!partners.some((partner: any) => comparable(partner.scac) === comparable(canonical.scac))) issues.push({ row: 1, field: "scac", severity: "ERROR", code: "SCAC_NOT_FOUND", message: "Select the SCAC of a registered external partner." });
+    }
+    if (issues.some((issue) => issue.severity === "ERROR")) { res.status(422).json({ error: issues[0].message, issues, corrections: facilityReview.corrections }); return; }
+    const now = new Date().toISOString();
+    const updated: OrderRecord = { ...order, ...canonical, issues, corrections: facilityReview.corrections, updatedAt: now } as OrderRecord;
+    const changedFields = editableFields.filter((field) => JSON.stringify(order[field] ?? null) !== JSON.stringify(updated[field] ?? null));
+    if (!changedFields.length) { res.status(200).json({ order, proposal: await getLatestOrderPlanningProposal(context.orgScope, order.orderId), revision: null }); return; }
+    const revisionBase = { schemaVersion: "1.0", revisionId: randomUUID(), workspaceId: context.orgScope, orderId: order.orderId, changedFields, before: Object.fromEntries(changedFields.map((field) => [field, order[field] ?? null])), after: Object.fromEntries(changedFields.map((field) => [field, updated[field] ?? null])), reason: clean(req.body?.reason, 1000) || "Planner correction", createdBy: context.uid, createdAt: now };
+    const revision = { ...revisionBase, contentHash: createHash("sha256").update(JSON.stringify(revisionBase)).digest("hex") };
+    await save(context.orgScope, "orders", order.orderId, updated, localOrders);
+    if (isFirestorePrimaryEnabled()) await intakeCollection(context.orgScope, "orderRevisions").doc(revision.revisionId).create(revision);
+    const proposal = await createAutomaticPlanningProposal(context.orgScope, updated, context.uid);
+    res.status(200).json({ order: updated, proposal, revision });
   });
 
   app.get("/api/orders/intake-profiles", async (req, res) => {

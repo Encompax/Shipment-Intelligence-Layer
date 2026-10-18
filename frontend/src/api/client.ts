@@ -79,6 +79,11 @@ export async function createOrder(payload: Record<string, unknown>) {
   return readJsonResponse(res, "Failed to create order");
 }
 
+export async function correctOrder(orderId: string, payload: Record<string, unknown>) {
+  const res = await fetch(`${API_BASE}/orders/${encodeURIComponent(orderId)}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+  return readJsonResponse(res, "Failed to correct order");
+}
+
 export async function fetchEdiConfigurations() {
   const res = await fetch(`${API_BASE}/edi/configurations`);
   return readJsonResponse(res, "Failed to load EDI configurations");

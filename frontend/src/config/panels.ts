@@ -65,7 +65,7 @@ export const PANEL_CONFIG: PanelConfig[] = [
   {
     key: "facilities",
     label: "Facilities & locations",
-    group: "Plan & Source",
+    group: "Workspace",
     component: FacilitiesPanel,
     showInOverview: false,
     requiredPermissions: ["planning:view"],
@@ -89,7 +89,7 @@ export const PANEL_CONFIG: PanelConfig[] = [
   // ── Logistics ───────────────────────────────────────────────────────────
   {
     key: "transportationCommand",
-    label: "My work",
+    label: "Control tower",
     group: "Control Tower",
     component: TransportationCommandPanel,
     showInOverview: false,
