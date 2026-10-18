@@ -379,6 +379,8 @@ export function registerOrderRoutes(app: Express) {
     const context = requireWorkspace(req, res); if (!context) return;
     const proposal = await getLatestOrderPlanningProposal(context.orgScope, req.params.orderId);
     if (!proposal) { res.status(404).json({ error: "Run lane matching before requesting planning assistance." }); return; }
+    const proposalDecision = (await listOrderPlanningDecisions(context.orgScope, req.params.orderId)).find((item) => item.proposalId === proposal.proposalId);
+    if (proposalDecision) { res.status(409).json({ error: `This planning proposal was already ${proposalDecision.decision.toLowerCase()}. Run lane matching again to create a new proposal before requesting assistance.` }); return; }
     if (proposal.integrity !== "VERIFIED") { res.status(409).json({ error: "Planning evidence integrity must be verified before assistance can prepare a correction." }); return; }
     res.json(buildPlanningResolutionAnalysis(proposal));
   });
@@ -387,6 +389,8 @@ export function registerOrderRoutes(app: Express) {
     const context = requireWorkspace(req, res); if (!context) return;
     const proposal = await getLatestOrderPlanningProposal(context.orgScope, req.params.orderId);
     if (!proposal || proposal.integrity !== "VERIFIED") { res.status(409).json({ error: "Verified current planning evidence is required." }); return; }
+    const proposalDecision = (await listOrderPlanningDecisions(context.orgScope, req.params.orderId)).find((item) => item.proposalId === proposal.proposalId);
+    if (proposalDecision) { res.status(409).json({ error: `This planning proposal was already ${proposalDecision.decision.toLowerCase()}. Run lane matching again before preparing a correction.` }); return; }
     const analysis = buildPlanningResolutionAnalysis(proposal);
     const option = analysis.options.find((item) => item.optionId === clean(req.body?.optionId));
     if (!option) { res.status(400).json({ error: "Select a resolution produced from the current proposal." }); return; }
@@ -399,9 +403,11 @@ export function registerOrderRoutes(app: Express) {
     const context = requireWorkspace(req, res); if (!context) return;
     const decision = clean(req.body?.decision).toUpperCase();
     if (!['APPROVED', 'REJECTED'].includes(decision)) { res.status(400).json({ error: "Decision must be APPROVED or REJECTED." }); return; }
-    const [draft, latest, orders] = await Promise.all([getPlanningResolutionDraft(context.orgScope, req.params.draftId), getLatestOrderPlanningProposal(context.orgScope, req.params.orderId), list(context.orgScope, "orders", localOrders)]);
+    const [draft, latest, orders, proposalDecisions] = await Promise.all([getPlanningResolutionDraft(context.orgScope, req.params.draftId), getLatestOrderPlanningProposal(context.orgScope, req.params.orderId), list(context.orgScope, "orders", localOrders), listOrderPlanningDecisions(context.orgScope, req.params.orderId)]);
     if (!draft || draft.orderId !== req.params.orderId) { res.status(404).json({ error: "Resolution draft not found." }); return; }
     if (draft.integrity !== "VERIFIED" || !latest || latest.proposalId !== draft.proposalId || latest.contentHash !== draft.proposalContentHash) { res.status(409).json({ error: "This draft is not based on the current verified planning proposal." }); return; }
+    const proposalDecision = proposalDecisions.find((item) => item.proposalId === draft.proposalId);
+    if (proposalDecision) { res.status(409).json({ error: `This planning proposal was already ${proposalDecision.decision.toLowerCase()}. Its resolution drafts are closed.` }); return; }
     if (decision === 'REJECTED') {
       const record = await recordPlanningResolutionDecision({ workspaceId: context.orgScope, draftId: draft.draftId, decision: 'REJECTED', reason: clean(req.body?.reason, 1000), actor: context.uid });
       res.status(201).json({ decision: record, order: null, proposal: null }); return;
