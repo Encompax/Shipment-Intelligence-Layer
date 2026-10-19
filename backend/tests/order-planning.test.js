@@ -157,6 +157,8 @@ test('blocks a route plan when its calculated delivery misses the order commitme
   const slowLane = { ...lane, terminalArrivalDays: ['FRIDAY'], terminalArrivalStart: '19:00', terminalArrivalEnd: '21:00' };
   const proposal = buildOrderPlanningProposal({ workspaceId: 'org-1', order, lanes: [slowLane], eligibility, awards, partners, actor: 'planner-1' });
   assert.equal(proposal.outcome, 'NO_MATCH');
+  assert.equal(proposal.recommendedRoutePlanId, null);
+  assert.equal(proposal.recommendedLaneId, undefined);
   assert.ok(proposal.routePlans[0].findings.some((finding) => finding.code === 'DELIVERY_COMMITMENT_MISSED'));
 });
 
@@ -333,17 +335,21 @@ test('planning resolution assistant explains capacity and schedule findings with
   const heavyOrder = { ...order, orderId: 'order-resolution-1', equipmentType: 'BOX TRUCK', modeType: 'LTL', weight: 15000, palletQuantity: 8, latestDelivery: '2026-10-13T18:30' };
   const finalMile = { ...lane, laneId: 'lane-final-mile', name: 'ATL Final Mile', laneType: 'FINAL_MILE', equipmentType: 'BOX TRUCK', loadAssumption: 'LTL', storeDeliveryDays: ['WEDNESDAY'], terminalArrivalDays: [], workspaceId: 'org-1' };
   const largerLane = { ...finalMile, laneId: 'lane-final-mile-53', name: 'ATL Final Mile 53', equipmentType: '53 FT DRY VAN' };
-  const proposal = buildOrderPlanningProposal({ workspaceId: 'org-1', order: heavyOrder, lanes: [finalMile, largerLane], eligibility: [], awards: [], partners: [], actor: 'planner-1' });
+  const unrelatedLinehaul = { ...lane, laneId: 'lane-unrelated-linehaul', name: 'Unrelated Linehaul', laneType: 'LINEHAUL', equipmentType: '53 FT DRY VAN', loadAssumption: 'TL', originFacilityId: 'somewhere-else' };
+  const proposal = buildOrderPlanningProposal({ workspaceId: 'org-1', order: heavyOrder, lanes: [finalMile, largerLane, unrelatedLinehaul], eligibility: [], awards: [], partners: [], actor: 'planner-1' });
   const original = JSON.stringify(proposal);
   const analysis = buildPlanningResolutionAnalysis(proposal);
-  assert.ok(analysis.findings.some((finding) => finding.code === 'WEIGHT_CAPACITY_EXCEEDED'));
+  assert.ok(analysis.findings.some((finding) => ['WEIGHT_CAPACITY_EXCEEDED', 'EQUIPMENT_MISMATCH'].includes(finding.code)));
   assert.ok(analysis.findings.some((finding) => finding.code === 'DELIVERY_DAY_MISMATCH'));
-  assert.ok(analysis.options.some((option) => option.actionType === 'SPLIT_ORDER' && option.parameters.loadCount === 2));
-  assert.ok(analysis.options.some((option) => option.actionType === 'CHANGE_ORDER_EQUIPMENT' && option.executable));
-  assert.ok(analysis.options.some((option) => option.actionType === 'CHANGE_ORDER_DELIVERY' && option.executable));
-  assert.ok(analysis.options.some((option) => option.actionType === 'ALLOW_ORDER_DELIVERY_DAY' && option.executable && option.title.includes('this order only')));
+  assert.equal(analysis.inferredLaneType, 'FINAL_MILE');
+  assert.equal(analysis.options.length, 1);
+  assert.equal(analysis.options[0].actionType, 'APPLY_CORRECTION_SET');
+  assert.equal(analysis.options[0].executable, true);
+  assert.ok(analysis.findings.every((finding) => finding.laneId !== unrelatedLinehaul.laneId));
+  assert.ok(analysis.options[0].parameters.changes.some((item) => item.kind === 'ORDER_FIELD' && item.field === 'equipmentType'));
+  assert.ok(analysis.options[0].parameters.changes.some((item) => item.kind === 'SCHEDULE_EXCEPTION'));
   assert.equal(JSON.stringify(proposal), original);
-  const option = analysis.options.find((candidate) => candidate.actionType === 'CHANGE_ORDER_EQUIPMENT');
+  const option = analysis.options[0];
   const draft = await createPlanningResolutionDraft({ workspaceId: 'org-1', actor: 'planner-1', proposal, option });
   assert.equal(draft.integrity, 'VERIFIED');
   assert.equal((await getPlanningResolutionDraft('org-other', draft.draftId)), null);

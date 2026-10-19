@@ -455,7 +455,6 @@ export function registerOrderRoutes(app: Express) {
     const analysis = buildPlanningResolutionAnalysis(proposal);
     const option = analysis.options.find((item) => item.optionId === clean(req.body?.optionId));
     if (!option) { res.status(400).json({ error: "Select a resolution produced from the current proposal." }); return; }
-    if (!option.executable) { res.status(409).json({ error: "This proposal needs additional planner configuration before SIL can prepare an executable draft." }); return; }
     const draft = await createPlanningResolutionDraft({ workspaceId: context.orgScope, actor: context.uid, proposal, option });
     res.status(201).json({ draft });
   });
@@ -485,6 +484,25 @@ export function registerOrderRoutes(app: Express) {
     if (draft.option.actionType === "CHANGE_ORDER_EQUIPMENT") { overrideField = "equipmentType"; overrideValue = clean(draft.option.parameters.equipmentType); values.equipmentType = overrideValue; }
     else if (draft.option.actionType === "CHANGE_ORDER_DELIVERY") { overrideField = "latestDelivery"; overrideValue = clean(draft.option.parameters.latestDelivery); values.latestDelivery = overrideValue; }
     else if (draft.option.actionType === "ALLOW_ORDER_DELIVERY_DAY") { overrideField = "deliverySchedule"; overrideValue = clean(draft.option.parameters.requestedDay); codes.push(`DELIVERY_DAY_MISMATCH:${clean(draft.option.parameters.laneId)}`); }
+    else if (draft.option.actionType === "APPLY_CORRECTION_SET") {
+      const changes = Array.isArray(draft.option.parameters.changes) ? draft.option.parameters.changes as Array<Record<string, unknown>> : [];
+      const unresolved = Array.isArray(draft.option.parameters.unresolved) ? draft.option.parameters.unresolved : [];
+      if (!changes.length || unresolved.length) { res.status(409).json({ error: "This correction package still requires planner input and cannot be applied automatically." }); return; }
+      overrideField = "correctionSet";
+      overrideValue = changes.map((change) => clean(change.label)).filter(Boolean);
+      for (const change of changes) {
+        if (change.kind === "ORDER_FIELD") {
+          const field = clean(change.field);
+          if (!["modeType", "equipmentType", "latestDelivery"].includes(field)) { res.status(409).json({ error: "The correction package contains an unsupported order field." }); return; }
+          values[field] = change.value;
+        } else if (change.kind === "SCHEDULE_EXCEPTION") {
+          const findingCode = clean(change.findingCode);
+          const laneId = clean(change.laneId);
+          if (!["PICKUP_DAY_MISMATCH", "DELIVERY_DAY_MISMATCH"].includes(findingCode) || !laneId) { res.status(409).json({ error: "The correction package contains an invalid schedule exception." }); return; }
+          codes.push(`${findingCode}:${laneId}`);
+        } else { res.status(409).json({ error: "The correction package contains an unsupported action." }); return; }
+      }
+    }
     else { res.status(409).json({ error: "This correction does not have an approved execution handler." }); return; }
     const signalKey = `${overrideField}:${clean(draft.option.parameters.laneId) || "order"}`;
     let recurrenceCount = 1;

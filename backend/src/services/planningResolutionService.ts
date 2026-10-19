@@ -5,7 +5,7 @@ import type { OrderPlanningProposal, LaneMatchCandidate, PlanningFinding } from 
 
 export type ResolutionOption = {
   optionId: string;
-  actionType: "CHANGE_ORDER_EQUIPMENT" | "CHANGE_ORDER_DELIVERY" | "ALLOW_ORDER_DELIVERY_DAY" | "SPLIT_ORDER" | "BUILD_ROUTE_CHAIN";
+  actionType: "CHANGE_ORDER_EQUIPMENT" | "CHANGE_ORDER_DELIVERY" | "ALLOW_ORDER_DELIVERY_DAY" | "SPLIT_ORDER" | "BUILD_ROUTE_CHAIN" | "APPLY_CORRECTION_SET";
   title: string; explanation: string; operationalEffect: string; costEffect: string; parameters: Record<string, unknown>;
   executable: boolean; requiresApproval: true; evidenceCodes: string[];
 };
@@ -23,54 +23,63 @@ const canonical = (value: unknown): string => value === null || typeof value !==
 const hash = (value: Record<string, unknown>) => createHash("sha256").update(canonical(value)).digest("hex");
 const withoutIntegrity = <T extends { contentHash?: string; integrity?: string }>(value: T) => { const { contentHash: _h, integrity: _i, ...rest } = value; return rest; };
 const weekday = ["SUNDAY", "MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY"];
-function nextAllowedDate(value: unknown, days: string[]) {
-  const source = new Date(String(value)); if (!Number.isFinite(source.getTime()) || !days.length) return null;
-  for (let offset = 0; offset <= 7; offset += 1) {
-    const candidate = new Date(source); candidate.setDate(source.getDate() + offset);
-    if (days.includes(weekday[candidate.getDay()])) {
-      const part = (number: number) => String(number).padStart(2, "0");
-      return `${candidate.getFullYear()}-${part(candidate.getMonth() + 1)}-${part(candidate.getDate())}T${part(candidate.getHours())}:${part(candidate.getMinutes())}`;
-    }
-  }
-  return null;
-}
 const cost = (candidate: LaneMatchCandidate) => candidate.activeAwards.length
   ? `Uses the current ${candidate.activeAwards[0].currency} ${candidate.activeAwards[0].rate} ${candidate.activeAwards[0].rateUnit.replace(/_/g, " ").toLowerCase()} award; final cost depends on created load count.`
   : "No active awarded rate is available, so cost must be reviewed before tendering.";
 
 export function buildPlanningResolutionAnalysis(proposal: OrderPlanningProposal) {
-  const options: ResolutionOption[] = [];
   const order = proposal.orderSnapshot;
-  const routePlan = proposal.routePlans?.find((plan) => plan.routePlanId === proposal.recommendedRoutePlanId);
-  const analysisCandidates = routePlan?.planType === "HUB_SPOKE" ? routePlan.legs.map((leg) => leg.candidate) : proposal.candidates;
-  const add = (option: Omit<ResolutionOption, "optionId" | "requiresApproval">) => {
-    const key = `${option.actionType}:${canonical(option.parameters)}`;
-    if (!options.some((item) => `${item.actionType}:${canonical(item.parameters)}` === key)) options.push({ ...option, optionId: createHash("sha256").update(`${proposal.proposalId}:${key}`).digest("hex").slice(0, 16), requiresApproval: true });
-  };
+  const selectedRoutePlan = proposal.routePlans?.find((plan) => plan.routePlanId === proposal.recommendedRoutePlanId);
+  const routePlan = selectedRoutePlan?.disposition === "INELIGIBLE" ? undefined : selectedRoutePlan;
+  const normalizedType = String(order.orderType || "").toUpperCase();
+  const inferredLaneType = normalizedType === "FINAL_MILE" || normalizedType === "INBOUND" || normalizedType === "ADHOC" || normalizedType === "LINEHAUL"
+    ? normalizedType
+    : String(order.modeType || "").toUpperCase() === "LTL" || ["BOX TRUCK", "26 FT DRY VAN"].includes(String(order.equipmentType || "").toUpperCase())
+      ? "FINAL_MILE"
+      : "LINEHAUL";
+  const relevantCandidates = routePlan
+    ? routePlan.legs.map((leg) => leg.candidate)
+    : proposal.candidates.filter((candidate) => candidate.laneType === inferredLaneType);
+  // A single best segment is the correction target. Other lane evaluations remain
+  // immutable diagnostics and must not become proposed changes for this order.
+  const analysisCandidates = routePlan ? relevantCandidates : relevantCandidates.slice(0, 1);
+  const findings = analysisCandidates.flatMap((candidate) => candidate.findings.map((finding: PlanningFinding) => ({ laneId: candidate.laneId, laneName: candidate.laneName, ...finding })));
+  const changes: Array<Record<string, unknown>> = [];
+  const unresolved: string[] = [];
+  const evidenceCodes = [...new Set(findings.map((finding) => finding.code))];
   for (const candidate of analysisCandidates) {
-    const codes = candidate.findings.map((finding) => finding.code);
-    if (codes.some((code) => ["WEIGHT_CAPACITY_EXCEEDED", "PALLET_CAPACITY_EXCEEDED"].includes(code)) && candidate.capacityRule) {
+    const codes = new Set(candidate.findings.map((finding) => finding.code));
+    if (codes.has("ROUTE_MISMATCH")) unresolved.push(`Confirm this order's origin and destination; they do not match ${candidate.laneName}.`);
+    if (codes.has("BUSINESS_UNIT_MISMATCH")) unresolved.push(`Choose the business unit authorized for ${candidate.laneName}.`);
+    if (codes.has("SERVICE_TYPE_MISMATCH")) unresolved.push(`Confirm the order service type before using ${candidate.laneName}.`);
+    if ((codes.has("WEIGHT_CAPACITY_EXCEEDED") || codes.has("PALLET_CAPACITY_EXCEEDED")) && candidate.capacityRule) {
       const weight = Number(order.weight || 0) * (String(order.weightUom || "LBS").toUpperCase() === "KG" ? 2.2046226218 : 1);
       const pallets = Number(order.palletQuantity || 0);
       const count = Math.max(2, Math.ceil(weight / candidate.capacityRule.maxWeightLbs), Math.ceil(pallets / candidate.capacityRule.maxPallets));
-      add({ actionType: "SPLIT_ORDER", title: `Split into ${count} ${candidate.capacityRule.equipmentType} loads`, explanation: `Divide the order so each planned load remains within ${candidate.capacityRule.maxWeightLbs.toLocaleString()} LBS and ${candidate.capacityRule.maxPallets} pallets.`, operationalEffect: `Creates ${count} separately planned loads and requires capacity for each.`, costEffect: `${cost(candidate)} Multiple loads can multiply linehaul or stop charges.`, parameters: { laneId: candidate.laneId, loadCount: count }, executable: false, evidenceCodes: codes.filter((code) => code.includes("CAPACITY")) });
+      unresolved.push(`Split the order into ${count} loads or select a compatible higher-capacity ${candidate.laneType.replace(/_/g, " ").toLowerCase()} lane.`);
     }
-    const deliveryFinding = candidate.findings.find((finding) => finding.code === "DELIVERY_DAY_MISMATCH");
-    const allowedDays = candidate.laneType === "FINAL_MILE" ? candidate.laneSnapshot.storeDeliveryDays : candidate.laneSnapshot.terminalArrivalDays;
-    const nextDelivery = deliveryFinding ? nextAllowedDate(order.latestDelivery, allowedDays || []) : null;
-    if (deliveryFinding && nextDelivery) add({ actionType: "CHANGE_ORDER_DELIVERY", title: `Move delivery to ${weekday[new Date(nextDelivery).getDay()]}`, explanation: `Move the order's latest delivery to the next day allowed by ${candidate.laneName}.`, operationalEffect: "Changes the customer delivery commitment and runs lane matching again.", costEffect: cost(candidate), parameters: { latestDelivery: nextDelivery, laneId: candidate.laneId }, executable: true, evidenceCodes: [deliveryFinding.code] });
-    if (deliveryFinding) add({ actionType: "ALLOW_ORDER_DELIVERY_DAY", title: `Allow ${weekday[new Date(String(order.latestDelivery)).getDay()]} for this order only`, explanation: `Create a temporary exception for this order without changing ${candidate.laneName} or its reusable delivery schedule.`, operationalEffect: "Applies only while planning this order, reruns matching, and logs the exception as a recurring data-quality signal.", costEffect: "No lane rate or permanent schedule changes are assumed; the planner remains responsible for confirming facility and carrier availability.", parameters: { laneId: candidate.laneId, requestedDay: weekday[new Date(String(order.latestDelivery)).getDay()], findingCode: deliveryFinding.code }, executable: true, evidenceCodes: [deliveryFinding.code] });
+    if (codes.has("MODE_MISMATCH") && !codes.has("ROUTE_MISMATCH")) changes.push({ kind: "ORDER_FIELD", field: "modeType", value: candidate.laneSnapshot.loadAssumption, laneId: candidate.laneId, label: `Use ${candidate.laneSnapshot.loadAssumption} mode for ${candidate.laneName}.` });
+    if (codes.has("EQUIPMENT_MISMATCH") && !codes.has("ROUTE_MISMATCH") && !codes.has("WEIGHT_CAPACITY_EXCEEDED") && !codes.has("PALLET_CAPACITY_EXCEEDED")) changes.push({ kind: "ORDER_FIELD", field: "equipmentType", value: candidate.laneSnapshot.equipmentType, laneId: candidate.laneId, label: `Use ${candidate.laneSnapshot.equipmentType} for ${candidate.laneName}.` });
+    for (const [code, source, label] of [["PICKUP_DAY_MISMATCH", order.earliestPickup, "pickup"], ["DELIVERY_DAY_MISMATCH", order.latestDelivery, "delivery"]] as const) {
+      if (codes.has(code)) changes.push({ kind: "SCHEDULE_EXCEPTION", findingCode: code, requestedDay: weekday[new Date(String(source)).getDay()], laneId: candidate.laneId, label: `Allow this order's ${label} day on ${candidate.laneName} without changing the lane schedule.` });
+    }
   }
-  const equipmentCandidates = analysisCandidates.filter((candidate) => candidate.capacityRule && !candidate.findings.some((finding) => ["ROUTE_MISMATCH", "BUSINESS_UNIT_MISMATCH", "WEIGHT_CAPACITY_EXCEEDED", "PALLET_CAPACITY_EXCEEDED"].includes(finding.code)));
-  equipmentCandidates.forEach((candidate) => add({ actionType: "CHANGE_ORDER_EQUIPMENT", title: `Use ${candidate.capacityRule!.equipmentType}`, explanation: `Use the configured ${candidate.capacityRule!.maxWeightLbs.toLocaleString()} LBS / ${candidate.capacityRule!.maxPallets}-pallet capacity.`, operationalEffect: "Changes the order equipment request and reruns lane matching.", costEffect: cost(candidate), parameters: { equipmentType: candidate.capacityRule!.equipmentType, laneId: candidate.laneId }, executable: true, evidenceCodes: ["WEIGHT_CAPACITY_EXCEEDED", "PALLET_CAPACITY_EXCEEDED"] }));
-  if (!routePlan && proposal.candidates.some((candidate) => candidate.laneType === "LINEHAUL") && proposal.candidates.some((candidate) => candidate.laneType === "FINAL_MILE")) add({ actionType: "BUILD_ROUTE_CHAIN", title: "Build a Linehaul-to-Final-Mile route chain", explanation: "Plan the order through an intermediate terminal instead of requiring one lane to cover the entire route.", operationalEffect: "Creates separate Linehaul and Final Mile segments with a governed handoff between them.", costEffect: "Requires separate segment awards and exposes total landed transportation cost.", parameters: {}, executable: false, evidenceCodes: ["ROUTE_MISMATCH"] });
-  const findings = analysisCandidates.flatMap((candidate) => candidate.findings.map((finding: PlanningFinding) => ({ laneId: candidate.laneId, laneName: candidate.laneName, ...finding })));
-  const response = options.length
-    ? "Proposed governed resolution paths are shown below. Select one to prepare an action draft. Nothing changes until you explicitly approve an executable draft."
-    : routePlan
-      ? `I reviewed the ${routePlan.planType === "HUB_SPOKE" ? "hub-and-spoke" : "direct"} route plan and found no correction that should be prepared automatically. Review the segment evidence and carrier awards before approval.`
-      : "I could not identify a safe automatic correction. Review the proposal evidence with a planner or Data Steward.";
-  return { proposalId: proposal.proposalId, orderId: proposal.orderId, outcome: proposal.outcome, findings, options, response };
+  const executable = changes.length > 0 && unresolved.length === 0;
+  const parameters = { changes, unresolved, inferredLaneType };
+  const option: ResolutionOption | null = findings.length ? {
+    optionId: createHash("sha256").update(`${proposal.proposalId}:APPLY_CORRECTION_SET:${canonical(parameters)}`).digest("hex").slice(0, 16),
+    actionType: "APPLY_CORRECTION_SET", title: "Proposed order correction", requiresApproval: true,
+    explanation: unresolved.length ? "SIL found issues that require order input before a safe correction can be applied." : "SIL combined the compatible corrections into one order-specific change set.",
+    operationalEffect: changes.length ? changes.map((change) => String(change.label)).join(" ") : "No automatic order change is safe from the current evidence.",
+    costEffect: analysisCandidates[0] ? cost(analysisCandidates[0]) : "No compatible lane and rate were identified.",
+    parameters, executable, evidenceCodes,
+  } : null;
+  const response = !analysisCandidates.length
+    ? `No ${inferredLaneType.replace(/_/g, " ").toLowerCase()} lane is compatible with this order. Unrelated lane types were excluded from the proposed changes.`
+    : executable
+      ? "SIL reviewed the relevant segment evidence and prepared one governed correction package. Accept applies the order-specific changes and reruns matching; the lane remains unchanged."
+      : "SIL reviewed the relevant segment evidence as one case. Resolve the listed order inputs with Modify order; unrelated lane evaluations are not included as proposed changes.";
+  return { proposalId: proposal.proposalId, orderId: proposal.orderId, outcome: proposal.outcome, inferredLaneType, findings, options: option ? [option] : [], response };
 }
 
 export async function createPlanningResolutionDraft(input: { workspaceId: string; actor: string; proposal: OrderPlanningProposal; option: ResolutionOption }) {

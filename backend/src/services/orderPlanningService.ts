@@ -321,7 +321,6 @@ export function buildOrderPlanningProposal(input: {
     .filter((lane) => lane.workspaceId === input.workspaceId && lane.status === "ACTIVE")
     .map((lane) => scoreOrderLane({ order: orderForMatching, lane, eligibility: input.eligibility, awards: input.awards, partners: input.partners }))
     .sort((left, right) => right.score - left.score || left.laneName.localeCompare(right.laneName));
-  const recommended = candidates.find((candidate) => candidate.disposition !== "INELIGIBLE");
   const directPlans: RoutePlanRecommendation[] = candidates.map((candidate) => {
     const lane = input.lanes.find((item) => item.laneId === candidate.laneId)!;
     const schedule = calculateRouteSchedule(orderForMatching, [lane]);
@@ -367,8 +366,11 @@ export function buildOrderPlanningProposal(input: {
     const rank = { MATCH: 2, REVIEW: 1, INELIGIBLE: 0 };
     return rank[right.disposition] - rank[left.disposition] || right.score - left.score;
   });
-  const recommendedRoutePlan = routePlans.find((plan) => plan.disposition !== "INELIGIBLE") ?? routePlans[0] ?? null;
-  const routeRecommendedCandidate = recommendedRoutePlan?.legs[0]?.candidate ?? recommended;
+  // An ineligible lane is evidence about why matching failed, not a recommendation.
+  // Promoting the highest-scoring failure caused Final Mile order attributes to be
+  // presented as required changes to unrelated Linehaul lanes.
+  const recommendedRoutePlan = routePlans.find((plan) => plan.disposition !== "INELIGIBLE") ?? null;
+  const routeRecommendedCandidate = recommendedRoutePlan?.legs[0]?.candidate;
   const proposalWithoutHash: Omit<OrderPlanningProposal, "contentHash"> = {
     schemaVersion: ORDER_PLANNING_SCHEMA_VERSION,
     matchingPolicyVersion: ORDER_MATCHING_POLICY_VERSION,
