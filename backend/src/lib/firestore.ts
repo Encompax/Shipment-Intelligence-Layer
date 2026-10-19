@@ -9,6 +9,12 @@ export const isFirestorePrimaryEnabled = () =>
 
 export const isSilFirestoreStorageEnabled = () => isFirestoreMirrorEnabled() || isFirestorePrimaryEnabled();
 
+export function assertSilOperationalStorageConfigured() {
+  if (process.env.NODE_ENV === "production" && !isFirestorePrimaryEnabled()) {
+    throw new Error("SIL_FIRESTORE_PRIMARY_ENABLED=true is required in production to prevent ephemeral operational state.");
+  }
+}
+
 export const getSilFirestoreProjectId = () =>
   process.env.SIL_FIRESTORE_PROJECT_ID || process.env.GOOGLE_CLOUD_PROJECT || process.env.GCLOUD_PROJECT || null;
 

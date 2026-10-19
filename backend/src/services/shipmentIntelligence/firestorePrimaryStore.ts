@@ -7,13 +7,17 @@ import {
 import { SilGovernanceSignalDraft, SilShipmentDocument, SilWorkflowEvent } from "./types";
 import type { SilGovernanceSignalEnvelope, SilWorkspacePayload } from "./silPersistenceService";
 
-const DEFAULT_WORKSPACE_ID = "workspace-shipment-operations";
-
 const safeDocumentId = (value: string) => value.replace(/[/?#[\]]/g, "_");
 
 const stripUndefined = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
 
-const getWorkspaceId = (workspaceId?: string) => workspaceId || DEFAULT_WORKSPACE_ID;
+const getWorkspaceId = (workspaceId?: string) => {
+  const scopedWorkspaceId = workspaceId?.trim();
+  if (!scopedWorkspaceId) {
+    throw new Error("workspaceId is required for SIL Firestore persistence.");
+  }
+  return scopedWorkspaceId;
+};
 
 const workspaceDocument = (workspaceId?: string) => {
   const db = getSilFirestore();

@@ -24,14 +24,19 @@ import { registerTenderRoutes } from "./routes/tenders";
 import { registerEdiConfigurationRoutes } from "./routes/edi-configurations";
 import { assertIntakeStorageConfigured } from "./services/intake/intakeStore";
 import { requestTracing } from "./middleware/requestTracing";
+import { assertSilOperationalStorageConfigured } from "./lib/firestore";
 
 assertIntakeStorageConfigured();
+assertSilOperationalStorageConfigured();
 const app = express();
+app.disable("x-powered-by");
+app.set("trust proxy", 1);
+const isProductionRuntime = process.env.NODE_ENV === "production" || Boolean(process.env.K_SERVICE);
 
 const allowedOrigins = (process.env.ALLOWED_ORIGINS || process.env.ALLOWED_ORIGIN || 'http://localhost:5173')
   .split(',')
   .map((origin) => origin.trim())
-  .filter(Boolean);
+  .filter((origin) => Boolean(origin) && (!isProductionRuntime || !/^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)));
 
 // LAN-only deployment — CORS restricted to same origin.
 // Update ALLOWED_ORIGIN env var if the frontend is served from a different port.
@@ -50,6 +55,14 @@ app.use(cors({
 }));
 
 app.use(requestTracing);
+app.use((_req, res, next) => {
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("X-Frame-Options", "DENY");
+  res.setHeader("Referrer-Policy", "same-origin");
+  res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
+  if (isProductionRuntime) res.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
+  next();
+});
 app.use(express.json({ limit: '1mb' }));
 app.use(fileUpload({
   limits: { fileSize: 50 * 1024 * 1024 }, // 50MB max upload
@@ -94,5 +107,5 @@ registerShipmentIntelligenceRoutes(app);
 app.use(errorHandler);
 
 app.listen(config.port, () => {
-  console.log(`[${new Date().toISOString()}] INFO  Encompax-core API listening on port ${config.port}`);
+  console.log(`[${new Date().toISOString()}] INFO  Encompax SIL API listening on port ${config.port}`);
 });

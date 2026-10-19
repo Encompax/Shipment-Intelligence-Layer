@@ -1472,6 +1472,8 @@ td {
 .orders-panel-tabs button:last-child { border-right: 0; }
 .orders-panel-tabs button:hover { background: var(--color-bg-muted); color: var(--color-text-primary); }
 .orders-panel-tabs button.active { background: #d9f3f0; color: #0f625d; box-shadow: inset 0 -3px #168c83; }
+.orders-workspace > .facility-manual-entry:not(.is-active),
+.orders-workspace > .planning-workbench:not(.is-active) { display: none; }
 .orders-workspace[data-layout="panels"] [data-order-panel]:not(.is-active) { display: none; }
 .orders-workspace[data-layout="panels"] > .order-planning-review { order: 2; }
 .orders-workspace[data-layout="panels"] > .planning-workbench { order: 2; }

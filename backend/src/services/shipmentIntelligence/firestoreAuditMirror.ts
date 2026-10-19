@@ -10,17 +10,22 @@ type SilGovernanceSignalEnvelope = {
   signal: SilGovernanceSignalDraft;
 };
 
-const DEFAULT_WORKSPACE_ID = "workspace-shipment-operations";
-
 const safeDocumentId = (value: string) => value.replace(/[/?#[\]]/g, "_");
+
+const requireWorkspaceId = (workspaceId?: string) => {
+  const scopedWorkspaceId = workspaceId?.trim();
+  if (!scopedWorkspaceId) {
+    throw new Error("workspaceId is required for SIL audit mirroring.");
+  }
+  return scopedWorkspaceId;
+};
 
 export async function mirrorSilGovernanceSignalToFirestore(envelope: SilGovernanceSignalEnvelope) {
   const db = getSilFirestore();
   if (!db) return;
 
-  const workspaceId = envelope.signal.workspaceId ?? DEFAULT_WORKSPACE_ID;
-
   try {
+    const workspaceId = requireWorkspaceId(envelope.signal.workspaceId);
     await db
       .collection(getSilFirestoreRootCollection())
       .doc(workspaceId)
@@ -44,9 +49,8 @@ export async function mirrorSilWorkflowEventToFirestore(event: SilWorkflowEvent)
   const db = getSilFirestore();
   if (!db) return;
 
-  const workspaceId = event.workspaceId ?? DEFAULT_WORKSPACE_ID;
-
   try {
+    const workspaceId = requireWorkspaceId(event.workspaceId);
     await db
       .collection(getSilFirestoreRootCollection())
       .doc(workspaceId)
