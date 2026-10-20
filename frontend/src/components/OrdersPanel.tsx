@@ -383,7 +383,7 @@ export default function OrdersPanel() {
         <label>SCAC<select value={form.scac} onChange={(e) => update('scac',e.target.value)}><option value="">Select registered carrier</option>{partners.map((partner) => <option key={partner.id} value={partner.scac}>{partner.scac} - {partner.name}</option>)}</select></label>
         <label>Equipment<select value={form.equipmentType} onChange={(e) => update('equipmentType',e.target.value)}><option>53 FT DRY VAN</option><option>26 FT DRY VAN</option><option>BOX TRUCK</option></select></label>
         <label>Mode<select value={form.modeType} onChange={(e) => update('modeType',e.target.value)}><option>TL</option><option>LTL</option></select></label>
-        <label>Order type<select value={form.orderType} onChange={(e) => update('orderType',e.target.value)}><option>TRANSFER</option><option>INBOUND</option><option>ADHOC</option></select></label>
+        <label>Order type<select value={form.orderType} onChange={(e) => update('orderType',e.target.value)}><option value="TRANSFER">Transfer</option><option value="FINAL_MILE">Final Mile</option><option value="INBOUND">Inbound</option><option value="ADHOC">Adhoc</option></select></label>
         <div className="intake-actions"><button className="btn btn-primary" type="submit">Create order</button></div>
       </form>
     </details>
