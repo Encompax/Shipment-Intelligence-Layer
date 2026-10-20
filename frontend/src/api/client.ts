@@ -79,6 +79,15 @@ export async function createOrder(payload: Record<string, unknown>) {
   return readJsonResponse(res, "Failed to create order");
 }
 
+export async function removeOrders(orderIds: string[], reason?: string) {
+  const res = await fetch(`${API_BASE}/orders`, {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ orderIds, reason }),
+  });
+  return readJsonResponse(res, "Failed to remove selected orders");
+}
+
 export async function correctOrder(orderId: string, payload: Record<string, unknown>) {
   const res = await fetch(`${API_BASE}/orders/${encodeURIComponent(orderId)}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
   return readJsonResponse(res, "Failed to correct order");

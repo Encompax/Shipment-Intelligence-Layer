@@ -13,7 +13,7 @@ import { buildOrderConsolidationDecision, buildOrderConsolidationProposal, getOr
 import { runConsolidationAssistant, safetyIdentifierFor } from "../services/consolidationAssistantService";
 import { buildShipmentJourney, listShipmentJourneys, saveShipmentJourney } from "../services/shipmentJourneyService";
 
-export type OrderStatus = "DRAFT" | "VALIDATION_REQUIRED" | "READY_TO_PLAN" | "ASSIGNED_TO_LOAD" | "TENDERED" | "CARRIER_ACCEPTED" | "TENDER_REJECTED" | "TENDER_EXPIRED" | "IN_TRANSIT" | "DELIVERED";
+export type OrderStatus = "DRAFT" | "VALIDATION_REQUIRED" | "READY_TO_PLAN" | "REMOVED" | "ASSIGNED_TO_LOAD" | "TENDERED" | "CARRIER_ACCEPTED" | "TENDER_REJECTED" | "TENDER_EXPIRED" | "IN_TRANSIT" | "DELIVERED";
 export type OrderRecord = Record<string, unknown> & { orderId: string; workspaceId: string; primaryReference: string; status: OrderStatus };
 
 const localOrders = new Map<string, OrderRecord[]>();
@@ -286,7 +286,7 @@ export function registerOrderRoutes(app: Express) {
       list(context.orgScope, "orders", localOrders),
       listLatestOrderPlanningProposals(context.orgScope),
     ]);
-    res.json({ orders: orders.sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt))).map((order) => {
+    res.json({ orders: orders.filter((order) => order.status !== "REMOVED").sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt))).map((order) => {
       const proposal = planning.get(order.orderId);
       return { ...order, planningSummary: proposal ? {
         proposalId: proposal.proposalId,
@@ -297,6 +297,63 @@ export function registerOrderRoutes(app: Express) {
         createdAt: proposal.createdAt,
       } : null };
     }) });
+  });
+
+  app.delete("/api/orders", async (req, res) => {
+    const context = requireWorkspace(req, res); if (!context) return;
+    const orderIds = [...new Set<string>((Array.isArray(req.body?.orderIds) ? req.body.orderIds : [])
+      .map((value: unknown) => clean(value, 100)).filter(Boolean))];
+    if (!orderIds.length || orderIds.length > 100) {
+      res.status(400).json({ error: "Select between 1 and 100 orders to remove." });
+      return;
+    }
+
+    const orders = await list(context.orgScope, "orders", localOrders) as OrderRecord[];
+    const selected = orderIds.map((orderId) => orders.find((order) => order.orderId === orderId));
+    if (selected.some((order) => !order)) {
+      res.status(404).json({ error: "One or more selected orders were not found in this workspace." });
+      return;
+    }
+    const removableStatuses = new Set<OrderStatus>(["DRAFT", "VALIDATION_REQUIRED", "READY_TO_PLAN"]);
+    const protectedOrders = (selected as OrderRecord[]).filter((order) => !removableStatuses.has(order.status));
+    if (protectedOrders.length) {
+      res.status(409).json({ error: "Planned, tendered, or executed orders cannot be removed from the planning queue." });
+      return;
+    }
+
+    const removedAt = new Date().toISOString();
+    const reason = clean(req.body?.reason, 500) || "Removed from planning queue by user";
+    const removalBase = {
+      schemaVersion: "1.0",
+      removalId: randomUUID(),
+      workspaceId: context.orgScope,
+      orderIds,
+      priorStatuses: Object.fromEntries((selected as OrderRecord[]).map((order) => [order.orderId, order.status])),
+      reason,
+      removedBy: context.uid,
+      removedAt,
+    };
+    const removal = { ...removalBase, contentHash: createHash("sha256").update(JSON.stringify(removalBase)).digest("hex") };
+    const removedOrders = (selected as OrderRecord[]).map((order) => ({
+      ...order,
+      status: "REMOVED" as const,
+      removedAt,
+      removedBy: context.uid,
+      removalId: removal.removalId,
+      updatedAt: removedAt,
+    }));
+
+    if (isFirestorePrimaryEnabled()) {
+      const ordersCollection = intakeCollection(context.orgScope, "orders");
+      const batch = ordersCollection.firestore.batch();
+      removedOrders.forEach((order) => batch.set(ordersCollection.doc(order.orderId), order));
+      batch.create(intakeCollection(context.orgScope, "orderRemovalRecords").doc(removal.removalId), removal);
+      await batch.commit();
+    } else {
+      for (const order of removedOrders) await save(context.orgScope, "orders", order.orderId, order, localOrders);
+    }
+
+    res.json({ removedCount: removedOrders.length, orderIds, removal });
   });
 
   app.post("/api/orders/journeys", async (req, res) => {

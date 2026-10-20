@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { askConsolidationAssistant, correctOrder, createOrder, createOrderConsolidationProposal, createPlanningResolutionDraft, createShipmentJourney, decideOrderConsolidationProposal, decideOrderPlanningProposal, decidePlanningResolutionDraft, fetchFacilities, fetchLaneRegistry, fetchOrderJourney, fetchOrderPlanningDecisions, fetchOrderPlanningHistory, fetchOrders, fetchPlanningResolution, generateOrderTestMeid, matchOrderToLane } from "../api/client";
+import { askConsolidationAssistant, correctOrder, createOrder, createOrderConsolidationProposal, createPlanningResolutionDraft, createShipmentJourney, decideOrderConsolidationProposal, decideOrderPlanningProposal, decidePlanningResolutionDraft, fetchFacilities, fetchLaneRegistry, fetchOrderJourney, fetchOrderPlanningDecisions, fetchOrderPlanningHistory, fetchOrders, fetchPlanningResolution, generateOrderTestMeid, matchOrderToLane, removeOrders } from "../api/client";
 import { useWorkspaceViewSettings } from "../context/WorkspaceViewSettings";
 
 type PlanningSummary = { proposalId: string; outcome: "MATCHED" | "REVIEW_REQUIRED" | "NO_MATCH"; integrity?: string; blockerCount: number; warningCount: number; createdAt: string };
@@ -121,6 +121,27 @@ export default function OrdersPanel() {
     catch (error) { setMessage(error instanceof Error ? error.message : "Could not save order."); }
   };
   const generateMeid = async (orderId: string) => { try { setMessage("Generating SIL test MEID..."); await generateOrderTestMeid(orderId); setMessage("SIL test MEID assigned."); await load(); } catch (error) { setMessage(error instanceof Error ? error.message : "Could not generate test MEID."); } };
+  const removeSelectedOrders = async () => {
+    const orderIds = orders.filter((order) => order.status === "READY_TO_PLAN" && selectedOrderIds.includes(order.orderId)).map((order) => order.orderId);
+    if (!orderIds.length || !window.confirm(`Remove ${orderIds.length} selected order${orderIds.length === 1 ? "" : "s"} from the planning queue? Planning evidence will remain in the audit history.`)) return;
+    try {
+      setPlanningQueueBusy(true);
+      const result = await removeOrders(orderIds);
+      setSelectedOrderIds((current) => current.filter((orderId) => !orderIds.includes(orderId)));
+      if (planningProposal && orderIds.includes(planningProposal.orderId)) {
+        setPlanningProposal(null);
+        setPlanningHistory([]);
+        setPlanningDecisions([]);
+        setActivePlanningStage("orders");
+      }
+      await load();
+      setMessage(`${result.removedCount} order${result.removedCount === 1 ? "" : "s"} removed from the queue. Audit evidence was retained.`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Could not remove the selected orders.");
+    } finally {
+      setPlanningQueueBusy(false);
+    }
+  };
   const buildConsolidation = async () => { try { setConsolidationBusy(true); setMessage("Building governed consolidation groups..."); const result = await createOrderConsolidationProposal(); setConsolidation(result.proposal); setConsolidationDecision(null); setConsolidationReason(""); setConsolidationTurns([]); setMessage("Consolidation proposal is ready for review. No loads were changed."); } catch (error) { setMessage(error instanceof Error ? error.message : "Could not build consolidation proposal."); } finally { setConsolidationBusy(false); } };
   const decideConsolidation = async (decision: "APPROVED" | "REJECTED") => { if (!consolidation) return; try { setConsolidationBusy(true); const result = await decideOrderConsolidationProposal(consolidation.consolidationProposalId, { decision, reason: consolidationReason }); setConsolidationDecision(result.decision); setMessage(decision === "APPROVED" ? `${result.loads?.length || 0} governed loads created from the consolidation plan.` : "Consolidation proposal rejected. No orders or loads changed."); await load(); } catch (error) { setMessage(error instanceof Error ? error.message : "Could not decide consolidation proposal."); } finally { setConsolidationBusy(false); } };
   const askConsolidation = async (event?: React.FormEvent, suggestedQuestion?: string) => { event?.preventDefault(); if (!consolidation) return; const question = (suggestedQuestion || consolidationQuestion).trim(); if (!question) return; try { setConsolidationBusy(true); const result = await askConsolidationAssistant(consolidation.consolidationProposalId, question); setConsolidationTurns((current) => [...current, result.turn]); setConsolidationQuestion(""); } catch (error) { setMessage(error instanceof Error ? error.message : "The Consolidation Assistant could not respond."); } finally { setConsolidationBusy(false); } };
@@ -374,7 +395,7 @@ export default function OrdersPanel() {
         <button type="button" className={activePlanningStage === "correction" ? "active" : ""} aria-current={activePlanningStage === "correction" ? "step" : undefined} disabled={!planningProposal} onClick={openOrderCorrection}><span>3</span><strong>Order correction</strong><small>Revise and rematch</small></button>
       </aside>
       <div className="planning-workbench-canvas">
-    <section className={`transport-panel order-planning-queue${activeWorkspacePanel === "planning" ? " is-active" : ""}${activePlanningStage !== "orders" ? " stage-hidden" : ""}`}><div className="transport-panel-header"><div><p className="transport-eyebrow">Planning queue</p><h3>Orders on file</h3></div><div className="planning-queue-header-actions"><span>{selectedReadyCount} selected</span><button className="btn btn-primary" type="button" disabled={planningQueueBusy || selectedReadyCount === 0} onClick={() => void matchPlanningQueue()}>{planningQueueBusy ? "Planning selected..." : "Match & review selected"}</button></div></div>
+    <section className={`transport-panel order-planning-queue${activeWorkspacePanel === "planning" ? " is-active" : ""}${activePlanningStage !== "orders" ? " stage-hidden" : ""}`}><div className="transport-panel-header"><div><p className="transport-eyebrow">Planning queue</p><h3>Orders on file</h3></div><div className="planning-queue-header-actions"><span>{selectedReadyCount} selected</span><button className="btn btn-secondary" type="button" disabled={planningQueueBusy || selectedReadyCount === 0} onClick={() => void removeSelectedOrders()}>Remove selected</button><button className="btn btn-primary" type="button" disabled={planningQueueBusy || selectedReadyCount === 0} onClick={() => void matchPlanningQueue()}>{planningQueueBusy ? "Planning selected..." : "Match & review selected"}</button></div></div>
       <label className="facility-search"><span>Search orders</span><input type="search" placeholder="Reference, site, business unit, SCAC, or status" value={search} onChange={(e) => setSearch(e.target.value)} /></label>
       {message && <p className="ops-note">{message}</p>}
       <div className="transport-table-wrap"><table className="transport-table"><thead><tr><th className="planning-select-cell"><input ref={selectAllOrdersRef} type="checkbox" aria-label="Select all visible orders ready for planning" checked={allFilteredSelected} disabled={!selectableFilteredOrderIds.length} onChange={toggleAllFilteredOrders} /></th><th>SIL: MEID</th><th>Reference</th><th>PO / TO</th><th>Route</th><th>Business unit</th><th>Pickup</th><th>Delivery</th><th>Status</th><th>Planning</th></tr></thead><tbody>{filtered.map((order) => {

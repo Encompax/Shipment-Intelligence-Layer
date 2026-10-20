@@ -47,7 +47,7 @@ app.use(cors({
       return;
     }
 
-    callback(new Error(`CORS blocked origin: ${origin}`));
+    callback(Object.assign(new Error(`CORS blocked origin: ${origin}`), { status: 403 }));
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
