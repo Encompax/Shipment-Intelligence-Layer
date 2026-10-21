@@ -1442,8 +1442,9 @@ td {
 .cargo-source-grid section { padding: 14px; border: 1px solid var(--color-border); background: var(--color-bg-default); }
 .cargo-source-grid h4, .cargo-custody-card h4 { margin: 0 0 12px; }
 .cargo-order-picker { display: grid; max-height: 310px; overflow: auto; border: 1px solid var(--color-border); }
-.cargo-order-picker > label { display: grid; grid-template-columns: 20px 1fr; gap: 8px; align-items: center; padding: 9px; border-bottom: 1px solid var(--color-border); }
+.cargo-order-picker > label { display: grid; grid-template-columns: 20px minmax(0,1fr) max-content; gap: 8px; align-items: center; padding: 9px; border-bottom: 1px solid var(--color-border); }
 .cargo-order-picker span { display: grid; gap: 2px; }
+.cargo-order-picker time { color: var(--color-text-muted); font-size: 11px; white-space: nowrap; text-align: right; }
 .cargo-field-picker { display: flex; flex-wrap: wrap; gap: 8px 16px; margin: 12px 0 18px; }
 .cargo-field-picker label { display: flex; gap: 6px; align-items: center; text-transform: capitalize; }
 .cargo-nesting-canvas .transport-table input { min-width: 90px; width: 100%; }
@@ -1508,6 +1509,8 @@ td {
   .cargo-nesting-sidebar > p { display: none; }
   .cargo-nesting-sidebar button { flex: 0 0 155px; }
   .cargo-source-grid { grid-template-columns: 1fr; }
+  .cargo-order-picker > label { grid-template-columns: 20px minmax(0,1fr); }
+  .cargo-order-picker time { grid-column: 2; text-align: left; }
   .cargo-custody-card ol { grid-template-columns: 1fr; }
   .planning-workbench { grid-template-columns: 1fr; min-height: 0; }
   .planning-workbench-sidebar { flex-direction: row; padding: 8px; overflow-x: auto; border-right: 0; border-bottom: 1px solid var(--color-border); }
