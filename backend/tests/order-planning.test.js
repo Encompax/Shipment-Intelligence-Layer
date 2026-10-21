@@ -62,6 +62,20 @@ test('rejects route mismatches as ineligible candidates', () => {
   assert.ok(result.findings.some((finding) => finding.code === 'ROUTE_MISMATCH' && finding.severity === 'BLOCKER'));
 });
 
+test('does not promote an unrelated failed lane into an order route or resolution', () => {
+  const unrelatedOrder = { ...order, orderId: 'order-unconfigured-route', destinationId: 'facility-site-283', orderType: 'FINAL_MILE', modeType: 'LTL', equipmentType: 'BOX TRUCK' };
+  const athensLane = { ...lane, laneId: 'lane-athens-87', name: 'ATH_ATHENS_87', laneType: 'FINAL_MILE', destinationFacilityId: 'facility-site-87', modeType: 'LTL', equipmentType: 'BOX TRUCK', loadAssumption: 'LTL' };
+  const proposal = buildOrderPlanningProposal({ workspaceId: 'org-1', order: unrelatedOrder, lanes: [athensLane], eligibility: [], awards: [], partners: [], actor: 'planner-1' });
+  assert.equal(proposal.outcome, 'NO_MATCH');
+  assert.equal(proposal.recommendedRoutePlanId, null);
+  assert.equal(proposal.routePlans.length, 0);
+  assert.equal(proposal.candidates[0].laneName, 'ATH_ATHENS_87');
+  const analysis = buildPlanningResolutionAnalysis(proposal);
+  assert.equal(analysis.options.length, 0);
+  assert.equal(analysis.findings[0].code, 'NO_CONFIGURED_ROUTE');
+  assert.match(analysis.response, /No final mile lane is compatible/);
+});
+
 test('resolves facility site IDs before matching lane endpoints', () => {
   const siteOrder = { ...order, originId: 'ATL_CROSSDOCK', destinationId: 'ATH_ATHENS_87', equipmentType: 'BOX TRUCK', modeType: 'LTL', orderType: 'FINAL_MILE', weight: 8000, palletQuantity: 8 };
   const finalMileLane = { ...lane, laneType: 'FINAL_MILE', originFacilityId: 'facility-atl-crossdock', destinationFacilityId: 'facility-athens-87', equipmentType: 'BOX TRUCK', loadAssumption: 'LTL', dispatchDays: [], terminalArrivalDays: [], storeDeliveryDays: [] };

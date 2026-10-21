@@ -39,11 +39,13 @@ export function buildPlanningResolutionAnalysis(proposal: OrderPlanningProposal)
       : "LINEHAUL";
   const relevantCandidates = routePlan
     ? routePlan.legs.map((leg) => leg.candidate)
-    : proposal.candidates.filter((candidate) => candidate.laneType === inferredLaneType);
+    : proposal.candidates.filter((candidate) => candidate.laneType === inferredLaneType && !candidate.findings.some((finding) => finding.code === "ROUTE_MISMATCH"));
   // A single best segment is the correction target. Other lane evaluations remain
   // immutable diagnostics and must not become proposed changes for this order.
   const analysisCandidates = routePlan ? relevantCandidates : relevantCandidates.slice(0, 1);
-  const findings = analysisCandidates.flatMap((candidate) => candidate.findings.map((finding: PlanningFinding) => ({ laneId: candidate.laneId, laneName: candidate.laneName, ...finding })));
+  const findings = analysisCandidates.length
+    ? analysisCandidates.flatMap((candidate) => candidate.findings.map((finding: PlanningFinding) => ({ laneId: candidate.laneId, laneName: candidate.laneName, ...finding })))
+    : [{ laneId: "", laneName: "Requested route", category: "ROUTE" as const, severity: "BLOCKER" as const, code: "NO_CONFIGURED_ROUTE", message: "No active lane connects the order's selected origin and destination.", scoreImpact: 0 }];
   const changes: Array<Record<string, unknown>> = [];
   const unresolved: string[] = [];
   const evidenceCodes = [...new Set(findings.map((finding) => finding.code))];
@@ -66,7 +68,7 @@ export function buildPlanningResolutionAnalysis(proposal: OrderPlanningProposal)
   }
   const executable = changes.length > 0 && unresolved.length === 0;
   const parameters = { changes, unresolved, inferredLaneType };
-  const option: ResolutionOption | null = findings.length ? {
+  const option: ResolutionOption | null = analysisCandidates.length && findings.length ? {
     optionId: createHash("sha256").update(`${proposal.proposalId}:APPLY_CORRECTION_SET:${canonical(parameters)}`).digest("hex").slice(0, 16),
     actionType: "APPLY_CORRECTION_SET", title: "Proposed order correction", requiresApproval: true,
     explanation: unresolved.length ? "SIL found issues that require order input before a safe correction can be applied." : "SIL combined the compatible corrections into one order-specific change set.",

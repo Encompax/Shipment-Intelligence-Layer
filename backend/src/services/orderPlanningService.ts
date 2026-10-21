@@ -321,7 +321,11 @@ export function buildOrderPlanningProposal(input: {
     .filter((lane) => lane.workspaceId === input.workspaceId && lane.status === "ACTIVE")
     .map((lane) => scoreOrderLane({ order: orderForMatching, lane, eligibility: input.eligibility, awards: input.awards, partners: input.partners }))
     .sort((left, right) => right.score - left.score || left.laneName.localeCompare(right.laneName));
-  const directPlans: RoutePlanRecommendation[] = candidates.map((candidate) => {
+  // A route plan must connect the requested endpoints. Keep unrelated lanes in
+  // candidate diagnostics, but never present them as a route for this order.
+  const directPlans: RoutePlanRecommendation[] = candidates
+    .filter((candidate) => !candidate.findings.some((finding) => finding.code === "ROUTE_MISMATCH"))
+    .map((candidate) => {
     const lane = input.lanes.find((item) => item.laneId === candidate.laneId)!;
     const schedule = calculateRouteSchedule(orderForMatching, [lane]);
     const late = schedule.finalDeliveryAt > schedule.commitmentLatestAt;
