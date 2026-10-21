@@ -12,6 +12,7 @@ import { buildPlanningResolutionAnalysis, createPlanningResolutionDraft, getPlan
 import { buildOrderConsolidationDecision, buildOrderConsolidationProposal, getOrderConsolidationDecision, listOrderConsolidationProposals, registerLocalOrderConsolidationDecision, saveOrderConsolidationProposal, verifyOrderConsolidationProposal } from "../services/orderConsolidationService";
 import { runConsolidationAssistant, safetyIdentifierFor } from "../services/consolidationAssistantService";
 import { buildShipmentJourney, listShipmentJourneys, saveShipmentJourney } from "../services/shipmentJourneyService";
+import { buildCargoNestingProposal, listCargoNestingProposals, saveCargoNestingProposal, type CargoAllocationInput } from "../services/cargoNestingService";
 
 export type OrderStatus = "DRAFT" | "VALIDATION_REQUIRED" | "READY_TO_PLAN" | "REMOVED" | "ASSIGNED_TO_LOAD" | "TENDERED" | "CARRIER_ACCEPTED" | "TENDER_REJECTED" | "TENDER_EXPIRED" | "IN_TRANSIT" | "DELIVERED";
 export type OrderRecord = Record<string, unknown> & { orderId: string; workspaceId: string; primaryReference: string; status: OrderStatus };
@@ -199,6 +200,81 @@ async function resolveFacilities(workspaceId: string, rows: Record<string, unkno
 export const orderDuplicateKey = (row: Record<string, unknown>) => [row.primaryReference, row.poNumber, row.materialTransferOrderNumber, row.externalMeid || row.meid].map(comparable).filter(Boolean).join("|");
 
 export function registerOrderRoutes(app: Express) {
+  app.get("/api/orders/cargo-nesting-proposals", async (req, res) => {
+    const context = requireWorkspace(req, res); if (!context) return;
+    const proposals = await listCargoNestingProposals(context.orgScope);
+    res.json({ proposals, latest: proposals[0] ?? null });
+  });
+
+  app.post("/api/orders/cargo-nesting-proposals", async (req, res) => {
+    const context = requireWorkspace(req, res); if (!context) return;
+    const parentOrderId = clean(req.body?.parentOrderId);
+    const allocations = Array.isArray(req.body?.allocations) ? req.body.allocations.slice(0, 100) as CargoAllocationInput[] : [];
+    if (!parentOrderId || !allocations.length) { res.status(400).json({ error: "Select one parent Linehaul order and at least one downstream cargo order." }); return; }
+    const [orders, registry] = await Promise.all([list(context.orgScope, "orders", localOrders) as Promise<OrderRecord[]>, listLanePlanningRegistry(context.orgScope)]);
+    const parent = orders.find((order) => order.orderId === parentOrderId && order.status === "READY_TO_PLAN");
+    if (!parent) { res.status(404).json({ error: "The selected parent Linehaul order is not available for planning." }); return; }
+    const childIds = new Set(allocations.map((item) => clean(item.orderId)));
+    if (childIds.size !== allocations.length) { res.status(400).json({ error: "Each downstream order can appear only once in a cargo nesting proposal." }); return; }
+    if (childIds.has(parentOrderId)) { res.status(400).json({ error: "The parent Linehaul order cannot also be nested as child cargo." }); return; }
+    const children = orders.filter((order) => childIds.has(order.orderId) && order.status === "READY_TO_PLAN");
+    if (children.length !== childIds.size) { res.status(404).json({ error: "One or more selected cargo orders are unavailable in this workspace." }); return; }
+    try {
+      const proposal = buildCargoNestingProposal({ workspaceId: context.orgScope, parent, children, allocations, lanes: registry.lanes, awards: registry.awards, actor: context.uid, filters: Array.isArray(req.body?.filters) ? req.body.filters.map(String).slice(0,20) : [], visibleFields: Array.isArray(req.body?.visibleFields) ? req.body.visibleFields.map(String).slice(0,20) : [] });
+      await saveCargoNestingProposal(proposal);
+      res.status(201).json({ proposal });
+    } catch (error) { res.status(422).json({ error: error instanceof Error ? error.message : "Cargo nesting could not be prepared." }); }
+  });
+
+  app.post("/api/orders/cargo-nesting-proposals/:proposalId/approve", async (req, res) => {
+    const context = requireWorkspace(req, res); if (!context) return;
+    const proposals = await listCargoNestingProposals(context.orgScope);
+    const proposal = proposals.find((item) => item.cargoNestingId === req.params.proposalId);
+    if (!proposal) { res.status(404).json({ error: "Cargo nesting proposal not found." }); return; }
+    if (proposal.findings.some((finding) => finding.severity === "BLOCKER")) { res.status(409).json({ error: "Resolve every cargo nesting blocker before execution release." }); return; }
+    const existing = isFirestorePrimaryEnabled() ? await intakeCollection(context.orgScope, "cargoNestingDecisions").doc(proposal.cargoNestingId).get() : null;
+    if (existing?.exists) { res.status(200).json({ decision: existing.data(), loads: [] }); return; }
+    const [registry, currentOrders] = await Promise.all([
+      listLanePlanningRegistry(context.orgScope),
+      list(context.orgScope, "orders", localOrders) as Promise<OrderRecord[]>,
+    ]);
+    const currentById = new Map(currentOrders.map((order) => [order.orderId, order]));
+    const parentSnapshot = proposal.parentOrder as OrderRecord;
+    const currentParent = currentById.get(parentSnapshot.orderId);
+    const childrenCurrent = proposal.allocations.every((allocation) => {
+      const order = currentById.get(allocation.orderId);
+      return Boolean(order && order.status === "READY_TO_PLAN" && clean(order.updatedAt) === allocation.sourceOrderUpdatedAt);
+    });
+    if (!currentParent || currentParent.status !== "READY_TO_PLAN" || clean(currentParent.updatedAt) !== clean(parentSnapshot.updatedAt) || !childrenCurrent) {
+      res.status(409).json({ error: "One or more source orders changed after this proposal was built. Build a new cargo nesting proposal." }); return;
+    }
+    const now = new Date().toISOString();
+    const parentLoadId = randomUUID();
+    const childLoadIds = proposal.allocations.map(() => randomUUID());
+    const awardFor = (laneId: string) => registry.awards.find((award) => award.laneId === laneId && award.status === "ACTIVE");
+    const partnerFor = (externalPartnerId: string) => registry.partners.find((partner: any) => (partner.id || partner.externalPartnerId) === externalPartnerId) as any;
+    const buildCarrier = (laneId: string) => { const award = awardFor(laneId); const partner = award ? partnerFor(award.externalPartnerId) : undefined; return { award, carrier: award ? { externalPartnerId: award.externalPartnerId, name: clean(partner?.name || partner?.organizationName) || "Registered carrier", scac: clean(partner?.scac) || undefined } : null }; };
+    const currentParentLane = registry.lanes.find((lane) => lane.laneId === proposal.parentLane.laneId && lane.status === "ACTIVE");
+    const currentFinalMileLanes = proposal.allocations.map((allocation) => registry.lanes.find((lane) => lane.laneId === allocation.finalMileLaneId && lane.status === "ACTIVE"));
+    if (!currentParentLane || currentFinalMileLanes.some((lane) => !lane)) { res.status(409).json({ error: "One or more route segments are no longer active. Build a new cargo nesting proposal." }); return; }
+    const parentCarrier = buildCarrier(proposal.parentLane.laneId);
+    if (!parentCarrier.award || !parentCarrier.carrier || proposal.allocations.some((allocation) => !awardFor(allocation.finalMileLaneId))) { res.status(409).json({ error: "Every nested segment requires an active carrier award before execution release." }); return; }
+    const parent = proposal.parentOrder as OrderRecord;
+    const loads: any[] = [{ schemaVersion: "1.0", loadId: parentLoadId, displayId: `SIL-${parentLoadId.replace(/-/g, "").slice(0,10).toUpperCase()}`, workspaceId: context.orgScope, status: "PLANNED", sourceProposalId: proposal.cargoNestingId, sourceProposalContentHash: proposal.contentHash, planningDecisionId: proposal.cargoNestingId, orderIds: [parent.orderId, ...proposal.allocations.map((item) => item.orderId)], orderMeids: [clean(parent.silTestMeid || parent.meid), ...proposal.allocations.map((item) => item.orderMeid)].filter(Boolean), laneId: proposal.parentLane.laneId, laneName: proposal.parentLane.name, laneType: "LINEHAUL", originFacilityId: proposal.parentLane.originFacilityId, destinationFacilityId: proposal.parentLane.destinationFacilityId, businessUnitName: clean(parent.businessUnit), equipmentType: proposal.parentLane.equipmentType, loadAssumption: "TL", carrier: parentCarrier.carrier, award: parentCarrier.award, plannedPickup: proposal.parentLane.plannedPickup, plannedDelivery: proposal.parentLane.plannedDelivery, cargoNestingId: proposal.cargoNestingId, createdBy: context.uid, createdAt: now }];
+    proposal.allocations.forEach((allocation, index) => { const lane = currentFinalMileLanes[index]!; const segment = buildCarrier(lane.laneId); loads.push({ schemaVersion: "1.0", loadId: childLoadIds[index], displayId: `SIL-${childLoadIds[index].replace(/-/g, "").slice(0,10).toUpperCase()}`, workspaceId: context.orgScope, status: "PLANNED", sourceProposalId: proposal.cargoNestingId, sourceProposalContentHash: proposal.contentHash, planningDecisionId: proposal.cargoNestingId, orderIds: [allocation.orderId], orderMeids: [allocation.orderMeid].filter(Boolean), laneId: lane.laneId, laneName: lane.name, laneType: "FINAL_MILE", originFacilityId: lane.originFacilityId, destinationFacilityId: lane.destinationFacilityId, businessUnitName: clean(parent.businessUnit), equipmentType: lane.equipmentType, loadAssumption: lane.loadAssumption, carrier: segment.carrier, award: segment.award, plannedPickup: allocation.plannedPickup, plannedDelivery: allocation.plannedDelivery, parentLoadId, cargoAllocationId: allocation.allocationId, createdBy: context.uid, createdAt: now }); });
+    const decisionEvidence = { schemaVersion: "1.0", decisionId: randomUUID(), workspaceId: context.orgScope, cargoNestingId: proposal.cargoNestingId, proposalContentHash: proposal.contentHash, decision: "APPROVED", parentLoadId, childLoadIds, decidedBy: context.uid, decidedAt: now };
+    const decision = { ...decisionEvidence, contentHash: createHash("sha256").update(JSON.stringify(decisionEvidence)).digest("hex") };
+    if (isFirestorePrimaryEnabled()) {
+      const db = intakeCollection(context.orgScope, "plannedLoads").doc().firestore; const batch = db.batch();
+      batch.create(intakeCollection(context.orgScope, "cargoNestingDecisions").doc(proposal.cargoNestingId), decision);
+      loads.forEach((load) => batch.create(intakeCollection(context.orgScope, "plannedLoads").doc(load.loadId), JSON.parse(JSON.stringify(load))));
+      proposal.allocations.forEach((allocation, index) => { batch.create(intakeCollection(context.orgScope, "cargoAllocations").doc(allocation.allocationId), { ...allocation, workspaceId: context.orgScope, cargoNestingId: proposal.cargoNestingId, parentLoadId, childLoadId: childLoadIds[index], createdAt: now }); allocation.custody.forEach((event) => batch.create(intakeCollection(context.orgScope, "cargoCustodyEvents").doc(`${allocation.allocationId}-${event.sequence}`), { ...event, workspaceId: context.orgScope, cargoNestingId: proposal.cargoNestingId, allocationId: allocation.allocationId, parentLoadId, childLoadId: childLoadIds[index], recordedAt: now })); });
+      const orderIds = [parent.orderId, ...proposal.allocations.map((item) => item.orderId)]; orderIds.forEach((orderId) => batch.update(intakeCollection(context.orgScope, "orders").doc(orderId), { status: "ASSIGNED_TO_LOAD", cargoNestingId: proposal.cargoNestingId, parentLoadId, updatedAt: now }));
+      await batch.commit();
+    } else registerLocalPlannedLoads(loads);
+    res.status(201).json({ decision, loads });
+  });
+
   app.get("/api/orders/consolidation-proposals", async (req, res) => {
     const context = requireWorkspace(req, res); if (!context) return;
     const proposals = await listOrderConsolidationProposals(context.orgScope);

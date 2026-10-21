@@ -158,6 +158,21 @@ export async function createOrderConsolidationProposal() {
   return readJsonResponse(res, "Failed to build consolidation proposal");
 }
 
+export async function createCargoNestingProposal(payload: Record<string, unknown>) {
+  const res = await fetch(`${API_BASE}/orders/cargo-nesting-proposals`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+  return readJsonResponse(res, "Failed to build cargo nesting proposal");
+}
+
+export async function fetchCargoNestingProposals() {
+  const res = await fetch(`${API_BASE}/orders/cargo-nesting-proposals`);
+  return readJsonResponse(res, "Failed to load cargo nesting proposals");
+}
+
+export async function approveCargoNestingProposal(proposalId: string) {
+  const res = await fetch(`${API_BASE}/orders/cargo-nesting-proposals/${encodeURIComponent(proposalId)}/approve`, { method: "POST" });
+  return readJsonResponse(res, "Failed to release cargo nesting plan");
+}
+
 export async function fetchOrderConsolidationProposals() {
   const res = await fetch(`${API_BASE}/orders/consolidation-proposals`);
   return readJsonResponse(res, "Failed to fetch consolidation proposals");
