@@ -1443,6 +1443,19 @@ td {
 .coordinator-case-metrics span { padding: 4px 7px; background: var(--color-bg-subtle); color: var(--color-text-secondary); font-size: 10px; }
 .coordinator-draft-editor { display: grid; gap: 12px; padding: 14px; border: 1px solid var(--color-border); background: var(--color-bg-subtle); }
 .coordinator-draft-editor > label { display: grid; gap: 5px; color: var(--color-text-secondary); }
+.coordinator-validation { display: grid; gap: 12px; padding: 12px; border: 1px solid #40847e; background: var(--color-bg-default); }
+.coordinator-validation.blocked { border-color: #b94747; }
+.coordinator-validation > header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.coordinator-validation > header > div { display: flex; gap: 8px; align-items: center; }
+.coordinator-change-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.coordinator-change-grid section { padding: 10px; border: 1px solid var(--color-border); }
+.coordinator-change-grid h5 { margin: 0 0 8px; }
+.coordinator-change-grid p { display: flex; justify-content: space-between; gap: 10px; margin: 4px 0; }
+.coordinator-change-grid p span { color: var(--color-text-muted); }
+.coordinator-effect-summary { display: flex; flex-wrap: wrap; gap: 7px; }
+.coordinator-effect-summary span { padding: 5px 8px; background: var(--color-bg-subtle); color: var(--color-text-secondary); }
+.coordinator-validation > article { display: grid; gap: 3px; padding: 9px; border-left: 3px solid #168c83; background: var(--color-bg-subtle); }
+@media (max-width: 720px) { .coordinator-change-grid { grid-template-columns: 1fr; } }
 .coordinator-empty { display: grid; justify-items: center; gap: 5px; padding: 40px 20px; border: 1px dashed var(--color-border); color: var(--color-text-secondary); text-align: center; }
 .coordinator-empty p { margin: 0; }
 .planning-workbench:not(.show-loads) .order-load-building { display: none; }

@@ -138,6 +138,16 @@ export async function revisePlanningCoordinatorDraft(draftId: string, payload: R
   return readJsonResponse(res, "Failed to revise planning action draft");
 }
 
+export async function validatePlanningCoordinatorDraft(draftId: string) {
+  const res = await fetch(`${API_BASE}/orders/planning-coordinator/drafts/${encodeURIComponent(draftId)}/validate`, { method: "POST" });
+  return readJsonResponse(res, "Failed to validate planning action draft");
+}
+
+export async function approvePlanningCoordinatorValidation(validationId: string, reason = "") {
+  const res = await fetch(`${API_BASE}/orders/planning-coordinator/validations/${encodeURIComponent(validationId)}/approve`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ reason }) });
+  return readJsonResponse(res, "Failed to approve validated planning draft");
+}
+
 export async function fetchOrderPlanningMatch(orderId: string) {
   const res = await fetch(`${API_BASE}/orders/${encodeURIComponent(orderId)}/planning-match`);
   return readJsonResponse(res, "Failed to fetch order planning match");

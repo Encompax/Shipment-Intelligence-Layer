@@ -7,7 +7,7 @@ import { readUploadTable } from "./uploads";
 import { listFacilitiesForWorkspace } from "./facilities";
 import { listLaneBusinessUnits, listLanePartners, listLanePlanningRegistry } from "./lanes";
 import { buildOrderPlanningProposal, getLatestOrderPlanningProposal, listLatestOrderPlanningProposals, listOrderPlanningProposals, saveOrderPlanningProposal, type OrderPlanningProposal } from "../services/orderPlanningService";
-import { decideOrderPlanningProposal, listOrderPlanningDecisions, PlanningDecisionConflict, PlanningDecisionValidationError, registerLocalPlannedLoads, type PlanningDecisionType } from "../services/orderPlanningDecisionService";
+import { buildPlanningDecisionRecords, decideOrderPlanningProposal, listOrderPlanningDecisions, PlanningDecisionConflict, PlanningDecisionValidationError, registerLocalPlannedLoads, type PlanningDecisionType } from "../services/orderPlanningDecisionService";
 import { buildPlanningResolutionAnalysis, createPlanningResolutionDraft, getPlanningResolutionDraft, recordPlanningResolutionDecision } from "../services/planningResolutionService";
 import { buildOrderConsolidationDecision, buildOrderConsolidationProposal, getOrderConsolidationDecision, listOrderConsolidationProposals, registerLocalOrderConsolidationDecision, saveOrderConsolidationProposal, verifyOrderConsolidationProposal } from "../services/orderConsolidationService";
 import { runConsolidationAssistant, safetyIdentifierFor } from "../services/consolidationAssistantService";
@@ -22,6 +22,8 @@ const localOrders = new Map<string, OrderRecord[]>();
 const localProfiles = new Map<string, any[]>();
 const localReviews = new Map<string, any[]>();
 const localMeidCounters = new Map<string, number>();
+const localCoordinatorValidations = new Map<string, any>();
+const localCoordinatorApprovals = new Map<string, any>();
 const fields = [
   "action", "primaryReference", "poNumber", "materialTransferOrderNumber", "meid", "businessUnit",
   "earliestPickup", "latestPickup", "earliestDelivery", "latestDelivery", "originId", "destinationId",
@@ -110,11 +112,16 @@ async function createAutomaticPlanningProposal(workspaceId: string, order: Order
 
 async function coordinateAutomaticProposals(workspaceId: string, proposals: OrderPlanningProposal[], actor: string) {
   if (!proposals.length) return null;
-  let latest = null;
+  let latest: Awaited<ReturnType<typeof coordinatePlanning>> | null = null;
   for (let index = 0; index < proposals.length; index += 100) {
     latest = await coordinatePlanning({ workspaceId, proposals: proposals.slice(index, index + 100), actor, safetyIdentifier: safetyIdentifierFor(actor) });
   }
   return latest;
+}
+
+function coordinatorValidationHash(value: unknown): string {
+  const canonical = (child: unknown): string => child === null || typeof child !== "object" ? JSON.stringify(child) : Array.isArray(child) ? `[${child.map(canonical).join(",")}]` : `{${Object.entries(child as Record<string, unknown>).filter(([, nested]) => nested !== undefined).sort(([left], [right]) => left.localeCompare(right)).map(([key, nested]) => `${JSON.stringify(key)}:${canonical(nested)}`).join(",")}}`;
+  return createHash("sha256").update(canonical(value)).digest("hex");
 }
 
 function effectivePlanningOrder(order: OrderRecord): OrderRecord {
@@ -249,6 +256,82 @@ export function registerOrderRoutes(app: Express) {
       const revised = await revisePlanningCoordinatorDraft({ workspaceId: context.orgScope, draft, actor: context.uid, selectedAction: req.body?.selectedAction, inputs: req.body?.inputs, rationale: req.body?.rationale });
       res.status(201).json({ draft: revised });
     } catch (error) { res.status(400).json({ error: error instanceof Error ? error.message : "The planning action draft could not be revised." }); }
+  });
+
+  app.post("/api/orders/planning-coordinator/drafts/:draftId/validate", async (req, res) => {
+    const context = requireWorkspace(req, res); if (!context) return;
+    const [draft, orders, registry, facilities, businessUnits] = await Promise.all([getPlanningCoordinatorDraft(context.orgScope, req.params.draftId), list(context.orgScope, "orders", localOrders) as Promise<OrderRecord[]>, listLanePlanningRegistry(context.orgScope), listFacilitiesForWorkspace(context.orgScope), listLaneBusinessUnits(context.orgScope)]);
+    if (!draft) { res.status(404).json({ error: "Planning action draft not found." }); return; }
+    const order = orders.find((item) => item.orderId === draft.orderId);
+    if (!order || order.status !== "READY_TO_PLAN") { res.status(409).json({ error: "The source order is no longer ready to plan." }); return; }
+    const proposedOrder = { ...order, ...draft.inputs, updatedAt: order.updatedAt } as OrderRecord;
+    const inputIssues = validateOrder(proposedOrder, 1);
+    const facilityIds = new Set(facilities.flatMap((facility: any) => [comparable(facility.facilityId), comparable(facility.siteId)].filter(Boolean)));
+    if (!facilityIds.has(comparable(proposedOrder.originId))) inputIssues.push({ row: 1, field: "originId", severity: "ERROR", code: "FACILITY_NOT_FOUND", message: "The draft origin is not in this workspace's facility master." });
+    if (!facilityIds.has(comparable(proposedOrder.destinationId))) inputIssues.push({ row: 1, field: "destinationId", severity: "ERROR", code: "FACILITY_NOT_FOUND", message: "The draft destination is not in this workspace's facility master." });
+    if (!businessUnits.some((unit: any) => comparable(unit.name) === comparable(proposedOrder.businessUnit) || comparable(unit.id) === comparable(proposedOrder.businessUnit))) inputIssues.push({ row: 1, field: "businessUnit", severity: "ERROR", code: "BUSINESS_UNIT_NOT_FOUND", message: "The draft business unit is not configured for this workspace." });
+    if (clean(proposedOrder.scac) && !registry.partners.some((partner: any) => comparable(partner.scac) === comparable(proposedOrder.scac))) inputIssues.push({ row: 1, field: "scac", severity: "ERROR", code: "SCAC_NOT_FOUND", message: "The draft SCAC is not a registered external partner." });
+    const proposal = buildOrderPlanningProposal({ workspaceId: context.orgScope, order: effectivePlanningOrder(proposedOrder), lanes: registry.lanes, eligibility: registry.eligibility, awards: registry.awards, partners: registry.partners, facilities, actor: context.uid, supersedesProposalId: draft.proposalId });
+    const route = proposal.routePlans.find((item) => item.routePlanId === proposal.recommendedRoutePlanId);
+    const findings = [...(route?.findings ?? proposal.candidates[0]?.findings ?? []), ...inputIssues.map((issue) => ({ category: "ORDER", severity: issue.severity === "ERROR" ? "BLOCKER" as const : "WARNING" as const, code: issue.code || "ORDER_INPUT_REVIEW", message: issue.message }))];
+    const changedFields = Object.keys(draft.inputs).filter((field) => JSON.stringify(order[field] ?? null) !== JSON.stringify(draft.inputs[field] ?? null));
+    const before = Object.fromEntries(changedFields.map((field) => [field, order[field] ?? null]));
+    const after = Object.fromEntries(changedFields.map((field) => [field, draft.inputs[field] ?? null]));
+    const legs = route?.legs ?? [];
+    const validationBase = { schemaVersion: "1.0", validationId: randomUUID(), workspaceId: context.orgScope, actionDraftId: draft.actionDraftId, actionDraftContentHash: draft.contentHash, orderId: order.orderId, sourceOrderUpdatedAt: clean(order.updatedAt), proposal, before, after, effects: { segmentCount: legs.length, plannedLoads: legs.map((leg) => ({ laneId: leg.candidate.laneId, laneName: leg.candidate.laneName, laneType: leg.candidate.laneType, carrier: leg.candidate.activeAwards[0]?.carrier ?? null, award: leg.candidate.activeAwards[0] ?? null, pickup: leg.plannedPickup, delivery: leg.plannedDelivery })), cargoAllocationCount: legs.length, custodyEventCount: legs.length * 2, blockerCount: findings.filter((item) => item.severity === "BLOCKER").length, warningCount: findings.filter((item) => item.severity === "WARNING").length }, status: draft.selectedAction === "HOLD" || findings.some((item) => item.severity === "BLOCKER") || !legs.length || legs.some((leg) => !leg.candidate.activeAwards.length) ? "BLOCKED" : "READY_FOR_APPROVAL", createdBy: context.uid, createdAt: new Date().toISOString() };
+    const validation = { ...validationBase, contentHash: coordinatorValidationHash(validationBase) };
+    if (isFirestorePrimaryEnabled()) await intakeCollection(context.orgScope, "planningCoordinatorValidations").doc(validation.validationId).create(JSON.parse(JSON.stringify(validation)));
+    else localCoordinatorValidations.set(`${context.orgScope}:${validation.validationId}`, validation);
+    res.status(201).json({ validation });
+  });
+
+  app.post("/api/orders/planning-coordinator/validations/:validationId/approve", async (req, res) => {
+    const context = requireWorkspace(req, res); if (!context) return;
+    const validationRef = intakeCollection(context.orgScope, "planningCoordinatorValidations").doc(req.params.validationId);
+    const validation: any = isFirestorePrimaryEnabled() ? (await validationRef.get()).data() : localCoordinatorValidations.get(`${context.orgScope}:${req.params.validationId}`);
+    if (!validation || validation.workspaceId !== context.orgScope) { res.status(404).json({ error: "Validated planning draft not found." }); return; }
+    if (validation.status !== "READY_FOR_APPROVAL" || validation.contentHash !== coordinatorValidationHash(Object.fromEntries(Object.entries(validation).filter(([key]) => key !== "contentHash")))) { res.status(409).json({ error: "Only an integrity-verified draft without blockers can be approved." }); return; }
+    const priorApproval: any = isFirestorePrimaryEnabled() ? (await intakeCollection(context.orgScope, "planningCoordinatorApprovals").doc(validation.validationId).get()).data() : localCoordinatorApprovals.get(`${context.orgScope}:${validation.validationId}`);
+    if (priorApproval) { res.status(200).json({ approval: priorApproval, idempotent: true }); return; }
+    const draft = await getPlanningCoordinatorDraft(context.orgScope, validation.actionDraftId);
+    if (!draft || draft.contentHash !== validation.actionDraftContentHash) { res.status(409).json({ error: "The validated draft is no longer current." }); return; }
+    const proposal = validation.proposal as OrderPlanningProposal;
+    const currentOrders = await list(context.orgScope, "orders", localOrders) as OrderRecord[];
+    const currentOrder = currentOrders.find((item) => item.orderId === validation.orderId);
+    if (!currentOrder || clean(currentOrder.updatedAt) !== validation.sourceOrderUpdatedAt) { res.status(409).json({ error: "The order changed after validation. Validate the draft again." }); return; }
+    const proposedOrder = { ...currentOrder, ...draft.inputs } as OrderRecord;
+    let records;
+    try { records = buildPlanningDecisionRecords({ workspaceId: context.orgScope, order: proposedOrder, proposal, decision: "APPROVED", reason: clean(req.body?.reason, 1000) || "Approved coordinator action draft", actor: context.uid }); }
+    catch (error) { res.status(409).json({ error: error instanceof Error ? error.message : "The validated draft cannot be approved." }); return; }
+    const route = proposal.routePlans.find((item) => item.routePlanId === proposal.recommendedRoutePlanId)!;
+    const now = records.decision.decidedAt;
+    const journeyBase = { schemaVersion: "1.0", journeyId: randomUUID(), workspaceId: context.orgScope, orderIds: [currentOrder.orderId], status: "CONNECTED", segments: route.legs.map((leg, index) => ({ sequence: index + 1, orderId: currentOrder.orderId, orderMeid: clean(currentOrder.silTestMeid || currentOrder.meid), proposalId: proposal.proposalId, laneId: leg.candidate.laneId, laneName: leg.candidate.laneName, laneType: leg.candidate.laneType, originFacilityId: leg.candidate.laneSnapshot.originFacilityId, destinationFacilityId: leg.candidate.laneSnapshot.destinationFacilityId, plannedPickup: leg.plannedPickup, plannedDelivery: leg.plannedDelivery, disposition: leg.candidate.disposition })), findings: [{ severity: "INFO", code: "COORDINATOR_DRAFT_APPROVED", message: "The validated coordinator draft created this governed journey." }], createdBy: context.uid, createdAt: now };
+    const journey = { ...journeyBase, contentHash: coordinatorValidationHash(journeyBase) };
+    const allocations = records.loads.map((load, index) => ({ allocationId: randomUUID(), workspaceId: context.orgScope, orderId: currentOrder.orderId, loadId: load.loadId, journeyId: journey.journeyId, segmentSequence: index + 1, weight: proposedOrder.weight ?? null, weightUom: proposedOrder.weightUom ?? null, pallets: proposedOrder.palletQuantity ?? null, createdAt: now }));
+    const custody = allocations.flatMap((allocation, index) => [{ custodyEventId: randomUUID(), workspaceId: context.orgScope, allocationId: allocation.allocationId, journeyId: journey.journeyId, loadId: allocation.loadId, orderId: currentOrder.orderId, sequence: index * 2 + 1, event: "SEGMENT_PICKUP", facilityId: route.legs[index].candidate.laneSnapshot.originFacilityId, expectedAt: route.legs[index].plannedPickup, status: "PLANNED", recordedAt: now }, { custodyEventId: randomUUID(), workspaceId: context.orgScope, allocationId: allocation.allocationId, journeyId: journey.journeyId, loadId: allocation.loadId, orderId: currentOrder.orderId, sequence: index * 2 + 2, event: index === route.legs.length - 1 ? "FINAL_DELIVERY" : "SEGMENT_HANDOFF", facilityId: route.legs[index].candidate.laneSnapshot.destinationFacilityId, expectedAt: route.legs[index].plannedDelivery, status: "PENDING", recordedAt: now }]);
+    const approval = { schemaVersion: "1.0", approvalId: validation.validationId, workspaceId: context.orgScope, validationId: validation.validationId, actionDraftId: draft.actionDraftId, decisionId: records.decision.decisionId, journeyId: journey.journeyId, plannedLoadIds: records.loads.map((load) => load.loadId), allocationIds: allocations.map((item) => item.allocationId), custodyEventIds: custody.map((item) => item.custodyEventId), approvedBy: context.uid, approvedAt: now };
+    const revision = { schemaVersion: "1.0", revisionId: randomUUID(), workspaceId: context.orgScope, orderId: currentOrder.orderId, changedFields: Object.keys(validation.after), before: validation.before, after: validation.after, reason: clean(req.body?.reason, 1000) || "Approved coordinator action draft", source: "PLANNING_COORDINATOR", actionDraftId: draft.actionDraftId, validationId: validation.validationId, createdBy: context.uid, createdAt: now };
+    const updatedOrder = { ...proposedOrder, status: "ASSIGNED_TO_LOAD", plannedLoadId: records.load!.loadId, plannedLoadIds: records.loads.map((load) => load.loadId), journeyId: journey.journeyId, updatedAt: now };
+    if (isFirestorePrimaryEnabled()) {
+      const db = validationRef.firestore;
+      await db.runTransaction(async (transaction) => {
+        const [existingApproval, orderSnapshot] = await Promise.all([transaction.get(intakeCollection(context.orgScope, "planningCoordinatorApprovals").doc(validation.validationId)), transaction.get(intakeCollection(context.orgScope, "orders").doc(currentOrder.orderId))]);
+        if (existingApproval.exists) return;
+        if (!orderSnapshot.exists || clean(orderSnapshot.data()?.updatedAt) !== validation.sourceOrderUpdatedAt) throw new Error("The order changed after validation.");
+        transaction.create(intakeCollection(context.orgScope, "planningCoordinatorApprovals").doc(validation.validationId), approval);
+        transaction.create(intakeCollection(context.orgScope, "orderRevisions").doc(revision.revisionId), { ...revision, contentHash: coordinatorValidationHash(revision) });
+        transaction.create(intakeCollection(context.orgScope, "orderPlanningProposals").doc(proposal.proposalId), proposal);
+        transaction.create(intakeCollection(context.orgScope, "orderPlanningDecisions").doc(proposal.proposalId), records.decision);
+        transaction.create(intakeCollection(context.orgScope, "shipmentJourneys").doc(journey.journeyId), journey);
+        records.loads.forEach((load) => transaction.create(intakeCollection(context.orgScope, "plannedLoads").doc(load.loadId), load));
+        allocations.forEach((item) => transaction.create(intakeCollection(context.orgScope, "cargoAllocations").doc(item.allocationId), item));
+        custody.forEach((item) => transaction.create(intakeCollection(context.orgScope, "cargoCustodyEvents").doc(item.custodyEventId), item));
+        transaction.set(intakeCollection(context.orgScope, "orders").doc(currentOrder.orderId), updatedOrder);
+      });
+    } else {
+      if (!localCoordinatorApprovals.has(`${context.orgScope}:${validation.validationId}`)) { localCoordinatorApprovals.set(`${context.orgScope}:${validation.validationId}`, approval); registerLocalPlannedLoads(records.loads); await saveOrderPlanningProposal(proposal); await saveShipmentJourney(journey as any); await save(context.orgScope, "orders", currentOrder.orderId, updatedOrder, localOrders); }
+    }
+    res.status(201).json({ approval, journey, loads: records.loads, allocations, custody, order: updatedOrder });
   });
 
   app.get("/api/orders/cargo-nesting-proposals", async (req, res) => {
