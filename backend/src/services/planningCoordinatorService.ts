@@ -13,6 +13,13 @@ export type PlanningCoordinatorCase = {
   outcome: string; blockerCount: number; warningCount: number; allowedActions: ActionCandidate[];
   selectedAction: CoordinatorAction; executable: boolean; requiresApproval: boolean; resolutionOptionId: string | null;
   rationale: string; operationalEffect: string; costEffect: string; confidence: number; priority: number;
+  actionDraftId: string;
+};
+export type PlanningCoordinatorActionDraft = {
+  schemaVersion: "1.0"; actionDraftId: string; workspaceId: string; coordinatorRunId: string; orderId: string;
+  proposalId: string; proposalContentHash: string; supersedesActionDraftId: string | null; revision: number;
+  status: "DRAFT"; selectedAction: CoordinatorAction; allowedActions: CoordinatorAction[]; routePlanId: string | null;
+  inputs: Record<string, unknown>; rationale: string; createdBy: string; createdAt: string; contentHash: string;
 };
 export type PlanningCoordinatorRun = {
   schemaVersion: "1.0"; coordinatorRunId: string; workspaceId: string; status: "PENDING_APPROVAL";
@@ -21,6 +28,7 @@ export type PlanningCoordinatorRun = {
 };
 
 const localRuns = new Map<string, PlanningCoordinatorRun[]>();
+const localDrafts = new Map<string, PlanningCoordinatorActionDraft[]>();
 let client: OpenAI | undefined;
 const canonical = (value: unknown): string => value === null || typeof value !== "object" ? JSON.stringify(value) : Array.isArray(value) ? `[${value.map(canonical).join(",")}]` : `{${Object.entries(value as Record<string, unknown>).filter(([, child]) => child !== undefined).sort(([a], [b]) => a.localeCompare(b)).map(([key, child]) => `${JSON.stringify(key)}:${canonical(child)}`).join(",")}}`;
 const clean = (value: unknown) => String(value ?? "").trim();
@@ -77,12 +85,52 @@ export async function coordinatePlanning(input: { workspaceId: string; proposals
     return { orderId: item.orderId, orderMeid: item.orderMeid, reference: item.reference, proposalId: item.proposalId, proposalContentHash: input.proposals[index].contentHash, outcome: item.outcome,
       blockerCount: item.findings.filter((finding) => finding.severity === "BLOCKER").length, warningCount: item.findings.filter((finding) => finding.severity === "WARNING").length, allowedActions: item.allowedActions,
       selectedAction: allowed.action, executable: allowed.executable, requiresApproval: allowed.requiresApproval, resolutionOptionId: allowed.resolutionOptionId,
-      rationale: clean(suggested?.rationale) || allowed.reason, operationalEffect: clean(suggested?.operationalEffect) || "The case remains within governed planning.", costEffect: clean(suggested?.costEffect) || "No cost evidence was supplied.", confidence: Math.max(0, Math.min(1, Number(suggested?.confidence ?? 1))), priority: Math.max(1, Math.min(100, Number(suggested?.priority ?? index + 1))) };
+      rationale: clean(suggested?.rationale) || allowed.reason, operationalEffect: clean(suggested?.operationalEffect) || "The case remains within governed planning.", costEffect: clean(suggested?.costEffect) || "No cost evidence was supplied.", confidence: Math.max(0, Math.min(1, Number(suggested?.confidence ?? 1))), priority: Math.max(1, Math.min(100, Number(suggested?.priority ?? index + 1))), actionDraftId: randomUUID() };
   }).sort((a, b) => a.priority - b.priority);
   const base = { schemaVersion: "1.0" as const, coordinatorRunId: randomUUID(), workspaceId: input.workspaceId, status: "PENDING_APPROVAL" as const, summary: clean(response.summary).slice(0, 2000), cases, provider, model, promptVersion: PLANNING_COORDINATOR_PROMPT_VERSION, responseId, createdBy: input.actor, createdAt: new Date().toISOString() };
   const run = { ...base, contentHash: createHash("sha256").update(canonical(base)).digest("hex") };
-  if (isFirestorePrimaryEnabled()) await intakeCollection(input.workspaceId, "planningCoordinatorRuns").doc(run.coordinatorRunId).create(run); else localRuns.set(input.workspaceId, [run, ...(localRuns.get(input.workspaceId) ?? [])]);
+  const proposalsByOrder = new Map(input.proposals.map((proposal) => [proposal.orderId, proposal]));
+  const drafts = cases.map((planningCase) => buildActionDraft(run.coordinatorRunId, planningCase, proposalsByOrder.get(planningCase.orderId)!, input.actor));
+  if (isFirestorePrimaryEnabled()) {
+    const batch = intakeCollection(input.workspaceId, "planningCoordinatorRuns").doc(run.coordinatorRunId).firestore.batch();
+    batch.create(intakeCollection(input.workspaceId, "planningCoordinatorRuns").doc(run.coordinatorRunId), run);
+    drafts.forEach((draft) => batch.create(intakeCollection(input.workspaceId, "planningCoordinatorDrafts").doc(draft.actionDraftId), draft));
+    await batch.commit();
+  } else {
+    localRuns.set(input.workspaceId, [run, ...(localRuns.get(input.workspaceId) ?? [])]);
+    localDrafts.set(input.workspaceId, [...drafts, ...(localDrafts.get(input.workspaceId) ?? [])]);
+  }
   return run;
+}
+
+function buildActionDraft(runId: string, planningCase: PlanningCoordinatorCase, proposal: OrderPlanningProposal, actor: string): PlanningCoordinatorActionDraft {
+  const snapshot = proposal.orderSnapshot as Record<string, unknown>;
+  const inputs = Object.fromEntries(["originId", "destinationId", "businessUnit", "earliestPickup", "latestDelivery", "modeType", "orderType", "equipmentType", "weight", "weightUom", "palletQuantity", "scac"].map((field) => [field, snapshot[field] ?? null]));
+  const base = { schemaVersion: "1.0" as const, actionDraftId: planningCase.actionDraftId, workspaceId: proposal.workspaceId, coordinatorRunId: runId, orderId: proposal.orderId, proposalId: proposal.proposalId, proposalContentHash: proposal.contentHash, supersedesActionDraftId: null, revision: 1, status: "DRAFT" as const, selectedAction: planningCase.selectedAction, allowedActions: planningCase.allowedActions.map((item) => item.action), routePlanId: proposal.recommendedRoutePlanId ?? null, inputs, rationale: planningCase.rationale, createdBy: actor, createdAt: new Date().toISOString() };
+  return { ...base, contentHash: createHash("sha256").update(canonical(base)).digest("hex") };
+}
+
+export async function getPlanningCoordinatorDraft(workspaceId: string, draftId: string) {
+  if (isFirestorePrimaryEnabled()) {
+    const snapshot = await intakeCollection(workspaceId, "planningCoordinatorDrafts").doc(draftId).get();
+    const draft = snapshot.exists ? snapshot.data() as PlanningCoordinatorActionDraft : null;
+    return draft?.workspaceId === workspaceId ? draft : null;
+  }
+  return (localDrafts.get(workspaceId) ?? []).find((draft) => draft.actionDraftId === draftId) ?? null;
+}
+
+export async function revisePlanningCoordinatorDraft(input: { workspaceId: string; draft: PlanningCoordinatorActionDraft; actor: string; selectedAction?: unknown; inputs?: unknown; rationale?: unknown }) {
+  const selectedAction = clean(input.selectedAction || input.draft.selectedAction) as CoordinatorAction;
+  if (!input.draft.allowedActions.includes(selectedAction)) throw new Error("The selected action is not allowed by the verified planning case.");
+  const editable = new Set(["originId", "destinationId", "businessUnit", "earliestPickup", "latestDelivery", "modeType", "orderType", "equipmentType", "weight", "weightUom", "palletQuantity", "scac"]);
+  const requested = input.inputs && typeof input.inputs === "object" ? input.inputs as Record<string, unknown> : {};
+  if (Object.keys(requested).some((field) => !editable.has(field))) throw new Error("The draft contains an unsupported planning input.");
+  const nextId = randomUUID();
+  const base = { ...input.draft, actionDraftId: nextId, supersedesActionDraftId: input.draft.actionDraftId, revision: input.draft.revision + 1, selectedAction, inputs: { ...input.draft.inputs, ...requested }, rationale: clean(input.rationale || input.draft.rationale).slice(0, 2000), createdBy: input.actor, createdAt: new Date().toISOString(), contentHash: "" };
+  const revised = { ...base, contentHash: createHash("sha256").update(canonical({ ...base, contentHash: undefined })).digest("hex") };
+  if (isFirestorePrimaryEnabled()) await intakeCollection(input.workspaceId, "planningCoordinatorDrafts").doc(nextId).create(revised);
+  else localDrafts.set(input.workspaceId, [revised, ...(localDrafts.get(input.workspaceId) ?? [])]);
+  return revised;
 }
 
 export async function listPlanningCoordinatorRuns(workspaceId: string) {

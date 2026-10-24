@@ -13,7 +13,7 @@ import { buildOrderConsolidationDecision, buildOrderConsolidationProposal, getOr
 import { runConsolidationAssistant, safetyIdentifierFor } from "../services/consolidationAssistantService";
 import { buildShipmentJourney, listShipmentJourneys, saveShipmentJourney } from "../services/shipmentJourneyService";
 import { buildCargoNestingProposal, listCargoNestingProposals, saveCargoNestingProposal, type CargoAllocationInput } from "../services/cargoNestingService";
-import { coordinatePlanning, listPlanningCoordinatorRuns } from "../services/planningCoordinatorService";
+import { coordinatePlanning, getPlanningCoordinatorDraft, listPlanningCoordinatorRuns, revisePlanningCoordinatorDraft } from "../services/planningCoordinatorService";
 
 export type OrderStatus = "DRAFT" | "VALIDATION_REQUIRED" | "READY_TO_PLAN" | "REMOVED" | "ASSIGNED_TO_LOAD" | "TENDERED" | "CARRIER_ACCEPTED" | "TENDER_REJECTED" | "TENDER_EXPIRED" | "IN_TRANSIT" | "DELIVERED";
 export type OrderRecord = Record<string, unknown> & { orderId: string; workspaceId: string; primaryReference: string; status: OrderStatus };
@@ -106,6 +106,15 @@ async function createAutomaticPlanningProposal(workspaceId: string, order: Order
   });
   await saveOrderPlanningProposal(proposal);
   return proposal;
+}
+
+async function coordinateAutomaticProposals(workspaceId: string, proposals: OrderPlanningProposal[], actor: string) {
+  if (!proposals.length) return null;
+  let latest = null;
+  for (let index = 0; index < proposals.length; index += 100) {
+    latest = await coordinatePlanning({ workspaceId, proposals: proposals.slice(index, index + 100), actor, safetyIdentifier: safetyIdentifierFor(actor) });
+  }
+  return latest;
 }
 
 function effectivePlanningOrder(order: OrderRecord): OrderRecord {
@@ -221,6 +230,25 @@ export function registerOrderRoutes(app: Express) {
       const run = await coordinatePlanning({ workspaceId: context.orgScope, proposals: await Promise.all(proposals.map((proposal) => getLatestOrderPlanningProposal(context.orgScope, proposal.orderId) as Promise<OrderPlanningProposal>)), actor: context.uid, safetyIdentifier: safetyIdentifierFor(context.uid) });
       res.status(201).json({ run });
     } catch (error) { res.status(422).json({ error: error instanceof Error ? error.message : "The Planning Coordinator could not prepare the workflow." }); }
+  });
+
+  app.get("/api/orders/planning-coordinator/drafts/:draftId", async (req, res) => {
+    const context = requireWorkspace(req, res); if (!context) return;
+    const draft = await getPlanningCoordinatorDraft(context.orgScope, req.params.draftId);
+    if (!draft) { res.status(404).json({ error: "Planning action draft not found." }); return; }
+    res.json({ draft });
+  });
+
+  app.post("/api/orders/planning-coordinator/drafts/:draftId/revisions", async (req, res) => {
+    const context = requireWorkspace(req, res); if (!context) return;
+    const draft = await getPlanningCoordinatorDraft(context.orgScope, req.params.draftId);
+    if (!draft) { res.status(404).json({ error: "Planning action draft not found." }); return; }
+    const latest = await getLatestOrderPlanningProposal(context.orgScope, draft.orderId);
+    if (!latest || latest.proposalId !== draft.proposalId || latest.contentHash !== draft.proposalContentHash || latest.integrity !== "VERIFIED") { res.status(409).json({ error: "This action draft is no longer based on the current verified planning evidence." }); return; }
+    try {
+      const revised = await revisePlanningCoordinatorDraft({ workspaceId: context.orgScope, draft, actor: context.uid, selectedAction: req.body?.selectedAction, inputs: req.body?.inputs, rationale: req.body?.rationale });
+      res.status(201).json({ draft: revised });
+    } catch (error) { res.status(400).json({ error: error instanceof Error ? error.message : "The planning action draft could not be revised." }); }
   });
 
   app.get("/api/orders/cargo-nesting-proposals", async (req, res) => {
@@ -499,7 +527,8 @@ export function registerOrderRoutes(app: Express) {
     const order: OrderRecord = { ...canonical, externalMeid: clean(canonical.meid) || null, meid: silTestMeid, silTestMeid, identifierType: "SIL_TEST_MEID", identifierSource: "SIL", environment: "TEST", orderId: randomUUID(), workspaceId: context.orgScope, primaryReference: clean(canonical.primaryReference), status: issues.some((i) => i.severity === "ERROR") ? "VALIDATION_REQUIRED" : "READY_TO_PLAN", issues, corrections: facilityReview.corrections, source: "MANUAL", createdBy: context.uid, createdAt: now, updatedAt: now } as OrderRecord;
     await save(context.orgScope, "orders", order.orderId, order, localOrders);
     const proposal = await createAutomaticPlanningProposal(context.orgScope, order, context.uid);
-    res.status(201).json({ order, proposal });
+    const coordinatorRun = await coordinateAutomaticProposals(context.orgScope, [proposal], context.uid);
+    res.status(201).json({ order, proposal, coordinatorRun });
   });
 
   app.patch("/api/orders/:orderId", async (req, res) => {
@@ -532,7 +561,8 @@ export function registerOrderRoutes(app: Express) {
     await save(context.orgScope, "orders", order.orderId, updated, localOrders);
     if (isFirestorePrimaryEnabled()) await intakeCollection(context.orgScope, "orderRevisions").doc(revision.revisionId).create(revision);
     const proposal = await createAutomaticPlanningProposal(context.orgScope, updated, context.uid);
-    res.status(200).json({ order: updated, proposal, revision });
+    const coordinatorRun = await coordinateAutomaticProposals(context.orgScope, [proposal], context.uid);
+    res.status(200).json({ order: updated, proposal, revision, coordinatorRun });
   });
 
   app.get("/api/orders/intake-profiles", async (req, res) => {
@@ -772,6 +802,7 @@ export function registerOrderRoutes(app: Express) {
     }
     const approved = { ...review, status: "APPROVED", approvedBy: context.uid, approvedAt: now, importedOrderIds: orders.map((order: any) => order.orderId) };
     await save(context.orgScope, "orderIntakeReviews", review.reviewId, approved, localReviews);
-    res.json({ importedCount: orders.length, rejectedCount: review.proposedRows.length - orders.length, orders, proposals });
+    const coordinatorRun = await coordinateAutomaticProposals(context.orgScope, proposals, context.uid);
+    res.json({ importedCount: orders.length, rejectedCount: review.proposedRows.length - orders.length, orders, proposals, coordinatorRun });
   });
 }

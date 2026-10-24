@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { coordinatePlanning } = require('../dist/src/services/planningCoordinatorService');
+const { coordinatePlanning, getPlanningCoordinatorDraft, revisePlanningCoordinatorDraft } = require('../dist/src/services/planningCoordinatorService');
 
 const matchedProposal = {
   schemaVersion: '1.2', matchingPolicyVersion: 'test', equipmentCapacityPolicyVersion: 'test', proposalId: 'proposal-1', workspaceId: 'org-1', orderId: 'order-1', orderMeid: '500000001',
@@ -21,6 +21,17 @@ test('planning coordinator prepares one governed next action without executing i
     assert.equal(run.cases[0].requiresApproval, true);
     assert.equal(run.provider, 'RULES');
     assert.ok(run.contentHash);
+    assert.ok(run.cases[0].actionDraftId);
+    const draft = await getPlanningCoordinatorDraft('org-1', run.cases[0].actionDraftId);
+    assert.equal(draft.proposalId, matchedProposal.proposalId);
+    assert.equal(draft.inputs.originId, 'dc-1');
+    assert.equal(await getPlanningCoordinatorDraft('org-2', run.cases[0].actionDraftId), null);
+    const revised = await revisePlanningCoordinatorDraft({ workspaceId: 'org-1', draft, actor: 'planner-2', inputs: { equipmentType: '26 FT DRY VAN' }, rationale: 'Use the configured lane equipment.' });
+    assert.equal(revised.revision, 2);
+    assert.equal(revised.supersedesActionDraftId, draft.actionDraftId);
+    assert.equal(revised.inputs.equipmentType, '26 FT DRY VAN');
+    assert.notEqual(revised.contentHash, draft.contentHash);
+    await assert.rejects(() => revisePlanningCoordinatorDraft({ workspaceId: 'org-1', draft, actor: 'planner', selectedAction: 'MODIFY_ORDER' }), /not allowed/);
   } finally {
     if (previous === undefined) delete process.env.OPENAI_API_KEY; else process.env.OPENAI_API_KEY = previous;
   }

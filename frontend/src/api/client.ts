@@ -128,6 +128,16 @@ export async function fetchPlanningCoordinatorRuns() {
   return readJsonResponse(res, "Failed to load Planning Coordinator runs");
 }
 
+export async function fetchPlanningCoordinatorDraft(draftId: string) {
+  const res = await fetch(`${API_BASE}/orders/planning-coordinator/drafts/${encodeURIComponent(draftId)}`);
+  return readJsonResponse(res, "Failed to load planning action draft");
+}
+
+export async function revisePlanningCoordinatorDraft(draftId: string, payload: Record<string, unknown>) {
+  const res = await fetch(`${API_BASE}/orders/planning-coordinator/drafts/${encodeURIComponent(draftId)}/revisions`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+  return readJsonResponse(res, "Failed to revise planning action draft");
+}
+
 export async function fetchOrderPlanningMatch(orderId: string) {
   const res = await fetch(`${API_BASE}/orders/${encodeURIComponent(orderId)}/planning-match`);
   return readJsonResponse(res, "Failed to fetch order planning match");
