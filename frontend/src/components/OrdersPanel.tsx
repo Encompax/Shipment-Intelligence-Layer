@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import CargoNestingPanel from "./CargoNestingPanel";
-import { askConsolidationAssistant, correctOrder, createOrder, createOrderConsolidationProposal, createPlanningResolutionDraft, createShipmentJourney, decideOrderConsolidationProposal, decideOrderPlanningProposal, decidePlanningResolutionDraft, fetchFacilities, fetchLaneRegistry, fetchOrderJourney, fetchOrderPlanningDecisions, fetchOrderPlanningHistory, fetchOrders, fetchPlanningResolution, generateOrderTestMeid, matchOrderToLane, removeOrders } from "../api/client";
+import { askConsolidationAssistant, correctOrder, createOrder, createOrderConsolidationProposal, createPlanningResolutionDraft, createShipmentJourney, decideOrderConsolidationProposal, decideOrderPlanningProposal, decidePlanningResolutionDraft, fetchFacilities, fetchLaneRegistry, fetchOrderJourney, fetchOrderPlanningDecisions, fetchOrderPlanningHistory, fetchOrders, fetchPlanningCoordinatorRuns, fetchPlanningResolution, generateOrderTestMeid, matchOrderToLane, removeOrders, runPlanningCoordinator } from "../api/client";
 import { useWorkspaceViewSettings } from "../context/WorkspaceViewSettings";
 
 type PlanningSummary = { proposalId: string; outcome: "MATCHED" | "REVIEW_REQUIRED" | "NO_MATCH"; integrity?: string; blockerCount: number; warningCount: number; createdAt: string };
@@ -21,13 +21,15 @@ type ConsolidationGroup = { groupId: string; role: string; laneName: string; ord
 type ConsolidationProposal = { consolidationProposalId: string; groups: ConsolidationGroup[]; excludedOrders: Array<{ orderId: string; reason: string }>; createdAt: string; integrity?: string };
 type ConsolidationAssistantTurn = { turnId: string; operatorMessage: string; response: string; evidence: string[]; recommendations: Array<{ actionType: string; groupIds: string[]; title: string; rationale: string; operationalEffect: string; costEffect: string }>; suggestedPrompts: string[]; provider: string; model: string };
 type ShipmentJourney = { journeyId: string; status: "CONNECTED" | "REVIEW_REQUIRED"; integrity: string; orderIds: string[]; segments: Array<{ sequence: number; orderId: string; orderMeid?: string; proposalId: string; laneId: string; laneName: string; laneType: string; originFacilityId: string; destinationFacilityId: string; plannedPickup: string; plannedDelivery: string; disposition: string }>; findings: Array<{ severity: string; code: string; message: string }>; createdAt: string };
+type CoordinatorCase = { orderId: string; orderMeid: string; reference: string; outcome: string; blockerCount: number; warningCount: number; selectedAction: string; executable: boolean; requiresApproval: boolean; rationale: string; operationalEffect: string; costEffect: string; confidence: number; priority: number };
+type CoordinatorRun = { coordinatorRunId: string; summary: string; cases: CoordinatorCase[]; provider: string; model: string; createdAt: string; contentHash: string };
 const empty = { primaryReference: "", poNumber: "", materialTransferOrderNumber: "", businessUnit: "", originId: "", destinationId: "", earliestPickup: "", latestDelivery: "", eachQuantity: "", caseQuantity: "", palletQuantity: "", weight: "", weightUom: "LBS", equipmentType: "53 FT DRY VAN", scac: "", modeType: "TL", orderType: "" };
 const emptyCorrection = { originId: "", destinationId: "", businessUnit: "", earliestPickup: "", latestDelivery: "", eachQuantity: "", caseQuantity: "", palletQuantity: "", weight: "", weightUom: "LBS", equipmentType: "53 FT DRY VAN", scac: "", modeType: "TL", orderType: "TRANSFER", reason: "" };
 
 export default function OrdersPanel() {
   const { settings: viewSettings } = useWorkspaceViewSettings();
   const [activeWorkspacePanel, setActiveWorkspacePanel] = useState<"planning" | "manual" | "loads">("planning");
-  const [activePlanningStage, setActivePlanningStage] = useState<"orders" | "review" | "correction">("orders");
+  const [activePlanningStage, setActivePlanningStage] = useState<"coordinator" | "orders" | "review" | "correction">("coordinator");
   const [orders, setOrders] = useState<Order[]>([]);
   const [form, setForm] = useState(empty);
   const [search, setSearch] = useState("");
@@ -63,8 +65,11 @@ export default function OrdersPanel() {
   const [consolidationDecision, setConsolidationDecision] = useState<{ decision: string; plannedLoadIds: string[] } | null>(null);
   const [consolidationQuestion, setConsolidationQuestion] = useState("");
   const [consolidationTurns, setConsolidationTurns] = useState<ConsolidationAssistantTurn[]>([]);
+  const [coordinatorRun, setCoordinatorRun] = useState<CoordinatorRun | null>(null);
+  const [coordinatorBusy, setCoordinatorBusy] = useState(false);
   const load = async () => { try { const [orderResult, facilityResult, registry] = await Promise.all([fetchOrders(), fetchFacilities(), fetchLaneRegistry()]); setOrders(orderResult.orders ?? []); setFacilities(facilityResult.facilities ?? []); setBusinessUnits(registry.businessUnits ?? []); setPartners((registry.partners ?? []).filter((partner: Partner) => partner.scac && partner.status !== "archived")); } catch (error) { setMessage(error instanceof Error ? error.message : "Could not load order setup data."); } };
   useEffect(() => { void load(); }, []);
+  useEffect(() => { void fetchPlanningCoordinatorRuns().then((result) => setCoordinatorRun(result.latest ?? null)).catch(() => undefined); }, []);
   const facilityLookup = useMemo(() => {
     const lookup = new Map<string, Facility>();
     facilities.forEach((facility) => {
@@ -144,6 +149,17 @@ export default function OrdersPanel() {
     }
   };
   const buildConsolidation = async () => { try { setConsolidationBusy(true); setMessage("Building governed consolidation groups..."); const result = await createOrderConsolidationProposal(); setConsolidation(result.proposal); setConsolidationDecision(null); setConsolidationReason(""); setConsolidationTurns([]); setMessage("Consolidation proposal is ready for review. No loads were changed."); } catch (error) { setMessage(error instanceof Error ? error.message : "Could not build consolidation proposal."); } finally { setConsolidationBusy(false); } };
+  const runCoordinator = async () => {
+    const selected = orders.filter((order) => order.status === "READY_TO_PLAN" && selectedOrderIds.includes(order.orderId)).map((order) => order.orderId);
+    try {
+      setCoordinatorBusy(true); setMessage("The Planning Coordinator is refreshing evidence and preparing the next governed action...");
+      const result = await runPlanningCoordinator(selected);
+      setCoordinatorRun(result.run); setActivePlanningStage("coordinator");
+      setMessage(`${result.run.cases.length} planning case${result.run.cases.length === 1 ? "" : "s"} coordinated. No orders or loads were changed.`);
+      await load();
+    } catch (error) { setMessage(error instanceof Error ? error.message : "The Planning Coordinator could not prepare the workflow."); }
+    finally { setCoordinatorBusy(false); }
+  };
   const decideConsolidation = async (decision: "APPROVED" | "REJECTED") => { if (!consolidation) return; try { setConsolidationBusy(true); const result = await decideOrderConsolidationProposal(consolidation.consolidationProposalId, { decision, reason: consolidationReason }); setConsolidationDecision(result.decision); setMessage(decision === "APPROVED" ? `${result.loads?.length || 0} governed loads created from the consolidation plan.` : "Consolidation proposal rejected. No orders or loads changed."); await load(); } catch (error) { setMessage(error instanceof Error ? error.message : "Could not decide consolidation proposal."); } finally { setConsolidationBusy(false); } };
   const askConsolidation = async (event?: React.FormEvent, suggestedQuestion?: string) => { event?.preventDefault(); if (!consolidation) return; const question = (suggestedQuestion || consolidationQuestion).trim(); if (!question) return; try { setConsolidationBusy(true); const result = await askConsolidationAssistant(consolidation.consolidationProposalId, question); setConsolidationTurns((current) => [...current, result.turn]); setConsolidationQuestion(""); } catch (error) { setMessage(error instanceof Error ? error.message : "The Consolidation Assistant could not respond."); } finally { setConsolidationBusy(false); } };
   const matchPlanningQueue = async () => {
@@ -391,11 +407,18 @@ export default function OrdersPanel() {
     <div className={`planning-workbench${activeWorkspacePanel !== "manual" ? " is-active" : ""}${activeWorkspacePanel === "loads" ? " show-loads" : ""}`} data-order-panel="planning">
       <aside className="planning-workbench-sidebar" aria-label="Planning workflow">
         <p className="transport-eyebrow">Planning workflow</p>
-        <button type="button" className={activePlanningStage === "orders" ? "active" : ""} aria-current={activePlanningStage === "orders" ? "step" : undefined} onClick={() => setActivePlanningStage("orders")}><span>1</span><strong>Orders on file</strong><small>Select and match orders</small></button>
-        <button type="button" className={activePlanningStage === "review" ? "active" : ""} aria-current={activePlanningStage === "review" ? "step" : undefined} disabled={!planningProposal} onClick={() => setActivePlanningStage("review")}><span>2</span><strong>Governed planning review</strong><small>{planningProposal ? `Order ${planningProposal.orderMeid || planningProposal.orderId}` : "Select an order first"}</small></button>
-        <button type="button" className={activePlanningStage === "correction" ? "active" : ""} aria-current={activePlanningStage === "correction" ? "step" : undefined} disabled={!planningProposal} onClick={openOrderCorrection}><span>3</span><strong>Order correction</strong><small>Revise and rematch</small></button>
+        <button type="button" className={activePlanningStage === "coordinator" ? "active" : ""} aria-current={activePlanningStage === "coordinator" ? "step" : undefined} onClick={() => setActivePlanningStage("coordinator")}><span>1</span><strong>Planning Coordinator</strong><small>One next action per case</small></button>
+        <button type="button" className={activePlanningStage === "orders" ? "active" : ""} aria-current={activePlanningStage === "orders" ? "step" : undefined} onClick={() => setActivePlanningStage("orders")}><span>2</span><strong>Orders on file</strong><small>Select planning scope</small></button>
+        <button type="button" className={activePlanningStage === "review" ? "active" : ""} aria-current={activePlanningStage === "review" ? "step" : undefined} disabled={!planningProposal} onClick={() => setActivePlanningStage("review")}><span>3</span><strong>Governed planning review</strong><small>{planningProposal ? `Order ${planningProposal.orderMeid || planningProposal.orderId}` : "Select a case first"}</small></button>
+        <button type="button" className={activePlanningStage === "correction" ? "active" : ""} aria-current={activePlanningStage === "correction" ? "step" : undefined} disabled={!planningProposal} onClick={openOrderCorrection}><span>4</span><strong>Order correction</strong><small>Revise and rematch</small></button>
       </aside>
       <div className="planning-workbench-canvas">
+    <section className={`transport-panel planning-coordinator-panel${activeWorkspacePanel === "planning" ? " is-active" : ""}${activePlanningStage !== "coordinator" ? " stage-hidden" : ""}`}>
+      <div className="transport-panel-header"><div><p className="transport-eyebrow">Agent co-work</p><h3>AI Planning Coordinator</h3></div><button className="btn btn-primary" type="button" disabled={coordinatorBusy || !orders.some((order) => order.status === "READY_TO_PLAN")} onClick={() => void runCoordinator()}>{coordinatorBusy ? "Coordinating..." : selectedReadyCount ? `Coordinate ${selectedReadyCount} selected` : "Coordinate ready queue"}</button></div>
+      <p className="ops-note">SIL refreshes deterministic planning evidence, then the coordinator organizes one valid next action for each case. It cannot change orders, approve loads, or tender freight.</p>
+      {message && <p className="ops-note" role="status">{message}</p>}
+      {coordinatorRun ? <><div className="planning-audit-bar"><span>Run <strong>{coordinatorRun.coordinatorRunId}</strong></span><span>Cases <strong>{coordinatorRun.cases.length}</strong></span><span>Provider <strong>{coordinatorRun.provider}</strong></span><span>Created <strong>{new Date(coordinatorRun.createdAt).toLocaleString()}</strong></span></div><p className="coordinator-summary">{coordinatorRun.summary}</p><div className="coordinator-case-list">{coordinatorRun.cases.map((item) => <article key={item.orderId} className={item.blockerCount ? "blocked" : item.warningCount ? "warning" : "ready"}><header><div><span>Priority {item.priority}</span><strong>{item.orderMeid || item.reference}</strong><small>{item.reference}</small></div><b>{item.selectedAction.replaceAll("_", " ")}</b></header><div className="coordinator-case-metrics"><span>{item.blockerCount} blockers</span><span>{item.warningCount} warnings</span><span>{Math.round(item.confidence * 100)}% confidence</span></div><p>{item.rationale}</p><small><strong>Operational:</strong> {item.operationalEffect}</small><small><strong>Cost:</strong> {item.costEffect}</small><footer><span>{item.requiresApproval ? "Approval required" : "No execution requested"}</span><button className="btn btn-secondary" type="button" onClick={() => void reviewPlan(item.orderId)}>Open governed case</button></footer></article>)}</div></> : <div className="coordinator-empty"><strong>No coordinated plan yet</strong><p>Run the ready queue or select specific orders under Orders on file.</p></div>}
+    </section>
     <section className={`transport-panel order-planning-queue${activeWorkspacePanel === "planning" ? " is-active" : ""}${activePlanningStage !== "orders" ? " stage-hidden" : ""}`}><div className="transport-panel-header"><div><p className="transport-eyebrow">Planning queue</p><h3>Orders on file</h3></div><div className="planning-queue-header-actions"><span>{selectedReadyCount} selected</span><button className="btn btn-secondary" type="button" disabled={planningQueueBusy || selectedReadyCount === 0} onClick={() => void removeSelectedOrders()}>Remove selected</button><button className="btn btn-primary" type="button" disabled={planningQueueBusy || selectedReadyCount === 0} onClick={() => void matchPlanningQueue()}>{planningQueueBusy ? "Planning selected..." : "Match & review selected"}</button></div></div>
       <label className="facility-search"><span>Search orders</span><input type="search" placeholder="Reference, site, business unit, SCAC, or status" value={search} onChange={(e) => setSearch(e.target.value)} /></label>
       {message && <p className="ops-note">{message}</p>}

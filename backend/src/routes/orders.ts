@@ -13,6 +13,7 @@ import { buildOrderConsolidationDecision, buildOrderConsolidationProposal, getOr
 import { runConsolidationAssistant, safetyIdentifierFor } from "../services/consolidationAssistantService";
 import { buildShipmentJourney, listShipmentJourneys, saveShipmentJourney } from "../services/shipmentJourneyService";
 import { buildCargoNestingProposal, listCargoNestingProposals, saveCargoNestingProposal, type CargoAllocationInput } from "../services/cargoNestingService";
+import { coordinatePlanning, listPlanningCoordinatorRuns } from "../services/planningCoordinatorService";
 
 export type OrderStatus = "DRAFT" | "VALIDATION_REQUIRED" | "READY_TO_PLAN" | "REMOVED" | "ASSIGNED_TO_LOAD" | "TENDERED" | "CARRIER_ACCEPTED" | "TENDER_REJECTED" | "TENDER_EXPIRED" | "IN_TRANSIT" | "DELIVERED";
 export type OrderRecord = Record<string, unknown> & { orderId: string; workspaceId: string; primaryReference: string; status: OrderStatus };
@@ -200,6 +201,28 @@ async function resolveFacilities(workspaceId: string, rows: Record<string, unkno
 export const orderDuplicateKey = (row: Record<string, unknown>) => [row.primaryReference, row.poNumber, row.materialTransferOrderNumber, row.externalMeid || row.meid].map(comparable).filter(Boolean).join("|");
 
 export function registerOrderRoutes(app: Express) {
+  app.get("/api/orders/planning-coordinator/runs", async (req, res) => {
+    const context = requireWorkspace(req, res); if (!context) return;
+    const runs = await listPlanningCoordinatorRuns(context.orgScope);
+    res.json({ runs, latest: runs[0] ?? null });
+  });
+
+  app.post("/api/orders/planning-coordinator/run", async (req, res) => {
+    const context = requireWorkspace(req, res); if (!context) return;
+    const requestedIds = Array.isArray(req.body?.orderIds) ? [...new Set(req.body.orderIds.map((value: unknown) => clean(value)).filter(Boolean))].slice(0, 50) : [];
+    const orders = await list(context.orgScope, "orders", localOrders) as OrderRecord[];
+    const ready = orders.filter((order) => order.status === "READY_TO_PLAN" && (!requestedIds.length || requestedIds.includes(order.orderId)));
+    if (!ready.length) { res.status(400).json({ error: "Select at least one order that is ready to plan." }); return; }
+    if (requestedIds.length && ready.length !== requestedIds.length) { res.status(409).json({ error: "Every selected order must still be ready to plan in this workspace." }); return; }
+    try {
+      const registry = await listLanePlanningRegistry(context.orgScope);
+      const proposals: OrderPlanningProposal[] = [];
+      for (const order of ready) proposals.push(await createAutomaticPlanningProposal(context.orgScope, order, context.uid, registry));
+      const run = await coordinatePlanning({ workspaceId: context.orgScope, proposals: await Promise.all(proposals.map((proposal) => getLatestOrderPlanningProposal(context.orgScope, proposal.orderId) as Promise<OrderPlanningProposal>)), actor: context.uid, safetyIdentifier: safetyIdentifierFor(context.uid) });
+      res.status(201).json({ run });
+    } catch (error) { res.status(422).json({ error: error instanceof Error ? error.message : "The Planning Coordinator could not prepare the workflow." }); }
+  });
+
   app.get("/api/orders/cargo-nesting-proposals", async (req, res) => {
     const context = requireWorkspace(req, res); if (!context) return;
     const proposals = await listCargoNestingProposals(context.orgScope);

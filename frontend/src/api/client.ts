@@ -118,6 +118,16 @@ export async function matchOrderToLane(orderId: string) {
   return readJsonResponse(res, "Failed to match order to lanes");
 }
 
+export async function runPlanningCoordinator(orderIds: string[]) {
+  const res = await fetch(`${API_BASE}/orders/planning-coordinator/run`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ orderIds }) });
+  return readJsonResponse(res, "The Planning Coordinator could not prepare the workflow");
+}
+
+export async function fetchPlanningCoordinatorRuns() {
+  const res = await fetch(`${API_BASE}/orders/planning-coordinator/runs`);
+  return readJsonResponse(res, "Failed to load Planning Coordinator runs");
+}
+
 export async function fetchOrderPlanningMatch(orderId: string) {
   const res = await fetch(`${API_BASE}/orders/${encodeURIComponent(orderId)}/planning-match`);
   return readJsonResponse(res, "Failed to fetch order planning match");
