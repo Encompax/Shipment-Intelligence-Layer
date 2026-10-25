@@ -36,3 +36,30 @@ test('planning coordinator prepares one governed next action without executing i
     if (previous === undefined) delete process.env.OPENAI_API_KEY; else process.env.OPENAI_API_KEY = previous;
   }
 });
+
+test('planning coordinator isolates and preserves 100 immutable cases under concurrent revision load', async () => {
+  const previous = process.env.OPENAI_API_KEY;
+  delete process.env.OPENAI_API_KEY;
+  try {
+    const proposals = Array.from({ length: 100 }, (_, index) => ({
+      ...matchedProposal,
+      proposalId: `stress-proposal-${index}`,
+      workspaceId: 'org-stress',
+      orderId: `stress-order-${index}`,
+      orderMeid: String(600000000 + index),
+      contentHash: `verified-stress-hash-${index}`,
+      orderSnapshot: { ...matchedProposal.orderSnapshot, primaryReference: `STRESS-${index}` },
+    }));
+    const run = await coordinatePlanning({ workspaceId: 'org-stress', proposals, actor: 'stress-planner' });
+    assert.equal(run.cases.length, 100);
+    assert.equal(new Set(run.cases.map((item) => item.actionDraftId)).size, 100);
+    const drafts = await Promise.all(run.cases.map((item) => getPlanningCoordinatorDraft('org-stress', item.actionDraftId)));
+    assert.equal(drafts.filter(Boolean).length, 100);
+    const revisions = await Promise.all(drafts.map((draft, index) => revisePlanningCoordinatorDraft({ workspaceId: 'org-stress', draft, actor: `planner-${index}`, inputs: { palletQuantity: index + 1 } })));
+    assert.equal(new Set(revisions.map((item) => item.actionDraftId)).size, 100);
+    assert.ok(revisions.every((item) => item.revision === 2 && item.supersedesActionDraftId));
+    await assert.rejects(() => revisePlanningCoordinatorDraft({ workspaceId: 'org-stress', draft: drafts[0], actor: 'attacker', inputs: { workspaceId: 'org-other' } }), /unsupported planning input/);
+  } finally {
+    if (previous === undefined) delete process.env.OPENAI_API_KEY; else process.env.OPENAI_API_KEY = previous;
+  }
+});
